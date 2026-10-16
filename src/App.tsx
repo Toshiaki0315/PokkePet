@@ -81,6 +81,7 @@ export default function App() {
       data-dirt={view.expression.dirtiness}
       data-hunger={view.expression.hunger}
       data-intro={view.intro}
+      data-sleep={view.sleeping}
       style={{ "--body-color": settings.bodyColor, "--button-color": settings.buttonColor } as CSSProperties}
     >
       <div className="device">

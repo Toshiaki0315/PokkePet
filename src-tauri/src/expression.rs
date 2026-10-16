@@ -18,7 +18,7 @@ pub enum Level {
 }
 
 /// 吹き出しで伝える内容。`express` が返すのは Hungry > Dirty > Gloomy > Happy の優先度順で、
-/// Welcome（初回オープニング）は呼び出し側が最優先で差し込む。
+/// Welcome（初回オープニング）と Sleeping（おやすみ中）は呼び出し側が差し込む（Welcome > Sleeping > 他）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Bubble {
@@ -27,6 +27,7 @@ pub enum Bubble {
     Gloomy,
     Happy,
     Welcome,
+    Sleeping,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

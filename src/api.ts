@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 export type Branch = "poor" | "normal" | "good";
 export type Personality = "calm" | "playful" | "gluttonous" | "tidy";
 export type Level = "low" | "mid" | "high";
-export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome";
+export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping";
 export type PlayAction = "play" | "pet";
 export type ActionName = "feed" | "play" | "clean";
 
@@ -23,6 +23,8 @@ export interface StateView {
   intro: boolean;
   /** 孵化したが、演出をまだ見せていない */
   hatching: boolean;
+  /** おやすみ時間中（ローカル時刻） */
+  sleeping: boolean;
 }
 
 export interface Expression {

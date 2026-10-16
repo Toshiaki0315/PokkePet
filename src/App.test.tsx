@@ -31,6 +31,7 @@ const base: StateView = {
   playAction: "play",
   intro: false,
   hatching: false,
+  sleeping: false,
 };
 const withExpression = (e: Partial<StateView["expression"]>): StateView => ({ ...base, expression: { ...base.expression, ...e } });
 const gaugesOn: Settings = { ...DEFAULT_SETTINGS, showStage: true, showGauges: true };
@@ -551,6 +552,53 @@ describe("App", () => {
       await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
       unmount();
       await waitFor(() => expect(unlistenVisible).toHaveBeenCalled());
+    });
+  });
+
+  describe("sleeping", () => {
+    const asleep = (e: Partial<StateView["expression"]> = {}): StateView => ({
+      ...base,
+      sleeping: true,
+      expression: { ...base.expression, bubble: "sleeping", ...e },
+    });
+
+    it("shows a Zzz bubble while the pet sleeps", async () => {
+      api.getState.mockResolvedValue(asleep());
+      render(<App />);
+      expect(await screen.findByRole("status")).toHaveTextContent("Zzz…");
+    });
+
+    it("darkens the screen and lets the sprite sleep", async () => {
+      api.getState.mockResolvedValue(asleep());
+      render(<App />);
+      const sprite = await screen.findByRole("img");
+      expect(sprite).toHaveClass("sleeping");
+      expect(screen.getByRole("main")).toHaveAttribute("data-sleep", "true");
+    });
+
+    it("does not droop with hunger while asleep", async () => {
+      api.getState.mockResolvedValue(asleep({ hunger: "low" }));
+      render(<App />);
+      const sprite = await screen.findByRole("img");
+      expect(sprite).toHaveClass("sleeping");
+      expect(sprite).not.toHaveClass("hungry");
+    });
+
+    it("is awake by default", async () => {
+      render(<App />);
+      const sprite = await screen.findByRole("img");
+      expect(sprite).not.toHaveClass("sleeping");
+      expect(screen.getByRole("main")).toHaveAttribute("data-sleep", "false");
+    });
+
+    it("wakes up visually when a state-changed event says so", async () => {
+      api.getState.mockResolvedValue(asleep());
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onStateChanged).toHaveBeenCalled());
+      emit(base);
+      await waitFor(() => expect(screen.getByRole("main")).toHaveAttribute("data-sleep", "false"));
+      expect(screen.getByRole("img")).not.toHaveClass("sleeping");
     });
   });
 });

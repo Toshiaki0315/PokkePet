@@ -7,10 +7,16 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
+use crate::sleep::is_sleeping;
 use crate::status::Status;
 
 /// 何秒ごとに1ティック進めるか。
 pub const TICK_SECS: u32 = 120;
+/// 実際の経過がこれを超えたら「留守番（アプリ停止・スリープ）」として扱う。
+pub const AWAY_THRESHOLD_SECS: u64 = 300;
+/// 留守番中・おやすみ中は、状態の減りがこの割合（1/N）になる。両方なら掛け合わせる。
+pub const AWAY_DECAY_DIV: u32 = 4;
+pub const SLEEP_DECAY_DIV: u32 = 4;
 /// 1回の `step` で処理するティック数の上限（長時間離席時の無駄なループを避ける）。
 pub const MAX_CATCHUP_TICKS: u32 = 200;
 
@@ -37,10 +43,41 @@ pub struct GameState {
     /// 孵化の演出を見せたか。旧セーブは済み扱い。
     #[serde(default = "yes")]
     pub hatch_shown: bool,
+    /// これまでに進めたティック数。減りをゆっくりにする間引きに使う。
+    #[serde(default)]
+    pub tick_count: u32,
+}
+
+/// 時間を進めるときの文脈（おやすみ・留守番の判定に使う）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Timeline {
+    /// 進め始める時刻（UNIX秒）。
+    pub start_unix: u64,
+    /// ローカル時刻の UTC からの差（秒）。
+    pub utc_offset: i32,
+    /// 留守番（アプリ停止・スリープ明け）か。
+    pub away: bool,
 }
 
 fn yes() -> bool {
     true
+}
+
+/// k 番目のティックで状態を減らす間隔（1=毎回、4=4回に1回…）。おやすみ・留守番で間引く。
+fn decay_divisor(timeline: Option<Timeline>, tick_index: u32, carried_secs: u32) -> u32 {
+    let Some(t) = timeline else {
+        return 1;
+    };
+    let offset = (u64::from(tick_index) + 1) * u64::from(TICK_SECS) - u64::from(carried_secs.min(TICK_SECS));
+    let at = t.start_unix.saturating_add(offset);
+    let mut div = 1;
+    if t.away {
+        div *= AWAY_DECAY_DIV;
+    }
+    if is_sleeping(at, t.utc_offset) {
+        div *= SLEEP_DECAY_DIV;
+    }
+    div
 }
 
 impl GameState {
@@ -54,6 +91,7 @@ impl GameState {
             last_unix: now_unix,
             intro_seen: false,
             hatch_shown: false,
+            tick_count: 0,
         }
     }
 
@@ -89,11 +127,21 @@ impl GameState {
     }
 
     /// 経過秒を進め、ティックと進化を適用する。発生した進化の回数を返す。
+    /// 昼間・在宅として扱う（おやすみ・留守番の間引きなし）。
     pub fn step(&mut self, secs: u32) -> u8 {
-        let acc = self.tick_acc.saturating_add(secs);
+        self.step_in(secs, None)
+    }
+
+    /// `step` に、おやすみ・留守番の文脈を与えたもの。成長（進化）の時間は文脈に関係なく進む。
+    pub fn step_in(&mut self, secs: u32, timeline: Option<Timeline>) -> u8 {
+        let carried = self.tick_acc;
+        let acc = carried.saturating_add(secs);
         self.tick_acc = acc % TICK_SECS;
-        for _ in 0..(acc / TICK_SECS).min(MAX_CATCHUP_TICKS) {
-            self.status.tick();
+        for k in 0..(acc / TICK_SECS).min(MAX_CATCHUP_TICKS) {
+            self.tick_count = self.tick_count.wrapping_add(1);
+            if self.tick_count % decay_divisor(timeline, k, carried) == 0 {
+                self.status.tick();
+            }
         }
         self.evolve_for(secs)
     }
@@ -118,15 +166,23 @@ impl GameState {
         self.step_to_scaled(now_unix, 1)
     }
 
-    /// 経過時間を `scale` 倍して進める（動作確認用の時間短縮）。0 は 1 として扱う。
+    /// 経過時間を `scale` 倍して進める（動作確認用の時間短縮）。0 は 1 として扱う。UTC として扱う。
     pub fn step_to_scaled(&mut self, now_unix: u64, scale: u32) -> u8 {
-        let elapsed = now_unix.saturating_sub(self.last_unix);
+        self.step_to_in(now_unix, scale, 0)
+    }
+
+    /// 現在時刻まで進める。`utc_offset` はローカル時刻の UTC からの差（秒）。
+    /// 実際の経過が `AWAY_THRESHOLD_SECS` を超えていたら留守番として減りを緩める。
+    pub fn step_to_in(&mut self, now_unix: u64, scale: u32, utc_offset: i32) -> u8 {
+        let start_unix = self.last_unix;
+        let elapsed = now_unix.saturating_sub(start_unix);
         self.last_unix = now_unix;
         if elapsed == 0 {
             return 0;
         }
         let secs = elapsed.saturating_mul(u64::from(scale.max(1)));
-        self.step(u32::try_from(secs).unwrap_or(u32::MAX))
+        let away = elapsed > AWAY_THRESHOLD_SECS;
+        self.step_in(u32::try_from(secs).unwrap_or(u32::MAX), Some(Timeline { start_unix, utc_offset, away }))
     }
 
     pub fn to_json(&self) -> String {
@@ -292,6 +348,117 @@ mod tests {
         s.apply(Action::Play);
         assert_eq!(s.history.plays, 1);
         assert_eq!(s.status.hunger, hunger - 5);
+    }
+
+    // --- おやすみ・留守番 ---------------------------------------------------
+
+    const H: u64 = 3600;
+    const FOUR_HOURS: u32 = 4 * 3600; // 120 ティック
+
+    fn timeline(start_hour: u64, away: bool) -> Option<Timeline> {
+        Some(Timeline { start_unix: start_hour * H, utc_offset: 0, away })
+    }
+
+    fn hunger_drop(timeline: Option<Timeline>, secs: u32) -> u8 {
+        let mut s = new_state();
+        s.status.hunger = 100;
+        s.step_in(secs, timeline);
+        100 - s.status.hunger
+    }
+
+    #[test]
+    fn daytime_decay_is_unchanged() {
+        assert_eq!(hunger_drop(timeline(12, false), FOUR_HOURS), 100); // 120 ティックで底まで減る
+    }
+
+    #[test]
+    fn sleeping_slows_the_decay_to_a_quarter() {
+        // 0時〜4時はずっとおやすみ: 120 ティックのうち 30 回だけ減る。
+        assert_eq!(hunger_drop(timeline(0, false), FOUR_HOURS), 30);
+    }
+
+    #[test]
+    fn being_away_slows_the_decay_to_a_quarter() {
+        assert_eq!(hunger_drop(timeline(12, true), FOUR_HOURS), 30);
+    }
+
+    #[test]
+    fn sleeping_while_away_multiplies_the_slowdown() {
+        // 120 ティックのうち 16 の倍数は 7 回。
+        assert_eq!(hunger_drop(timeline(0, true), FOUR_HOURS), 7);
+    }
+
+    #[test]
+    fn decay_slows_down_only_once_the_pet_goes_to_sleep() {
+        // 22時から2時間: 23:00 ちょうどの 30 回目からおやすみ。通常は 1〜29 回目の 29 回、
+        // おやすみ中は 30〜60 回目のうち 4 の倍数 (32,36,…,60) の 8 回。
+        assert_eq!(hunger_drop(timeline(22, false), 2 * 3600), 29 + 8);
+    }
+
+    #[test]
+    fn growth_is_not_slowed_by_sleep_or_absence() {
+        for tl in [timeline(0, false), timeline(12, true), timeline(0, true)] {
+            let mut s = new_state();
+            assert_eq!(s.step_in(EGG_SECS, tl), 1);
+            assert_eq!(s.form.stage, 2);
+        }
+    }
+
+    #[test]
+    fn the_tick_counter_survives_across_calls() {
+        // 1 ティックずつ 120 回進めても、まとめて進めたときと同じ回数だけ減る。
+        let mut one_by_one = new_state();
+        one_by_one.status.hunger = 100;
+        for _ in 0..120 {
+            one_by_one.step_in(TICK_SECS, timeline(0, false));
+        }
+        assert_eq!(100 - one_by_one.status.hunger, 30);
+        assert_eq!(one_by_one.tick_count, 120);
+    }
+
+    #[test]
+    fn step_to_in_treats_a_long_real_gap_as_being_away() {
+        let mut s = GameState::new(12 * H); // 昼12時
+        s.status.hunger = 100;
+        s.step_to_in(12 * H + 4 * H, 1, 0); // 4時間の空白 → 留守番(減り1/4)
+        assert_eq!(100 - s.status.hunger, 30);
+    }
+
+    #[test]
+    fn step_to_in_does_not_treat_the_regular_loop_interval_as_away() {
+        let mut s = GameState::new(12 * H);
+        s.status.hunger = 100;
+        for i in 1..=120u64 {
+            s.step_to_in(12 * H + i * u64::from(TICK_SECS), 1, 0); // 2分おき（常駐中）
+        }
+        assert_eq!(100 - s.status.hunger, 100);
+    }
+
+    #[test]
+    fn step_to_in_judges_being_away_by_real_time_not_scaled_time() {
+        let mut s = GameState::new(12 * H);
+        s.status.hunger = 100;
+        s.step_to_in(12 * H + 10, 240, 0); // 実際は10秒。時間短縮で 40 分進むが留守番ではない
+        assert_eq!(100 - s.status.hunger, 20); // 2400 秒 = 20 ティック
+    }
+
+    #[test]
+    fn step_to_in_uses_the_local_time_zone_for_sleep() {
+        // UTC 14:00 は JST 23:00 でおやすみ開始。4時間ぶん（120ティック）は 30 回だけ減る。
+        let jst = 9 * 3600;
+        let mut s = GameState::new(14 * H);
+        s.status.hunger = 100;
+        for i in 1..=120u64 {
+            s.step_to_in(14 * H + i * u64::from(TICK_SECS), 1, jst);
+        }
+        assert_eq!(100 - s.status.hunger, 30);
+    }
+
+    #[test]
+    fn saves_without_a_tick_counter_still_load() {
+        let mut json = serde_json::to_value(new_state()).unwrap();
+        json.as_object_mut().unwrap().remove("tick_count");
+        assert_eq!(GameState::from_json(&json.to_string()).unwrap().tick_count, 0);
     }
 
     #[test]

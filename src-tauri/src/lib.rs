@@ -3,6 +3,7 @@ pub mod expression;
 pub mod game;
 pub mod service;
 pub mod settings;
+pub mod sleep;
 pub mod status;
 
 mod shell;

@@ -120,3 +120,12 @@ body { overflow: hidden; user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   .sprite.appear, .sprite.wobble, .sprite.hop, .sprite.shake, .sprite.pop { animation: none; }
 }
+
+/* --- おやすみ: 画面が暗くなり、キャラはゆっくり上下する --- */
+.container[data-sleep="true"] .screen { background: linear-gradient(#1d2447, #2b3566); }
+.container[data-sleep="true"] .screen::before { opacity: 0.25; }
+.container[data-sleep="true"] .bubble { background: #dfe6ff; color: #223; }
+.container[data-sleep="true"] .bubble::after { background: #dfe6ff; }
+.sprite.sleeping { animation: sleeping 3.2s ease-in-out infinite; filter: brightness(0.75) saturate(0.8); }
+@keyframes sleeping { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(2px) scale(1.02, 0.98); } }
+@media (prefers-reduced-motion: reduce) { .sprite.sleeping { animation: none; } }

@@ -10,6 +10,7 @@ use serde::Serialize;
 use crate::evolution::{Branch, Personality};
 use crate::expression::{express, Bubble, Expression};
 use crate::game::{Action, GameState};
+use crate::sleep::{is_sleeping, local_utc_offset};
 
 impl FromStr for Action {
     type Err = String;
@@ -49,6 +50,8 @@ pub struct StateView {
     pub intro: bool,
     /// 孵化したが、演出をまだ見せていない。
     pub hatching: bool,
+    /// おやすみ時間中（ローカル時刻）。
+    pub sleeping: bool,
 }
 
 /// `tick` の結果。
@@ -70,11 +73,13 @@ pub struct GameService {
     state: Mutex<GameState>,
     path: PathBuf,
     time_scale: u32,
+    /// None ならこのマシンのローカルタイムゾーンを使う（テストでは固定値を指定する）。
+    utc_offset: Option<i32>,
 }
 
 impl GameService {
     pub fn new(state: GameState, path: PathBuf) -> Self {
-        Self { state: Mutex::new(state), path, time_scale: 1 }
+        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None }
     }
 
     /// 経過時間の倍率（動作確認用）。
@@ -83,17 +88,31 @@ impl GameService {
         self
     }
 
+    /// ローカル時刻の UTC オフセットを固定する（テスト用）。
+    pub fn with_utc_offset(mut self, secs: i32) -> Self {
+        self.utc_offset = Some(secs);
+        self
+    }
+
+    fn offset_at(&self, unix_secs: u64) -> i32 {
+        self.utc_offset.unwrap_or_else(|| local_utc_offset(unix_secs))
+    }
+
+    fn view(&self, state: &GameState) -> StateView {
+        view_of(state, self.offset_at(state.last_unix))
+    }
+
     pub fn snapshot(&self) -> StateView {
-        view_of(&self.lock())
+        self.view(&self.lock())
     }
 
     /// 現在時刻まで進めたうえでアクションを適用し、保存する。
     pub fn perform(&self, action: Action, now_unix: u64) -> io::Result<StateView> {
         let mut state = self.lock();
-        state.step_to_scaled(now_unix, self.time_scale);
+        state.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix));
         state.apply(action);
         state.save(&self.path)?;
-        Ok(view_of(&state))
+        Ok(self.view(&state))
     }
 
     /// 孵化の演出を見せたことを記録して保存する。
@@ -101,16 +120,16 @@ impl GameService {
         let mut state = self.lock();
         state.ack_hatch();
         state.save(&self.path)?;
-        Ok(view_of(&state))
+        Ok(self.view(&state))
     }
 
     /// 時間を進めて保存する。表示用スナップショットと進化回数を返す。
     pub fn tick(&self, now_unix: u64) -> io::Result<Tick> {
         let mut state = self.lock();
         let was_egg = state.form.stage <= 1;
-        let evolutions = state.step_to_scaled(now_unix, self.time_scale);
+        let evolutions = state.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix));
         state.save(&self.path)?;
-        Ok(Tick { view: view_of(&state), evolutions, hatched: was_egg && evolutions > 0 })
+        Ok(Tick { view: self.view(&state), evolutions, hatched: was_egg && evolutions > 0 })
     }
 
     /// パニックしたスレッドがロックを汚染しても状態自体は有効なので続行する。
@@ -119,8 +138,12 @@ impl GameService {
     }
 }
 
-fn view_of(s: &GameState) -> StateView {
+fn view_of(s: &GameState, utc_offset: i32) -> StateView {
+    let sleeping = is_sleeping(s.last_unix, utc_offset);
     let mut expression = express(&s.status);
+    if sleeping {
+        expression.bubble = Some(Bubble::Sleeping);
+    }
     if !s.intro_seen {
         expression.bubble = Some(Bubble::Welcome);
     }
@@ -135,6 +158,7 @@ fn view_of(s: &GameState) -> StateView {
         expression,
         intro: !s.intro_seen,
         hatching: s.hatching(),
+        sleeping,
         play_action: if s.form.stage <= 1 { PlayAction::Pet } else { PlayAction::Play },
     }
 }
@@ -143,7 +167,7 @@ fn view_of(s: &GameState) -> StateView {
 mod tests {
     use super::*;
     use crate::evolution::{EGG_SECS, STAGE_SECS};
-    use crate::expression::Level;
+    use crate::expression::{Bubble, Level};
     use crate::game::TICK_SECS;
     use std::fs;
     use std::sync::Arc;
@@ -155,8 +179,11 @@ mod tests {
         dir.join("save.json")
     }
 
+    /// UTC+12 に固定: UNIX 秒 0 が昼の 12:00 になり、テスト中はおやすみ時間にならない。
+    const NOON_AT_ZERO: i32 = 12 * 3600;
+
     fn svc(name: &str) -> GameService {
-        GameService::new(GameState::new(0), tmp(name))
+        GameService::new(GameState::new(0), tmp(name)).with_utc_offset(NOON_AT_ZERO)
     }
 
     #[test]
@@ -193,6 +220,7 @@ mod tests {
                 play_action: PlayAction::Pet,
                 intro: true,
                 hatching: false,
+                sleeping: false,
             }
         );
     }
@@ -201,8 +229,11 @@ mod tests {
     fn view_reflects_expression_after_actions() {
         let s = svc("expr");
         s.perform(Action::Clean, 0).unwrap(); // 初回オープニングを終える
-        // 時間経過で汚れが溜まり、空腹になると吹き出しが変わる。
-        let Tick { view: v, .. } = s.tick(u64::from(TICK_SECS) * 90).unwrap();
+        // 常駐中（2分おき）に 90 ティック進むと、空腹になって吹き出しが変わる。
+        let mut v = s.snapshot();
+        for i in 1..=90u64 {
+            v = s.tick(i * u64::from(TICK_SECS)).unwrap().view;
+        }
         assert_eq!(v.expression.hunger, Level::Low);
         assert_eq!(v.expression.bubble, Some(Bubble::Hungry));
     }
@@ -249,6 +280,45 @@ mod tests {
         assert_eq!(json["intro"], true);
         assert_eq!(json["hatching"], false);
         assert_eq!(json["expression"]["bubble"], "welcome");
+    }
+
+    #[test]
+    fn the_view_says_sleeping_during_the_local_night() {
+        let night = GameService::new(GameState::new(0), tmp("night")).with_utc_offset(0); // 0:00
+        assert!(night.snapshot().sleeping);
+        assert!(!svc("day").snapshot().sleeping);
+    }
+
+    #[test]
+    fn a_sleeping_pet_shows_the_sleeping_bubble_instead_of_its_needs() {
+        let mut state = GameState::new(0);
+        state.intro_seen = true;
+        state.status.hunger = 10; // おなかがすいている
+        let night = GameService::new(state, tmp("night-bubble")).with_utc_offset(0); // 0:00
+        let v = night.snapshot();
+        assert_eq!(v.expression.hunger, Level::Low);
+        assert_eq!(v.expression.bubble, Some(Bubble::Sleeping));
+    }
+
+    #[test]
+    fn an_awake_hungry_pet_still_asks_for_food() {
+        let mut state = GameState::new(0);
+        state.intro_seen = true;
+        state.status.hunger = 10;
+        let day = GameService::new(state, tmp("day-bubble")).with_utc_offset(NOON_AT_ZERO);
+        assert_eq!(day.snapshot().expression.bubble, Some(Bubble::Hungry));
+    }
+
+    #[test]
+    fn the_welcome_bubble_still_wins_over_sleeping() {
+        let night = GameService::new(GameState::new(0), tmp("night-welcome")).with_utc_offset(0);
+        assert_eq!(night.snapshot().expression.bubble, Some(Bubble::Welcome));
+    }
+
+    #[test]
+    fn view_json_exposes_sleeping() {
+        let json = serde_json::to_value(svc("sleep-json").snapshot()).unwrap();
+        assert_eq!(json["sleeping"], false);
     }
 
     #[test]

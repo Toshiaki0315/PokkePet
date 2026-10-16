@@ -13,7 +13,8 @@ interface SpriteProps {
 export function Sprite({ view, extraClass, onAnimationEnd }: SpriteProps) {
   const [broken, setBroken] = useState(false);
   const label = `stage ${view.stage} ${view.branch} ${view.personality}`;
-  const classes = ["sprite", view.expression.hunger === "low" ? "hungry" : "", extraClass ?? ""].filter(Boolean).join(" ");
+  const mood = view.sleeping ? "sleeping" : view.expression.hunger === "low" ? "hungry" : "";
+  const classes = ["sprite", mood, extraClass ?? ""].filter(Boolean).join(" ");
   if (broken) {
     return (
       <div className={`${classes} placeholder`} role="img" aria-label={label} onAnimationEnd={onAnimationEnd}>
