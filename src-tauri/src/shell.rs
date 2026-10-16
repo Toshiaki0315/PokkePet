@@ -4,11 +4,12 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::menu::{Menu, MenuItem};
+use tauri_plugin_notification::NotificationExt;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 use crate::game::GameState;
-use crate::service::{GameService, StateView};
+use crate::service::{should_notify_hatch, GameService, StateView};
 use crate::settings::{Settings, SettingsService};
 
 const LOOP_INTERVAL: Duration = Duration::from_secs(10);
@@ -167,13 +168,28 @@ fn toggle_popup(window: &WebviewWindow, anchor: PhysicalPosition<i32>, icon_heig
     let _ = window.emit(POPUP_EVENT, true);
 }
 
+fn popup_is_open(app: &AppHandle) -> bool {
+    app.get_webview_window("main").and_then(|w| w.is_visible().ok()).unwrap_or(false)
+}
+
+/// 孵化をmacOSの通知で知らせる（ポップアップを開いていないとき）。
+fn notify_hatch(app: &AppHandle) {
+    let shown = app.notification().builder().title("PokkePet").body("卵が孵ったよ！会いにきてね").show();
+    if let Err(e) = shown {
+        eprintln!("failed to show notification: {e}");
+    }
+}
+
 fn spawn_loop(handle: AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(LOOP_INTERVAL);
         let svc = handle.state::<GameService>();
         match svc.tick(now_unix()) {
-            Ok((view, _evolutions)) => {
-                let _ = handle.emit(STATE_EVENT, view);
+            Ok(tick) => {
+                let _ = handle.emit(STATE_EVENT, tick.view);
+                if should_notify_hatch(tick.hatched, popup_is_open(&handle)) {
+                    notify_hatch(&handle);
+                }
             }
             Err(e) => eprintln!("tick failed: {e}"),
         }

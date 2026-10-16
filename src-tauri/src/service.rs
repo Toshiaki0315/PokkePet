@@ -51,6 +51,21 @@ pub struct StateView {
     pub hatching: bool,
 }
 
+/// `tick` の結果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Tick {
+    pub view: StateView,
+    /// 今回の時間経過で起きた進化の回数。
+    pub evolutions: u8,
+    /// 卵が孵った（段階 1 → 2 になった）。
+    pub hatched: bool,
+}
+
+/// 孵化の通知を出すか。ポップアップが開いていれば演出で伝わるので出さない。
+pub fn should_notify_hatch(hatched: bool, popup_open: bool) -> bool {
+    hatched && !popup_open
+}
+
 pub struct GameService {
     state: Mutex<GameState>,
     path: PathBuf,
@@ -90,11 +105,12 @@ impl GameService {
     }
 
     /// 時間を進めて保存する。表示用スナップショットと進化回数を返す。
-    pub fn tick(&self, now_unix: u64) -> io::Result<(StateView, u8)> {
+    pub fn tick(&self, now_unix: u64) -> io::Result<Tick> {
         let mut state = self.lock();
+        let was_egg = state.form.stage <= 1;
         let evolutions = state.step_to_scaled(now_unix, self.time_scale);
         state.save(&self.path)?;
-        Ok((view_of(&state), evolutions))
+        Ok(Tick { view: view_of(&state), evolutions, hatched: was_egg && evolutions > 0 })
     }
 
     /// パニックしたスレッドがロックを汚染しても状態自体は有効なので続行する。
@@ -126,7 +142,7 @@ fn view_of(s: &GameState) -> StateView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evolution::STAGE_SECS;
+    use crate::evolution::{EGG_SECS, STAGE_SECS};
     use crate::expression::Level;
     use crate::game::TICK_SECS;
     use std::fs;
@@ -186,7 +202,7 @@ mod tests {
         let s = svc("expr");
         s.perform(Action::Clean, 0).unwrap(); // 初回オープニングを終える
         // 時間経過で汚れが溜まり、空腹になると吹き出しが変わる。
-        let (v, _) = s.tick(u64::from(TICK_SECS) * 90).unwrap();
+        let Tick { view: v, .. } = s.tick(u64::from(TICK_SECS) * 90).unwrap();
         assert_eq!(v.expression.hunger, Level::Low);
         assert_eq!(v.expression.bubble, Some(Bubble::Hungry));
     }
@@ -204,7 +220,7 @@ mod tests {
     #[test]
     fn time_passing_keeps_the_welcome_bubble() {
         let s = svc("welcome-tick");
-        let (v, _) = s.tick(u64::from(TICK_SECS)).unwrap();
+        let Tick { view: v, .. } = s.tick(u64::from(TICK_SECS)).unwrap();
         assert!(v.intro);
         assert_eq!(v.expression.bubble, Some(Bubble::Welcome));
     }
@@ -213,7 +229,7 @@ mod tests {
     fn hatching_is_reported_until_acknowledged_and_persisted() {
         let p = tmp("hatch");
         let s = GameService::new(GameState::new(0), p.clone());
-        let (v, evo) = s.tick(u64::from(STAGE_SECS)).unwrap();
+        let Tick { view: v, evolutions: evo, .. } = s.tick(u64::from(STAGE_SECS)).unwrap();
         assert_eq!((evo, v.hatching), (1, true));
         let v = s.ack_hatch().unwrap();
         assert!(!v.hatching);
@@ -239,7 +255,7 @@ mod tests {
     fn play_action_is_pet_only_while_an_egg() {
         let s = svc("play-action");
         assert_eq!(s.snapshot().play_action, PlayAction::Pet);
-        let (v, _) = s.tick(u64::from(STAGE_SECS)).unwrap();
+        let Tick { view: v, .. } = s.tick(u64::from(STAGE_SECS)).unwrap();
         assert_eq!(v.play_action, PlayAction::Play);
     }
 
@@ -296,23 +312,54 @@ mod tests {
     #[test]
     fn tick_advances_time_and_reports_evolutions() {
         let s = svc("tick");
-        let (v, evo) = s.tick(u64::from(STAGE_SECS)).unwrap();
+        let Tick { view: v, evolutions: evo, .. } = s.tick(u64::from(STAGE_SECS)).unwrap();
         assert_eq!((v.stage, evo), (2, 1));
     }
 
     #[test]
     fn time_scale_speeds_up_tick_and_perform() {
         let s = svc("scale").with_time_scale(60);
-        let (v, evo) = s.tick(60).unwrap();
+        let Tick { view: v, evolutions: evo, .. } = s.tick(60).unwrap();
         assert_eq!((v.stage, evo), (2, 1));
         let s = svc("scale2").with_time_scale(60);
         assert_eq!(s.perform(Action::Clean, 60).unwrap().stage, 2);
     }
 
     #[test]
+    fn tick_reports_the_hatch_only_for_the_first_evolution() {
+        let s = svc("hatched-flag");
+        let t = s.tick(u64::from(EGG_SECS)).unwrap();
+        assert_eq!((t.evolutions, t.hatched), (1, true));
+        let t = s.tick(u64::from(EGG_SECS) + u64::from(STAGE_SECS)).unwrap();
+        assert_eq!((t.evolutions, t.hatched), (1, false));
+    }
+
+    #[test]
+    fn tick_reports_the_hatch_after_a_long_absence_too() {
+        let s = svc("hatched-long");
+        let t = s.tick(u64::from(EGG_SECS) + u64::from(STAGE_SECS) * 3).unwrap();
+        assert_eq!(t.evolutions, 4);
+        assert!(t.hatched);
+    }
+
+    #[test]
+    fn tick_does_not_report_a_hatch_while_the_egg_is_still_an_egg() {
+        let t = svc("no-hatch").tick(u64::from(EGG_SECS) - 1).unwrap();
+        assert!(!t.hatched);
+    }
+
+    #[test]
+    fn hatch_notification_is_only_for_a_closed_popup() {
+        assert!(should_notify_hatch(true, false));
+        assert!(!should_notify_hatch(true, true)); // 開いていれば演出で伝わる
+        assert!(!should_notify_hatch(false, false));
+        assert!(!should_notify_hatch(false, true));
+    }
+
+    #[test]
     fn tick_without_progress_reports_no_evolution() {
         let s = svc("tick0");
-        let (v, evo) = s.tick(0).unwrap();
+        let Tick { view: v, evolutions: evo, .. } = s.tick(0).unwrap();
         assert_eq!((v.stage, evo), (1, 0));
     }
 

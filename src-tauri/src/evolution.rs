@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use crate::status::Status;
 
 pub const MAX_STAGE: u8 = 10;
-/// 1段階あたりの成長に必要な秒数。
+/// 卵（段階 1）が孵るまでの秒数。初回に孵化を見られるよう短くしてある。
+pub const EGG_SECS: u32 = 600;
+/// 孵化後、1段階あたりの成長に必要な秒数。
 pub const STAGE_SECS: u32 = 3600;
 const GOOD_MIN_AVG: u16 = 70;
 const POOR_MAX_AVG: u16 = 40;
@@ -48,6 +50,14 @@ pub struct Growth {
     pub elapsed_secs: u32,
 }
 
+/// その段階から次の段階へ進むのに必要な秒数。
+pub fn stage_secs(stage: u8) -> u32 {
+    if stage <= 1 {
+        return EGG_SECS;
+    }
+    STAGE_SECS
+}
+
 impl Growth {
     pub fn egg() -> Self {
         Self { stage: 1, elapsed_secs: 0 }
@@ -59,10 +69,11 @@ impl Growth {
             return false;
         }
         self.elapsed_secs = self.elapsed_secs.saturating_add(secs);
-        if self.elapsed_secs < STAGE_SECS {
+        let needed = stage_secs(self.stage);
+        if self.elapsed_secs < needed {
             return false;
         }
-        self.elapsed_secs -= STAGE_SECS;
+        self.elapsed_secs -= needed;
         self.stage += 1;
         true
     }
@@ -118,38 +129,54 @@ mod tests {
     }
 
     #[test]
+    fn the_egg_hatches_much_sooner_than_later_stages_evolve() {
+        assert_eq!(stage_secs(1), EGG_SECS);
+        assert_eq!(stage_secs(2), STAGE_SECS);
+        assert_eq!(stage_secs(MAX_STAGE - 1), STAGE_SECS);
+        assert!(EGG_SECS < STAGE_SECS);
+    }
+
+    #[test]
     fn advance_below_threshold_keeps_stage() {
         let mut g = Growth::egg();
-        assert!(!g.advance(STAGE_SECS - 1));
-        assert_eq!(g, Growth { stage: 1, elapsed_secs: STAGE_SECS - 1 });
+        assert!(!g.advance(EGG_SECS - 1));
+        assert_eq!(g, Growth { stage: 1, elapsed_secs: EGG_SECS - 1 });
     }
 
     #[test]
     fn advance_at_threshold_moves_to_next_stage_and_resets_timer() {
         let mut g = Growth::egg();
-        assert!(g.advance(STAGE_SECS));
+        assert!(g.advance(EGG_SECS));
         assert_eq!(g, Growth { stage: 2, elapsed_secs: 0 });
     }
 
     #[test]
     fn advance_carries_over_remainder() {
         let mut g = Growth::egg();
-        assert!(g.advance(STAGE_SECS + 5));
+        assert!(g.advance(EGG_SECS + 5));
         assert_eq!(g, Growth { stage: 2, elapsed_secs: 5 });
     }
 
     #[test]
     fn advance_accumulates_across_calls() {
         let mut g = Growth::egg();
-        assert!(!g.advance(STAGE_SECS / 2));
-        assert!(g.advance(STAGE_SECS / 2));
+        assert!(!g.advance(EGG_SECS / 2));
+        assert!(g.advance(EGG_SECS / 2));
         assert_eq!(g.stage, 2);
+    }
+
+    #[test]
+    fn stages_after_the_egg_still_take_an_hour() {
+        let mut g = Growth { stage: 2, elapsed_secs: 0 };
+        assert!(!g.advance(STAGE_SECS - 1));
+        assert!(g.advance(1));
+        assert_eq!(g, Growth { stage: 3, elapsed_secs: 0 });
     }
 
     #[test]
     fn advance_moves_one_stage_per_call_even_after_long_sleep() {
         let mut g = Growth::egg();
-        assert!(g.advance(STAGE_SECS * 3));
+        assert!(g.advance(EGG_SECS + STAGE_SECS * 2));
         assert_eq!(g, Growth { stage: 2, elapsed_secs: STAGE_SECS * 2 });
     }
 

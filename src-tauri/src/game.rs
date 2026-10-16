@@ -157,7 +157,7 @@ impl GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evolution::STAGE_SECS;
+    use crate::evolution::{EGG_SECS, STAGE_SECS};
     use std::path::PathBuf;
 
     fn new_state() -> GameState {
@@ -201,6 +201,17 @@ mod tests {
     }
 
     #[test]
+    fn the_egg_hatches_after_ten_minutes_and_the_next_stage_takes_an_hour() {
+        let mut s = new_state();
+        assert_eq!(s.step(EGG_SECS - 1), 0);
+        assert_eq!(s.step(1), 1);
+        assert_eq!(s.form.stage, 2);
+        assert_eq!(s.step(STAGE_SECS - 1), 0);
+        assert_eq!(s.step(1), 1);
+        assert_eq!(s.form.stage, 3);
+    }
+
+    #[test]
     fn hatching_ends_the_intro_too() {
         let mut s = new_state();
         s.step(STAGE_SECS);
@@ -210,7 +221,7 @@ mod tests {
     #[test]
     fn time_passing_alone_does_not_end_the_intro() {
         let mut s = new_state();
-        s.step(STAGE_SECS / 2);
+        s.step(EGG_SECS / 2);
         assert!(!s.intro_seen);
     }
 
