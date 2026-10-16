@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings, StateView } from "./api";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { HATCH_FLASH_MS, HATCH_SHAKE_MS } from "./hatch";
+import { IDLE_MIN_MS } from "./idle";
 
 const api = vi.hoisted(() => ({
   getState: vi.fn(),
@@ -697,6 +698,86 @@ describe("App", () => {
       api.getState.mockResolvedValue({ ...base, expression: { ...base.expression, bubble: "happy" } });
       render(<App />);
       expect((await screen.findByRole("status")).textContent).toBe("たのしい！");
+    });
+  });
+
+  describe("idle gestures", () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      vi.spyOn(Math, "random").mockReturnValue(0);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.restoreAllMocks();
+    });
+
+    const openPopup = async () => {
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      act(() => emitVisible(true));
+    };
+    const wait = async (ms: number) => {
+      await act(async () => {
+        vi.advanceTimersByTime(ms);
+      });
+    };
+
+    it("lets an awake pet move now and then while the popup is open", async () => {
+      render(<App />);
+      await openPopup();
+      expect(screen.getByRole("img")).not.toHaveClass("bounce");
+      await wait(IDLE_MIN_MS + 10);
+      expect(screen.getByRole("img")).toHaveClass("bounce");
+    });
+
+    it("lets an egg only rock gently", async () => {
+      api.getState.mockResolvedValue({ ...base, stage: 1, playAction: "pet" });
+      render(<App />);
+      await openPopup();
+      await wait(IDLE_MIN_MS + 10);
+      expect(screen.getByRole("img")).toHaveClass("rock");
+    });
+
+    it("does not move while the popup is closed", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      await wait(IDLE_MIN_MS * 3);
+      expect(screen.getByRole("img")).not.toHaveClass("bounce");
+    });
+
+    it("does not move while asleep", async () => {
+      api.getState.mockResolvedValue({ ...base, sleeping: true, expression: { ...base.expression, bubble: "sleeping" } });
+      render(<App />);
+      await openPopup();
+      await wait(IDLE_MIN_MS * 3);
+      expect(screen.getByRole("img")).not.toHaveClass("bounce");
+    });
+
+    it("does not move while hungry (it droops instead)", async () => {
+      api.getState.mockResolvedValue({ ...base, expression: { ...base.expression, hunger: "low", bubble: "hungry" } });
+      render(<App />);
+      await openPopup();
+      await wait(IDLE_MIN_MS * 3);
+      expect(screen.getByRole("img")).not.toHaveClass("bounce");
+      expect(screen.getByRole("img")).toHaveClass("hungry");
+    });
+
+    it("does not move during the opening", async () => {
+      api.getState.mockResolvedValue({ ...base, stage: 1, playAction: "pet", intro: true, expression: { ...base.expression, bubble: "welcome" } });
+      render(<App />);
+      await openPopup();
+      await wait(IDLE_MIN_MS * 3);
+      expect(screen.getByRole("img")).not.toHaveClass("rock");
+    });
+
+    it("lets a reaction to a button take priority over a gesture", async () => {
+      render(<App />);
+      await openPopup();
+      await wait(IDLE_MIN_MS + 10);
+      expect(screen.getByRole("img")).toHaveClass("bounce");
+      await userEvent.click(screen.getByRole("button", { name: "ご飯" }));
+      await waitFor(() => expect(screen.getByRole("img")).toHaveClass("hop"));
+      expect(screen.getByRole("img")).not.toHaveClass("bounce");
     });
   });
 });

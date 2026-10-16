@@ -138,3 +138,18 @@ body { overflow: hidden; user-select: none; }
 .name-actions { display: flex; gap: 8px; }
 .name-actions button { padding: 5px 14px; border-radius: 8px; border: 1px solid #0003; background: #fff; color: inherit; cursor: pointer; font-size: 12px; }
 .name-actions button:disabled { opacity: 0.45; cursor: default; }
+
+/* --- 待機中のしぐさ --- */
+.sprite.rock { animation: rock 1.4s ease-in-out; transform-origin: 50% 90%; }
+@keyframes rock { 0%, 100% { transform: rotate(0); } 30% { transform: rotate(-4deg); } 70% { transform: rotate(4deg); } }
+.sprite.bounce { animation: bounce 1.4s ease-out; }
+@keyframes bounce { 0%, 100% { transform: translateY(0); } 15% { transform: translateY(-12px); } 30% { transform: translateY(0); } 45% { transform: translateY(-8px); } 60% { transform: translateY(0); } }
+.sprite.walk { animation: walk 1.4s ease-in-out; }
+@keyframes walk { 0% { transform: translateX(0) scaleX(1); } 25% { transform: translateX(-34px) scaleX(1); } 50% { transform: translateX(-34px) scaleX(-1); } 75% { transform: translateX(34px) scaleX(-1); } 100% { transform: translateX(0) scaleX(1); } }
+.sprite.look { animation: look 1.4s steps(1, end); }
+@keyframes look { 0%, 100% { transform: scaleX(1); } 25% { transform: scaleX(-1); } 50% { transform: scaleX(1); } 75% { transform: scaleX(-1); } }
+.sprite.stretch { animation: stretch 1.4s ease-in-out; transform-origin: 50% 100%; }
+@keyframes stretch { 0%, 100% { transform: scale(1, 1); } 40% { transform: scale(0.94, 1.1); } 70% { transform: scale(1.06, 0.94); } }
+@media (prefers-reduced-motion: reduce) {
+  .sprite.rock, .sprite.bounce, .sprite.walk, .sprite.look, .sprite.stretch { animation: none; }
+}

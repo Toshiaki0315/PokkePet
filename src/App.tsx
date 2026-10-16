@@ -8,6 +8,7 @@ import { bubbleText } from "./bubble";
 import { NamePrompt } from "./NamePrompt";
 import { useHiddenCommand } from "./hiddenCommand";
 import { HatchSequence } from "./hatch";
+import { useIdleGesture } from "./idle";
 import { useListener } from "./useListener";
 import "./App.css";
 
@@ -27,6 +28,10 @@ const actions = (view: StateView): ReadonlyArray<{ name: ActionName; label: stri
   view.playAction === "pet" ? { name: "play", label: "撫でる", icon: "🤚" } : { name: "play", label: "遊ぶ", icon: "🎾" },
   { name: "clean", label: "掃除", icon: "🧹" },
 ];
+
+// 待機中のしぐさ。卵はゆっくり揺れるだけ。
+const EGG_GESTURES = ["rock"] as const;
+const GESTURES = ["bounce", "walk", "look", "stretch"] as const;
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -53,6 +58,11 @@ export default function App() {
     const next = !(settings.showStage || settings.showGauges);
     saveSettings({ ...settings, showStage: next, showGauges: next }).then(setSettings, (e) => setError(errorText(e)));
   });
+
+  const idle = useIdleGesture(
+    view?.stage === 1 ? EGG_GESTURES : GESTURES,
+    popupOpen && view !== null && !view.sleeping && !view.intro && !view.hatching && view.expression.hunger !== "low" && reaction === null,
+  );
 
   const act = (action: ActionName, petting: boolean) =>
     performAction(action).then(
@@ -113,7 +123,7 @@ export default function App() {
               <Sprite
                 key={reaction?.id}
                 view={view}
-                extraClass={reaction?.name ?? (view.intro ? "appear" : undefined)}
+                extraClass={reaction?.name ?? (view.intro ? "appear" : (idle ?? undefined))}
                 onAnimationEnd={() => setReaction(null)}
               />
             )}
