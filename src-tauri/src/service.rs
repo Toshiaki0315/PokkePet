@@ -8,7 +8,7 @@ use std::sync::{Mutex, MutexGuard};
 use serde::Serialize;
 
 use crate::evolution::{Branch, Personality};
-use crate::expression::{express, Bubble, Expression, Level};
+use crate::expression::{express, Expression};
 use crate::game::{Action, GameState};
 
 impl FromStr for Action {
@@ -99,6 +99,7 @@ fn view_of(s: &GameState) -> StateView {
 mod tests {
     use super::*;
     use crate::evolution::STAGE_SECS;
+    use crate::expression::{Bubble, Level};
     use crate::game::TICK_SECS;
     use std::fs;
     use std::sync::Arc;
