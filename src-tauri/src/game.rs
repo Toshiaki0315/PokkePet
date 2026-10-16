@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
 use crate::dex::form_key;
+use crate::diary::{self, DiaryEntry, DiaryEvent};
 use crate::sleep::{is_sleeping, SleepWindow};
 use crate::status::Status;
 
@@ -55,6 +56,12 @@ pub struct GameState {
     /// 図鑑: これまでに出会った姿（`dex::form_key`）。
     #[serde(default)]
     pub discovered: BTreeSet<String>,
+    /// 思い出（日記）。古いものから順。
+    #[serde(default)]
+    pub diary: Vec<DiaryEntry>,
+    /// 卵が届いた時刻（UNIX秒）。いっしょの日数の起点。古いセーブでは読み込み時に補う。
+    #[serde(default)]
+    pub born_unix: u64,
 }
 
 /// 名前の最大文字数（バイトではなく文字数）。
@@ -123,9 +130,17 @@ impl GameState {
             tick_count: 0,
             name: None,
             discovered: BTreeSet::new(),
+            diary: Vec::new(),
+            born_unix: now_unix,
         };
         state.record_form();
+        state.remember(DiaryEvent::Born);
         state
+    }
+
+    /// 思い出を記録する（時刻は最後に時間を進めた時刻）。
+    fn remember(&mut self, event: DiaryEvent) {
+        diary::record(&mut self.diary, self.last_unix, event);
     }
 
     /// 今の姿を図鑑に記録する（すでにあれば何もしない）。
@@ -135,7 +150,9 @@ impl GameState {
 
     /// 名前を付ける（付け直しもできる）。
     pub fn set_name(&mut self, raw: &str) -> Result<(), String> {
-        self.name = Some(validate_name(raw)?);
+        let name = validate_name(raw)?;
+        self.name = Some(name.clone());
+        self.remember(DiaryEvent::Named { name });
         Ok(())
     }
 
@@ -172,6 +189,17 @@ impl GameState {
                 self.history.cleans += 1;
             }
         }
+        let was_petting = action == Action::Play && self.form.stage <= 1;
+        let total = self.care_total();
+        if !was_petting && diary::is_care_milestone(total) {
+            self.remember(DiaryEvent::CareMilestone { count: total });
+        }
+    }
+
+    /// これまでのお世話の回数（ご飯・おやつ・遊ぶ・掃除。卵を撫でるのは含めない）。
+    fn care_total(&self) -> u32 {
+        let h = &self.history;
+        h.feeds + h.snacks + h.plays + h.cleans
     }
 
     /// 経過秒を進め、ティックと進化を適用する。発生した進化の回数を返す。
@@ -198,8 +226,14 @@ impl GameState {
         let mut evolutions = 0;
         let mut advanced = self.growth.advance(secs);
         while advanced {
-            self.form = evolve(self.growth.stage - 1, &self.status, &self.history);
+            let previous_stage = self.growth.stage - 1;
+            self.form = evolve(previous_stage, &self.status, &self.history);
             self.record_form();
+            self.remember(if previous_stage <= 1 {
+                DiaryEvent::Hatched
+            } else {
+                DiaryEvent::Evolved { stage: self.form.stage, branch: self.form.branch, personality: self.form.personality }
+            });
             evolutions += 1;
             advanced = self.growth.advance(0);
         }
@@ -241,6 +275,9 @@ impl GameState {
     pub fn from_json(json: &str) -> io::Result<Self> {
         let mut state: Self = serde_json::from_str(json).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
         state.record_form(); // 図鑑のない古いセーブでも、今の姿は記録される
+        if state.born_unix == 0 {
+            state.born_unix = state.last_unix; // 起点のない古いセーブは、最後に時間を進めた時刻から数える
+        }
         Ok(state)
     }
 
@@ -289,6 +326,131 @@ mod tests {
             Form { stage: 1, branch: Branch::Normal, personality: Personality::Calm }
         );
         assert_eq!((s.tick_acc, s.last_unix), (0, 1_000));
+    }
+
+    fn kinds(s: &GameState) -> Vec<String> {
+        s.diary
+            .iter()
+            .map(|e| serde_json::to_value(&e.event).unwrap()["kind"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn a_new_game_starts_the_diary_with_the_arrival_of_the_egg() {
+        let s = new_state();
+        assert_eq!(s.diary, vec![DiaryEntry { at_unix: 1_000, event: DiaryEvent::Born }]);
+        assert_eq!(s.born_unix, 1_000);
+    }
+
+    #[test]
+    fn hatching_is_remembered_once_and_is_not_called_an_evolution() {
+        let mut s = new_state();
+        s.step(EGG_SECS);
+        assert_eq!(kinds(&s), ["born", "hatched"]);
+    }
+
+    #[test]
+    fn each_evolution_is_remembered_with_the_new_form() {
+        let mut s = new_state();
+        s.step(EGG_SECS);
+        s.step(STAGE_SECS);
+        let last = s.diary.last().unwrap();
+        assert_eq!(last.event, DiaryEvent::Evolved { stage: 3, branch: s.form.branch, personality: s.form.personality });
+    }
+
+    #[test]
+    fn evolutions_skipped_during_a_long_absence_are_all_remembered() {
+        let mut s = new_state();
+        s.step(EGG_SECS + STAGE_SECS * 3);
+        assert_eq!(kinds(&s), ["born", "hatched", "evolved", "evolved", "evolved"]);
+        let stages: Vec<u8> = s
+            .diary
+            .iter()
+            .filter_map(|e| match e.event {
+                DiaryEvent::Evolved { stage, .. } => Some(stage),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(stages, [3, 4, 5]);
+    }
+
+    #[test]
+    fn memories_are_stamped_with_the_time_the_game_was_advanced_to() {
+        let mut s = new_state();
+        s.step_to_in(5_000 + u64::from(EGG_SECS), 1, 0, SleepWindow::default());
+        assert_eq!(s.diary.last().unwrap().at_unix, 5_000 + u64::from(EGG_SECS));
+    }
+
+    #[test]
+    fn naming_and_renaming_are_remembered_but_failures_are_not() {
+        let mut s = new_state();
+        s.set_name("ごま").unwrap();
+        s.set_name("もち").unwrap();
+        assert!(s.set_name("").is_err());
+        let names: Vec<&str> = s
+            .diary
+            .iter()
+            .filter_map(|e| match &e.event {
+                DiaryEvent::Named { name } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names, ["ごま", "もち"]);
+    }
+
+    #[test]
+    fn the_tenth_care_action_is_a_milestone() {
+        let mut s = new_state();
+        s.step(EGG_SECS); // 孵化
+        for i in 1..=12 {
+            s.apply(if i % 2 == 0 { Action::Feed } else { Action::Clean });
+        }
+        let milestones: Vec<u32> = s
+            .diary
+            .iter()
+            .filter_map(|e| match e.event {
+                DiaryEvent::CareMilestone { count } => Some(count),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(milestones, [10]);
+    }
+
+    #[test]
+    fn petting_an_egg_does_not_count_as_care_for_milestones() {
+        let mut s = new_state();
+        for _ in 0..30 {
+            s.apply(Action::Play); // 卵の間は撫でる
+        }
+        assert!(!kinds(&s).contains(&"careMilestone".to_string()));
+    }
+
+    #[test]
+    fn the_diary_never_grows_beyond_its_limit() {
+        let mut s = new_state();
+        for _ in 0..(diary::DIARY_MAX + 30) {
+            s.set_name("ごま").unwrap();
+        }
+        assert_eq!(s.diary.len(), diary::DIARY_MAX);
+    }
+
+    #[test]
+    fn saves_from_before_the_diary_existed_start_counting_days_from_their_last_update() {
+        let mut json = serde_json::to_value(new_state()).unwrap();
+        json.as_object_mut().unwrap().remove("diary");
+        json.as_object_mut().unwrap().remove("born_unix");
+        let s = GameState::from_json(&json.to_string()).unwrap();
+        assert!(s.diary.is_empty());
+        assert_eq!(s.born_unix, s.last_unix);
+    }
+
+    #[test]
+    fn the_diary_survives_a_save_round_trip() {
+        let mut s = new_state();
+        s.step(EGG_SECS + STAGE_SECS);
+        s.set_name("ごま").unwrap();
+        let back = GameState::from_json(&s.to_json()).unwrap();
+        assert_eq!((back.diary, back.born_unix), (s.diary, s.born_unix));
     }
 
     #[test]

@@ -11,6 +11,7 @@ use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, We
 
 use crate::calls::{Call, CallGate};
 use crate::dex::DexView;
+use crate::diary::DiaryView;
 use crate::game::GameState;
 use crate::service::{should_notify_hatch, tray_title, GameService, StateView};
 use crate::settings::{Settings, SettingsService};
@@ -20,6 +21,7 @@ const STATE_EVENT: &str = "state-changed";
 const SETTINGS_EVENT: &str = "settings-changed";
 const SETTINGS_WINDOW: &str = "settings";
 const DEX_WINDOW: &str = "dex";
+const DIARY_WINDOW: &str = "diary";
 /// ポップアップの表示/非表示（true=表示）。孵化の演出など「開いている間だけ」再生するものに使う。
 const POPUP_EVENT: &str = "popup-visibility";
 const TRAY_ID: &str = "pokkepet";
@@ -62,6 +64,11 @@ pub fn ack_hatch(svc: State<GameService>) -> Result<StateView, String> {
 #[tauri::command]
 pub fn get_dex(svc: State<GameService>) -> DexView {
     svc.dex()
+}
+
+#[tauri::command]
+pub fn get_diary(svc: State<GameService>) -> DiaryView {
+    svc.diary()
 }
 
 #[tauri::command]
@@ -132,13 +139,15 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "設定…", true, None::<&str>)?;
     let dex = MenuItem::with_id(app, "dex", "図鑑…", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&dex, &settings, &quit])?;
+    let diary = MenuItem::with_id(app, "diary", "思い出…", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&dex, &diary, &settings, &quit])?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
             match event.id.as_ref() {
                 "dex" => open_window(app, DEX_WINDOW, "PokkePet 図鑑", (640.0, 580.0)),
+                "diary" => open_window(app, DIARY_WINDOW, "PokkePet 思い出", (460.0, 560.0)),
                 "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 770.0)),
                 "quit" => app.exit(0),
                 _ => {}
@@ -171,7 +180,7 @@ fn open_window(app: &AppHandle, label: &str, title: &str, (width, height): (f64,
     let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title(title)
         .inner_size(width, height)
-        .resizable(label == DEX_WINDOW)
+        .resizable(label == DEX_WINDOW || label == DIARY_WINDOW)
         .center()
         .build();
     match built {

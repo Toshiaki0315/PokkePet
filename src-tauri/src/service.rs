@@ -10,6 +10,7 @@ use serde::Serialize;
 use crate::evolution::{Branch, Personality};
 use crate::expression::{express, Bubble, Expression};
 use crate::dex::{build_view, DexView};
+use crate::diary::{self, DiaryView};
 use crate::game::{Action, GameState};
 use crate::sleep::{is_sleeping, local_utc_offset, SleepWindow};
 
@@ -114,6 +115,12 @@ impl GameService {
     /// 図鑑（全 109 種と発見済みの印）。
     pub fn dex(&self) -> DexView {
         build_view(&self.lock().discovered)
+    }
+
+    /// 思い出（新しい順）といっしょの日数。
+    pub fn diary(&self) -> DiaryView {
+        let state = self.lock();
+        diary::build_view(&state.diary, state.born_unix, state.last_unix)
     }
 
     /// ローカル時刻の UTC オフセットを固定する（テスト用）。
@@ -467,6 +474,26 @@ mod tests {
         let json = serde_json::to_value(svc("name-json").snapshot()).unwrap();
         assert_eq!(json["name"], serde_json::Value::Null);
         assert_eq!(json["needsName"], false);
+    }
+
+    #[test]
+    fn the_diary_view_lists_memories_newest_first_with_the_day_count() {
+        let s = svc("diary");
+        let d = s.diary();
+        assert_eq!((d.days_together, d.entries.len()), (1, 1)); // 卵が届いた
+        s.tick(u64::from(EGG_SECS)).unwrap();
+        s.set_name("ごま").unwrap();
+        let d = s.diary();
+        assert_eq!(d.entries.len(), 3); // 届いた / 孵った / 名づけ
+        assert!(d.entries[0].at_unix >= d.entries[2].at_unix);
+        assert!(matches!(d.entries[0].event, crate::diary::DiaryEvent::Named { .. }));
+    }
+
+    #[test]
+    fn the_day_count_follows_the_clock() {
+        let s = svc("diary-days");
+        s.tick(3 * 24 * 3600 + 10).unwrap();
+        assert_eq!(s.diary().days_together, 4);
     }
 
     #[test]

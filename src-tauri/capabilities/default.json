@@ -5,7 +5,8 @@
   "windows": [
     "main",
     "settings",
-    "dex"
+    "dex",
+    "diary"
   ],
   "permissions": [
     "core:default",

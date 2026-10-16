@@ -1,12 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { getDex, onStateChanged } from "./api";
-import type { Branch, DexEntry, DexView, Personality } from "./api";
+import type { DexEntry, DexView } from "./api";
+import { BRANCH_NAMES, SPECIES_NAMES } from "./names";
 import { spritePath } from "./sprite";
 import { useListener } from "./useListener";
 import "./Dex.css";
-
-const BRANCH_NAMES: Record<Branch, string> = { poor: "しょんぼり", normal: "ふつう", good: "きらきら" };
-const SPECIES_NAMES: Record<Personality, string> = { calm: "ふわもち", playful: "きつね", gluttonous: "ぽっちゃり", tidy: "うさぎ" };
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 

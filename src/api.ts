@@ -109,3 +109,27 @@ export interface DexView {
 export function getDex(): Promise<DexView> {
   return invoke<DexView>("get_dex");
 }
+
+export type DiaryEvent =
+  | { kind: "born" }
+  | { kind: "hatched" }
+  | { kind: "evolved"; stage: number; branch: Branch; personality: Personality }
+  | { kind: "named"; name: string }
+  | { kind: "careMilestone"; count: number };
+
+export interface DiaryEntry {
+  atUnix: number;
+  event: DiaryEvent;
+}
+
+export interface DiaryView {
+  /** いっしょに過ごした日数（生まれた日が 1 日目） */
+  daysTogether: number;
+  /** 新しい順 */
+  entries: DiaryEntry[];
+}
+
+/** 思い出（新しい順）といっしょの日数。 */
+export function getDiary(): Promise<DiaryView> {
+  return invoke<DiaryView>("get_diary");
+}

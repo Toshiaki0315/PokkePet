@@ -1,0 +1,14 @@
+.diary { box-sizing: border-box; padding: 18px 22px 28px; background: #f6f6f9; color: #222; min-height: 100%; user-select: none; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; }
+.diary h1 { margin: 0 0 4px; font-size: 18px; }
+.diary .days { margin: 0 0 14px; font-size: 13px; color: #555; }
+.diary ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.diary li { display: grid; grid-template-columns: 92px 1fr; gap: 10px; align-items: baseline; padding: 8px 10px; background: #fff; border: 1px solid #0001; border-radius: 10px; font-size: 13px; }
+.diary time { color: #888; font-size: 11px; font-variant-numeric: tabular-nums; }
+.diary .empty { color: #888; font-size: 13px; }
+.diary [role="alert"] { color: #c22; font-size: 12px; margin: 0 0 8px; }
+@media (prefers-color-scheme: dark) {
+  .diary { background: #26262b; color: #eee; }
+  .diary .days { color: #aaa; }
+  .diary li { background: #34343b; border-color: #fff2; }
+  .diary time { color: #999; }
+}
