@@ -10,6 +10,7 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 use crate::calls::{Call, CallGate};
+use crate::dex::DexView;
 use crate::game::GameState;
 use crate::service::{should_notify_hatch, tray_title, GameService, StateView};
 use crate::settings::{Settings, SettingsService};
@@ -18,6 +19,7 @@ const LOOP_INTERVAL: Duration = Duration::from_secs(10);
 const STATE_EVENT: &str = "state-changed";
 const SETTINGS_EVENT: &str = "settings-changed";
 const SETTINGS_WINDOW: &str = "settings";
+const DEX_WINDOW: &str = "dex";
 /// ポップアップの表示/非表示（true=表示）。孵化の演出など「開いている間だけ」再生するものに使う。
 const POPUP_EVENT: &str = "popup-visibility";
 const TRAY_ID: &str = "pokkepet";
@@ -55,6 +57,11 @@ pub fn set_name(app: AppHandle, svc: State<GameService>, name: String) -> Result
 #[tauri::command]
 pub fn ack_hatch(svc: State<GameService>) -> Result<StateView, String> {
     svc.ack_hatch().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_dex(svc: State<GameService>) -> DexView {
+    svc.dex()
 }
 
 #[tauri::command]
@@ -121,13 +128,15 @@ fn setup_popup(app: &tauri::App) -> tauri::Result<()> {
 fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "設定…", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&settings, &quit])?;
+    let dex = MenuItem::with_id(app, "dex", "図鑑…", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&dex, &settings, &quit])?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
             match event.id.as_ref() {
-                "settings" => open_settings(app),
+                "dex" => open_window(app, DEX_WINDOW, "PokkePet 図鑑", (640.0, 580.0)),
+                "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 640.0)),
                 "quit" => app.exit(0),
                 _ => {}
             }
@@ -149,24 +158,24 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
-/// 設定ウィンドウを開く（すでにあれば前面に出す）。
-fn open_settings(app: &AppHandle) {
-    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
+/// 設定・図鑑などのウィンドウを開く（すでにあれば前面に出す）。中身はウィンドウのラベルで決まる。
+fn open_window(app: &AppHandle, label: &str, title: &str, (width, height): (f64, f64)) {
+    if let Some(window) = app.get_webview_window(label) {
         let _ = window.show();
         let _ = window.set_focus();
         return;
     }
-    let built = WebviewWindowBuilder::new(app, SETTINGS_WINDOW, WebviewUrl::App("index.html".into()))
-        .title("PokkePet 設定")
-        .inner_size(380.0, 470.0)
-        .resizable(false)
+    let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
+        .title(title)
+        .inner_size(width, height)
+        .resizable(label == DEX_WINDOW)
         .center()
         .build();
     match built {
         Ok(window) => {
             let _ = window.set_focus();
         }
-        Err(e) => eprintln!("failed to open settings window: {e}"),
+        Err(e) => eprintln!("failed to open the {label} window: {e}"),
     }
 }
 

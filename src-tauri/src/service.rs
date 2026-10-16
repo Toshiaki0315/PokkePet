@@ -9,6 +9,7 @@ use serde::Serialize;
 
 use crate::evolution::{Branch, Personality};
 use crate::expression::{express, Bubble, Expression};
+use crate::dex::{build_view, DexView};
 use crate::game::{Action, GameState};
 use crate::sleep::{is_sleeping, local_utc_offset};
 
@@ -105,6 +106,11 @@ impl GameService {
     pub fn with_time_scale(mut self, scale: u32) -> Self {
         self.time_scale = scale;
         self
+    }
+
+    /// 図鑑（全 109 種と発見済みの印）。
+    pub fn dex(&self) -> DexView {
+        build_view(&self.lock().discovered)
     }
 
     /// ローカル時刻の UTC オフセットを固定する（テスト用）。
@@ -406,6 +412,24 @@ mod tests {
         let json = serde_json::to_value(svc("name-json").snapshot()).unwrap();
         assert_eq!(json["name"], serde_json::Value::Null);
         assert_eq!(json["needsName"], false);
+    }
+
+    #[test]
+    fn the_dex_starts_with_the_egg_and_grows_with_each_evolution() {
+        let s = svc("dex");
+        assert_eq!(s.dex().discovered, 1);
+        s.tick(u64::from(EGG_SECS)).unwrap();
+        let d = s.dex();
+        assert_eq!((d.total, d.discovered), (109, 2));
+        assert!(d.entries.iter().filter(|e| e.discovered).any(|e| e.stage == 2));
+    }
+
+    #[test]
+    fn the_dex_is_saved_with_the_game() {
+        let p = tmp("dex-save");
+        let s = GameService::new(GameState::new(0), p.clone()).with_utc_offset(NOON_AT_ZERO);
+        s.tick(u64::from(EGG_SECS)).unwrap();
+        assert_eq!(GameState::load(&p, 0).unwrap().discovered.len(), 2);
     }
 
     #[test]

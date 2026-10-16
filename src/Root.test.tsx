@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./App", () => ({ default: () => <div>main popup</div> }));
 vi.mock("./Settings", () => ({ default: () => <div>settings dialog</div> }));
+vi.mock("./Dex", () => ({ default: () => <div>dex window</div> }));
 
 import Root from "./Root";
 
@@ -10,6 +11,11 @@ describe("Root", () => {
   it("renders the settings dialog in the settings window", () => {
     render(<Root label="settings" />);
     expect(screen.getByText("settings dialog")).toBeInTheDocument();
+  });
+
+  it("renders the dex in the dex window", () => {
+    render(<Root label="dex" />);
+    expect(screen.getByText("dex window")).toBeInTheDocument();
   });
 
   it("renders the popup in every other window", () => {

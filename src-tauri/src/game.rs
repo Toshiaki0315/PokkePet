@@ -1,5 +1,6 @@
 //! ゲーム全体の状態。バックグラウンドの時間経過・進化適用・セーブ/ロードを担う。
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -7,6 +8,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
+use crate::dex::form_key;
 use crate::sleep::is_sleeping;
 use crate::status::Status;
 
@@ -49,6 +51,9 @@ pub struct GameState {
     /// ペットの名前。孵化後に付ける。
     #[serde(default)]
     pub name: Option<String>,
+    /// 図鑑: これまでに出会った姿（`dex::form_key`）。
+    #[serde(default)]
+    pub discovered: BTreeSet<String>,
 }
 
 /// 名前の最大文字数（バイトではなく文字数）。
@@ -103,7 +108,7 @@ fn decay_divisor(timeline: Option<Timeline>, tick_index: u32, carried_secs: u32)
 
 impl GameState {
     pub fn new(now_unix: u64) -> Self {
-        Self {
+        let mut state = Self {
             status: Status::new(50, 0, 80, 0),
             growth: Growth::egg(),
             history: History::default(),
@@ -114,7 +119,15 @@ impl GameState {
             hatch_shown: false,
             tick_count: 0,
             name: None,
-        }
+            discovered: BTreeSet::new(),
+        };
+        state.record_form();
+        state
+    }
+
+    /// 今の姿を図鑑に記録する（すでにあれば何もしない）。
+    pub fn record_form(&mut self) {
+        self.discovered.insert(form_key(&self.form));
     }
 
     /// 名前を付ける（付け直しもできる）。
@@ -179,6 +192,7 @@ impl GameState {
         let mut advanced = self.growth.advance(secs);
         while advanced {
             self.form = evolve(self.growth.stage - 1, &self.status, &self.history);
+            self.record_form();
             evolutions += 1;
             advanced = self.growth.advance(0);
         }
@@ -218,7 +232,9 @@ impl GameState {
     }
 
     pub fn from_json(json: &str) -> io::Result<Self> {
-        serde_json::from_str(json).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        let mut state: Self = serde_json::from_str(json).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+        state.record_form(); // 図鑑のない古いセーブでも、今の姿は記録される
+        Ok(state)
     }
 
     /// 一時ファイルに書いてからリネームし、書き込み途中の破損を避ける。
@@ -266,6 +282,55 @@ mod tests {
             Form { stage: 1, branch: Branch::Normal, personality: Personality::Calm }
         );
         assert_eq!((s.tick_acc, s.last_unix), (0, 1_000));
+    }
+
+    #[test]
+    fn a_new_game_has_only_the_egg_in_the_dex() {
+        assert_eq!(new_state().discovered, ["egg".to_string()].into_iter().collect());
+    }
+
+    #[test]
+    fn every_form_the_pet_evolves_into_is_recorded() {
+        let mut s = new_state();
+        s.step(EGG_SECS);
+        assert_eq!(s.discovered.len(), 2);
+        assert!(s.discovered.contains(&form_key(&s.form)));
+        s.step(STAGE_SECS);
+        assert_eq!(s.discovered.len(), 3);
+        assert!(s.discovered.contains(&form_key(&s.form)));
+    }
+
+    #[test]
+    fn forms_skipped_over_during_a_long_absence_are_recorded_too() {
+        let mut s = new_state();
+        s.step(EGG_SECS + STAGE_SECS * 3); // 卵 → 2 → 3 → 4 → 5
+        assert_eq!(s.form.stage, 5);
+        assert_eq!(s.discovered.len(), 5); // 卵 + 段階2〜5
+    }
+
+    #[test]
+    fn meeting_the_same_form_twice_counts_once() {
+        let mut s = new_state();
+        s.record_form();
+        s.record_form();
+        assert_eq!(s.discovered.len(), 1);
+    }
+
+    #[test]
+    fn old_saves_start_the_dex_with_the_current_form() {
+        let mut s = new_state();
+        s.step(EGG_SECS + STAGE_SECS); // 段階 3
+        let mut json = serde_json::to_value(&s).unwrap();
+        json.as_object_mut().unwrap().remove("discovered");
+        let loaded = GameState::from_json(&json.to_string()).unwrap();
+        assert_eq!(loaded.discovered, [form_key(&loaded.form)].into_iter().collect());
+    }
+
+    #[test]
+    fn the_dex_survives_a_save_round_trip() {
+        let mut s = new_state();
+        s.step(EGG_SECS + STAGE_SECS);
+        assert_eq!(GameState::from_json(&s.to_json()).unwrap().discovered, s.discovered);
     }
 
     #[test]

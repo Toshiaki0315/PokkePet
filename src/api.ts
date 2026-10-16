@@ -87,3 +87,22 @@ export function saveSettings(settings: Settings): Promise<Settings> {
 export function onSettingsChanged(handler: (settings: Settings) => void): Promise<() => void> {
   return listen<Settings>("settings-changed", (event) => handler(event.payload));
 }
+
+export interface DexEntry {
+  key: string;
+  stage: number;
+  branch: Branch;
+  personality: Personality;
+  discovered: boolean;
+}
+
+export interface DexView {
+  total: number;
+  discovered: number;
+  entries: DexEntry[];
+}
+
+/** 図鑑（全 109 種と発見済みの印）。 */
+export function getDex(): Promise<DexView> {
+  return invoke<DexView>("get_dex");
+}

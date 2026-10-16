@@ -21,6 +21,18 @@ pub enum Personality {
     Tidy,
 }
 
+impl Personality {
+    /// JSON（serde）・スプライトのファイル名で使う小文字の名前。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Personality::Calm => "calm",
+            Personality::Playful => "playful",
+            Personality::Gluttonous => "gluttonous",
+            Personality::Tidy => "tidy",
+        }
+    }
+}
+
 /// 行動履歴（性格形成の材料）。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct History {
@@ -35,6 +47,16 @@ pub enum Branch {
     Poor,
     Normal,
     Good,
+}
+
+impl Branch {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Branch::Poor => "poor",
+            Branch::Normal => "normal",
+            Branch::Good => "good",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -121,6 +143,16 @@ mod tests {
 
     fn st(mood: u8, affinity: u8) -> Status {
         Status::new(mood, affinity, 50, 0)
+    }
+
+    #[test]
+    fn names_used_for_files_match_the_json_names() {
+        for b in [Branch::Poor, Branch::Normal, Branch::Good] {
+            assert_eq!(serde_json::to_value(b).unwrap(), b.as_str());
+        }
+        for p in [Personality::Calm, Personality::Playful, Personality::Gluttonous, Personality::Tidy] {
+            assert_eq!(serde_json::to_value(p).unwrap(), p.as_str());
+        }
     }
 
     #[test]
