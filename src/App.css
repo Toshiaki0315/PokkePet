@@ -8,34 +8,27 @@ html, body, #root { height: 100%; margin: 0; background: transparent; }
 body { overflow: hidden; user-select: none; }
 
 /* ウィンドウ全体(透過)。中央にたまご型の本体を置く */
-.container { height: 100%; display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 6px; }
+.container { height: 100%; display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 8px; }
 
-/* --- 本体(たまご型のシェル) --- */
+/* --- 本体(角丸の長方形) --- */
 .device {
   position: relative;
-  width: 296px;
+  width: 100%;
   height: 100%;
-  max-height: 420px;
   box-sizing: border-box;
-  padding: 76px 26px 20px;
+  padding: 22px 22px 20px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  border-radius: 50% 50% 50% 50% / 56% 56% 44% 44%;
-  background:
-    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.55) 0 2px, transparent 3px),
-    radial-gradient(circle at 78% 26%, rgba(255, 230, 140, 0.8) 0 2px, transparent 3px),
-    radial-gradient(circle at 14% 62%, rgba(255, 230, 140, 0.7) 0 1.5px, transparent 2.5px),
-    radial-gradient(circle at 88% 70%, rgba(255, 255, 255, 0.5) 0 2px, transparent 3px),
-    radial-gradient(circle at 40% 88%, rgba(255, 230, 140, 0.7) 0 1.5px, transparent 2.5px),
-    linear-gradient(160deg, #6f86e0 0%, #4b5fb8 55%, #36448f 100%);
+  border-radius: 28px;
+  background: linear-gradient(160deg, #6f86e0 0%, #4b5fb8 55%, #36448f 100%);
   box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.25), inset 0 -10px 18px rgba(0, 0, 40, 0.3), 0 6px 14px rgba(0, 0, 0, 0.35);
 }
 
 /* --- 画面(LCD): キャラ・背景・吹き出し・ゲージはここだけ --- */
 .screen {
   position: relative;
-  width: 198px;
+  width: 100%;
   flex: 1 1 auto;
   min-height: 0;
   box-sizing: border-box;
@@ -97,9 +90,8 @@ body { overflow: hidden; user-select: none; }
 @media (prefers-reduced-motion: reduce) { .sprite.hungry { animation: none; } }
 
 /* --- ボタン部分(画面とは別) --- */
-.controls { margin-top: 14px; display: flex; gap: 22px; align-items: flex-start; }
+.controls { margin-top: 16px; display: flex; gap: 28px; align-items: flex-start; }
 .control { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.control:nth-child(2) { margin-top: 12px; }
 .control button {
   width: 44px; height: 44px; border-radius: 50%; border: 2px solid #2b2f66; cursor: pointer; font-size: 20px; line-height: 1;
   background: radial-gradient(circle at 35% 30%, #ffc3d6, #f280a8 70%);
