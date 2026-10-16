@@ -39,11 +39,18 @@ pub struct StateView {
 pub struct GameService {
     state: Mutex<GameState>,
     path: PathBuf,
+    time_scale: u32,
 }
 
 impl GameService {
     pub fn new(state: GameState, path: PathBuf) -> Self {
-        Self { state: Mutex::new(state), path }
+        Self { state: Mutex::new(state), path, time_scale: 1 }
+    }
+
+    /// 経過時間の倍率（動作確認用）。
+    pub fn with_time_scale(mut self, scale: u32) -> Self {
+        self.time_scale = scale;
+        self
     }
 
     pub fn snapshot(&self) -> StateView {
@@ -53,7 +60,7 @@ impl GameService {
     /// 現在時刻まで進めたうえでアクションを適用し、保存する。
     pub fn perform(&self, action: Action, now_unix: u64) -> io::Result<StateView> {
         let mut state = self.lock();
-        state.step_to(now_unix);
+        state.step_to_scaled(now_unix, self.time_scale);
         state.apply(action);
         state.save(&self.path)?;
         Ok(view_of(&state))
@@ -62,7 +69,7 @@ impl GameService {
     /// 時間を進めて保存する。表示用スナップショットと進化回数を返す。
     pub fn tick(&self, now_unix: u64) -> io::Result<(StateView, u8)> {
         let mut state = self.lock();
-        let evolutions = state.step_to(now_unix);
+        let evolutions = state.step_to_scaled(now_unix, self.time_scale);
         state.save(&self.path)?;
         Ok((view_of(&state), evolutions))
     }
@@ -89,6 +96,7 @@ fn view_of(s: &GameState) -> StateView {
 mod tests {
     use super::*;
     use crate::evolution::STAGE_SECS;
+    use crate::game::TICK_SECS;
     use std::fs;
     use std::sync::Arc;
 
@@ -153,8 +161,8 @@ mod tests {
     #[test]
     fn perform_advances_time_before_applying() {
         let s = svc("perform-time");
-        let v = s.perform(Action::Clean, 60).unwrap();
-        // 60秒=1ティックぶん空腹度が減っている。
+        let v = s.perform(Action::Clean, u64::from(TICK_SECS)).unwrap();
+        // 1ティックぶん空腹度が減っている。
         assert_eq!(v.hunger, 79);
         assert_eq!(v.dirtiness, 0);
     }
@@ -171,6 +179,15 @@ mod tests {
         let s = svc("tick");
         let (v, evo) = s.tick(u64::from(STAGE_SECS)).unwrap();
         assert_eq!((v.stage, evo), (2, 1));
+    }
+
+    #[test]
+    fn time_scale_speeds_up_tick_and_perform() {
+        let s = svc("scale").with_time_scale(60);
+        let (v, evo) = s.tick(60).unwrap();
+        assert_eq!((v.stage, evo), (2, 1));
+        let s = svc("scale2").with_time_scale(60);
+        assert_eq!(s.perform(Action::Clean, 60).unwrap().stage, 2);
     }
 
     #[test]

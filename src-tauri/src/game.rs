@@ -10,7 +10,7 @@ use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
 use crate::status::Status;
 
 /// 何秒ごとに1ティック進めるか。
-pub const TICK_SECS: u32 = 60;
+pub const TICK_SECS: u32 = 120;
 /// 1回の `step` で処理するティック数の上限（長時間離席時の無駄なループを避ける）。
 pub const MAX_CATCHUP_TICKS: u32 = 200;
 
@@ -86,12 +86,18 @@ impl GameState {
     /// 現在時刻まで進める（アプリ停止中・スリープ中の経過分も含む）。
     /// 時計が巻き戻っていた場合は何も進めず時刻だけ更新する。
     pub fn step_to(&mut self, now_unix: u64) -> u8 {
+        self.step_to_scaled(now_unix, 1)
+    }
+
+    /// 経過時間を `scale` 倍して進める（動作確認用の時間短縮）。0 は 1 として扱う。
+    pub fn step_to_scaled(&mut self, now_unix: u64, scale: u32) -> u8 {
         let elapsed = now_unix.saturating_sub(self.last_unix);
         self.last_unix = now_unix;
         if elapsed == 0 {
             return 0;
         }
-        self.step(u32::try_from(elapsed).unwrap_or(u32::MAX))
+        let secs = elapsed.saturating_mul(u64::from(scale.max(1)));
+        self.step(u32::try_from(secs).unwrap_or(u32::MAX))
     }
 
     pub fn to_json(&self) -> String {
@@ -257,6 +263,28 @@ mod tests {
     }
 
     #[test]
+    fn step_to_scaled_multiplies_elapsed_time() {
+        let mut s = new_state();
+        assert_eq!(s.step_to_scaled(1_000 + 60, 60), 1);
+        assert_eq!(s.growth.stage, 2);
+        assert_eq!(s.last_unix, 1_060);
+    }
+
+    #[test]
+    fn step_to_scaled_treats_zero_as_one() {
+        let mut s = new_state();
+        assert_eq!(s.step_to_scaled(1_000 + 60, 0), 0);
+        assert_eq!(s.growth.elapsed_secs, 60);
+    }
+
+    #[test]
+    fn step_to_scaled_saturates_instead_of_overflowing() {
+        let mut s = new_state();
+        s.step_to_scaled(1_000 + u64::from(u32::MAX), u32::MAX);
+        assert_eq!(s.growth.stage, 10);
+    }
+
+    #[test]
     fn json_roundtrip_preserves_state() {
         let mut s = new_state();
         s.apply(Action::Feed);
@@ -316,5 +344,66 @@ mod tests {
         let dir = tmp_path("isdir").parent().unwrap().to_path_buf();
         let err = GameState::load(&dir, 0).unwrap_err();
         assert_ne!(err.kind(), io::ErrorKind::NotFound);
+    }
+
+    /// ゲームバランス: 1分刻みで10時間（全10段階）遊んだときの最終状態。
+    fn simulate(mut policy: impl FnMut(u32, &mut GameState)) -> GameState {
+        let mut s = new_state();
+        for minute in 0..600 {
+            s.step(60);
+            policy(minute, &mut s);
+        }
+        s
+    }
+
+    fn care_every(minutes: u32) -> impl FnMut(u32, &mut GameState) {
+        move |m, s| {
+            if m % minutes != 0 {
+                return;
+            }
+            s.apply(Action::Feed);
+            s.apply(Action::Play);
+            s.apply(Action::Clean);
+        }
+    }
+
+    #[test]
+    fn balance_neglected_pet_grows_up_but_ends_poor() {
+        let s = simulate(|_, _| {});
+        assert_eq!(s.form.stage, 10);
+        assert_eq!(s.form.branch, Branch::Poor);
+        assert_eq!(s.status.mood, 0);
+    }
+
+    #[test]
+    fn balance_hourly_care_keeps_pet_normal() {
+        let s = simulate(care_every(60));
+        assert_eq!(s.form.branch, Branch::Normal);
+        assert!(s.status.hunger > 0);
+    }
+
+    #[test]
+    fn balance_half_hourly_care_reaches_good() {
+        let s = simulate(care_every(30));
+        assert_eq!(s.form.branch, Branch::Good);
+    }
+
+    #[test]
+    fn balance_reactive_player_never_lets_mood_collapse() {
+        let mut min_mood = 100;
+        let s = simulate(|_, s| {
+            if s.status.hunger < 40 {
+                s.apply(Action::Feed);
+            }
+            if s.status.mood < 50 {
+                s.apply(Action::Play);
+            }
+            if s.status.dirtiness >= 60 {
+                s.apply(Action::Clean);
+            }
+            min_mood = min_mood.min(s.status.mood);
+        });
+        assert!(min_mood >= 40);
+        assert_ne!(s.form.branch, Branch::Poor);
     }
 }

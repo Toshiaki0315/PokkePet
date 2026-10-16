@@ -39,7 +39,9 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("failed to load save, starting fresh: {e}");
         GameState::new(now_unix())
     });
-    app.manage(GameService::new(state, path));
+    // 動作確認用: POKKEPET_TIME_SCALE=60 で時間経過が60倍になる。
+    let scale = std::env::var("POKKEPET_TIME_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+    app.manage(GameService::new(state, path).with_time_scale(scale));
 
     setup_popup(app)?;
     setup_tray(app)?;

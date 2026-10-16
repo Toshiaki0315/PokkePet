@@ -14,12 +14,12 @@ pub struct Status {
     pub dirtiness: u8,
 }
 
-const FEED_HUNGER: u8 = 30;
-const FEED_MOOD: u8 = 3;
+const FEED_HUNGER: u8 = 40;
+const FEED_MOOD: u8 = 5;
 const FEED_AFFINITY: u8 = 2;
-const PLAY_MOOD: u8 = 15;
+const PLAY_MOOD: u8 = 25;
 const PLAY_AFFINITY: u8 = 5;
-const PLAY_HUNGER_COST: u8 = 10;
+const PLAY_HUNGER_COST: u8 = 5;
 /// 汚れ度がこの値以上だと、ティックごとのご機嫌低下が大きくなる。
 pub const DIRTY_THRESHOLD: u8 = 70;
 
@@ -85,7 +85,7 @@ mod tests {
     fn feed_restores_hunger_and_slightly_raises_mood_and_affinity() {
         let mut s = base();
         s.feed();
-        assert_eq!((s.hunger, s.mood, s.affinity), (80, 53, 52));
+        assert_eq!((s.hunger, s.mood, s.affinity), (90, 55, 52));
         assert_eq!(s.dirtiness, 50);
     }
 
@@ -100,7 +100,7 @@ mod tests {
     fn play_raises_mood_and_affinity_and_lowers_hunger() {
         let mut s = base();
         s.play();
-        assert_eq!((s.mood, s.affinity, s.hunger), (65, 55, 40));
+        assert_eq!((s.mood, s.affinity, s.hunger), (75, 55, 45));
         assert_eq!(s.dirtiness, 50);
     }
 
