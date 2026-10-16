@@ -22,3 +22,41 @@ body { margin: 0; overflow: hidden; user-select: none; }
 .actions button { padding: 6px 14px; border-radius: 8px; border: 1px solid #8884; background: #8881; color: inherit; cursor: pointer; }
 .actions button:hover { background: #8883; }
 [role="alert"] { color: #d33; margin: 0; }
+
+/* --- 状態の表現: 背景(機嫌)・ほこり(汚れ)・吹き出し・しょんぼり(空腹) --- */
+html, body, #root { height: 100%; }
+.container { position: relative; min-height: 100%; box-sizing: border-box; justify-content: flex-start; transition: background 0.6s; }
+.container[data-mood="high"] { background: linear-gradient(#fff3c9, #ffe0ec); }
+.container[data-mood="mid"] { background: linear-gradient(#f6f8ff, #ffffff); }
+.container[data-mood="low"] { background: linear-gradient(#aab4c8, #d3d8e2); }
+
+/* 汚れ: ほこり(斑点)が増え、全体にうっすらくすむ */
+.container::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.6s; }
+.container[data-dirt="mid"]::before {
+  opacity: 0.55;
+  background:
+    radial-gradient(circle at 18% 78%, #8a7358 0 2px, transparent 3px),
+    radial-gradient(circle at 82% 66%, #8a7358 0 2px, transparent 3px),
+    radial-gradient(circle at 60% 90%, #8a7358 0 2px, transparent 3px);
+}
+.container[data-dirt="high"]::before {
+  opacity: 0.8;
+  background:
+    radial-gradient(circle at 18% 78%, #6b5740 0 3px, transparent 4px),
+    radial-gradient(circle at 82% 66%, #6b5740 0 3px, transparent 4px),
+    radial-gradient(circle at 60% 90%, #6b5740 0 3px, transparent 4px),
+    radial-gradient(circle at 30% 55%, #6b5740 0 2px, transparent 3px),
+    radial-gradient(circle at 70% 82%, #6b5740 0 2px, transparent 3px),
+    radial-gradient(circle at 45% 70%, #6b5740 0 2px, transparent 3px),
+    linear-gradient(rgba(110, 90, 60, 0.18), rgba(110, 90, 60, 0.28));
+}
+.container > * { position: relative; }
+
+.stage-area { position: relative; display: flex; flex-direction: column; align-items: center; min-height: 168px; justify-content: flex-end; }
+.bubble { position: relative; max-width: 220px; padding: 6px 12px; border-radius: 14px; background: #fff; color: #333; border: 1px solid #8884; box-shadow: 0 1px 4px #0002; margin-bottom: 10px; text-align: center; font-size: 13px; }
+.bubble::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 10px; height: 10px; background: #fff; border-right: 1px solid #8884; border-bottom: 1px solid #8884; transform: translateX(-50%) rotate(45deg); }
+
+/* 空腹: 元気なくゆらゆら */
+.sprite.hungry { animation: droop 2.4s ease-in-out infinite; filter: saturate(0.7); }
+@keyframes droop { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(3px) rotate(-3deg); } }
+@media (prefers-reduced-motion: reduce) { .sprite.hungry { animation: none; } }

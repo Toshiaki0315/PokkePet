@@ -1,4 +1,5 @@
 pub mod evolution;
+pub mod expression;
 pub mod game;
 pub mod service;
 pub mod status;

@@ -3,6 +3,8 @@ import { listen } from "@tauri-apps/api/event";
 
 export type Branch = "poor" | "normal" | "good";
 export type Personality = "calm" | "playful" | "gluttonous" | "tidy";
+export type Level = "low" | "mid" | "high";
+export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy";
 export type ActionName = "feed" | "play" | "clean";
 
 export interface StateView {
@@ -13,6 +15,16 @@ export interface StateView {
   stage: number;
   branch: Branch;
   personality: Personality;
+  expression: Expression;
+}
+
+export interface Expression {
+  mood: Level;
+  /** low = おなかがすいている */
+  hunger: Level;
+  /** high = 部屋がとても汚れている */
+  dirtiness: Level;
+  bubble: BubbleKind | null;
 }
 
 export function getState(): Promise<StateView> {

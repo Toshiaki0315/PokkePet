@@ -8,6 +8,7 @@ use std::sync::{Mutex, MutexGuard};
 use serde::Serialize;
 
 use crate::evolution::{Branch, Personality};
+use crate::expression::{express, Bubble, Expression, Level};
 use crate::game::{Action, GameState};
 
 impl FromStr for Action {
@@ -34,6 +35,7 @@ pub struct StateView {
     pub stage: u8,
     pub branch: Branch,
     pub personality: Personality,
+    pub expression: Expression,
 }
 
 pub struct GameService {
@@ -89,6 +91,7 @@ fn view_of(s: &GameState) -> StateView {
         stage: s.form.stage,
         branch: s.form.branch,
         personality: s.form.personality,
+        expression: express(&s.status),
     }
 }
 
@@ -136,8 +139,31 @@ mod tests {
                 stage: 1,
                 branch: Branch::Normal,
                 personality: Personality::Calm,
+                expression: Expression {
+                    mood: Level::Mid,
+                    hunger: Level::High,
+                    dirtiness: Level::Low,
+                    bubble: None,
+                },
             }
         );
+    }
+
+    #[test]
+    fn view_reflects_expression_after_actions() {
+        let s = svc("expr");
+        // 時間経過で汚れが溜まり、空腹になると吹き出しが変わる。
+        let (v, _) = s.tick(u64::from(TICK_SECS) * 90).unwrap();
+        assert_eq!(v.expression.hunger, Level::Low);
+        assert_eq!(v.expression.bubble, Some(Bubble::Hungry));
+    }
+
+    #[test]
+    fn view_json_exposes_expression() {
+        let json = serde_json::to_value(svc("expr-json").snapshot()).unwrap();
+        assert_eq!(json["expression"]["mood"], "mid");
+        assert_eq!(json["expression"]["dirtiness"], "low");
+        assert_eq!(json["expression"]["bubble"], serde_json::Value::Null);
     }
 
     #[test]

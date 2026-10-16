@@ -12,12 +12,27 @@ vi.mock("./api", () => api);
 
 import App from "./App";
 
-const base: StateView = { mood: 50, affinity: 10, hunger: 80, dirtiness: 5, stage: 2, branch: "normal", personality: "calm" };
+const base: StateView = {
+  mood: 50,
+  affinity: 10,
+  hunger: 80,
+  dirtiness: 5,
+  stage: 2,
+  branch: "normal",
+  personality: "calm",
+  expression: { mood: "mid", hunger: "high", dirtiness: "low", bubble: null },
+};
+const withExpression = (e: Partial<StateView["expression"]>): StateView => ({ ...base, expression: { ...base.expression, ...e } });
+const KEY = "pokkepet.showGauges";
+const konami = async () => {
+  await userEvent.keyboard("{ArrowUp}{ArrowUp}{ArrowDown}{ArrowDown}");
+};
 let emit: (v: StateView) => void;
 const unlisten = vi.fn();
 
 beforeEach(() => {
   vi.resetAllMocks();
+  localStorage.clear();
   api.getState.mockResolvedValue(base);
   api.performAction.mockResolvedValue(base);
   api.onStateChanged.mockImplementation((h: (v: StateView) => void) => {
@@ -27,7 +42,8 @@ beforeEach(() => {
 });
 
 describe("App", () => {
-  it("renders four gauges from get_state", async () => {
+  it("renders four gauges from get_state when enabled", async () => {
+    localStorage.setItem(KEY, "1");
     render(<App />);
     for (const [name, now] of [["ご機嫌", "50"], ["親密度", "10"], ["空腹度", "80"], ["汚れ度", "5"]]) {
       expect(await screen.findByRole("progressbar", { name })).toHaveAttribute("aria-valuenow", now);
@@ -69,6 +85,7 @@ describe("App", () => {
   });
 
   it("shows the state returned by an action", async () => {
+    localStorage.setItem(KEY, "1");
     api.performAction.mockResolvedValue({ ...base, hunger: 100 });
     render(<App />);
     await userEvent.click(await screen.findByRole("button", { name: "ご飯" }));
@@ -76,6 +93,7 @@ describe("App", () => {
   });
 
   it("updates the view when a state-changed event arrives", async () => {
+    localStorage.setItem(KEY, "1");
     render(<App />);
     await screen.findByRole("progressbar", { name: "ご機嫌" });
     await waitFor(() => expect(api.onStateChanged).toHaveBeenCalled());
@@ -86,7 +104,7 @@ describe("App", () => {
   it("unsubscribes the listener on unmount", async () => {
     const { unmount } = render(<App />);
     await waitFor(() => expect(api.onStateChanged).toHaveBeenCalled());
-    await screen.findByRole("progressbar", { name: "ご機嫌" });
+    await screen.findByText("段階 2 / 10");
     unmount();
     await waitFor(() => expect(unlisten).toHaveBeenCalled());
   });
@@ -117,5 +135,104 @@ describe("App", () => {
     api.getState.mockReturnValue(new Promise(() => {}));
     render(<App />);
     expect(screen.getByText("読み込み中…")).toBeInTheDocument();
+  });
+
+  describe("hidden gauges", () => {
+    it("hides the numeric gauges by default", async () => {
+      render(<App />);
+      await screen.findByText("段階 2 / 10");
+      expect(screen.queryByRole("progressbar")).toBeNull();
+    });
+
+    it("toggles the gauges with the hidden command (up, up, down, down)", async () => {
+      render(<App />);
+      await screen.findByText("段階 2 / 10");
+      await konami();
+      expect(screen.getAllByRole("progressbar")).toHaveLength(4);
+      await konami();
+      expect(screen.queryByRole("progressbar")).toBeNull();
+    });
+
+    it("ignores wrong sequences and resets on a stray key", async () => {
+      render(<App />);
+      await screen.findByText("段階 2 / 10");
+      await userEvent.keyboard("{ArrowUp}{ArrowDown}{ArrowDown}{ArrowDown}");
+      expect(screen.queryByRole("progressbar")).toBeNull();
+      await userEvent.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowDown}{ArrowDown}");
+      expect(screen.getAllByRole("progressbar")).toHaveLength(4);
+    });
+
+    it("remembers the setting across reloads", async () => {
+      const { unmount } = render(<App />);
+      await screen.findByText("段階 2 / 10");
+      await konami();
+      expect(localStorage.getItem(KEY)).toBe("1");
+      unmount();
+      render(<App />);
+      expect(await screen.findAllByRole("progressbar")).toHaveLength(4);
+    });
+
+    it("still works when localStorage is unavailable", async () => {
+      const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+        throw new Error("blocked");
+      });
+      const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+        throw new Error("blocked");
+      });
+      render(<App />);
+      await screen.findByText("段階 2 / 10");
+      await konami();
+      expect(screen.getAllByRole("progressbar")).toHaveLength(4);
+      get.mockRestore();
+      set.mockRestore();
+    });
+  });
+
+  describe("expression", () => {
+    it.each([
+      ["hungry", "おなかすいたよ…"],
+      ["dirty", "おへや、よごれてるよ…"],
+      ["gloomy", "つまんないな…"],
+      ["happy", "たのしい！"],
+    ] as const)("shows a speech bubble for %s", async (bubble, text) => {
+      api.getState.mockResolvedValue(withExpression({ bubble }));
+      render(<App />);
+      expect(await screen.findByRole("status")).toHaveTextContent(text);
+    });
+
+    it("shows no bubble when nothing stands out", async () => {
+      render(<App />);
+      await screen.findByText("段階 2 / 10");
+      expect(screen.queryByRole("status")).toBeNull();
+    });
+
+    it("exposes mood / dirt / hunger levels for the background", async () => {
+      api.getState.mockResolvedValue(withExpression({ mood: "low", dirtiness: "high", hunger: "low" }));
+      render(<App />);
+      const main = await screen.findByRole("main");
+      expect(main).toHaveAttribute("data-mood", "low");
+      expect(main).toHaveAttribute("data-dirt", "high");
+      expect(main).toHaveAttribute("data-hunger", "low");
+    });
+
+    it("updates the background when a state-changed event arrives", async () => {
+      render(<App />);
+      const main = await screen.findByRole("main");
+      await waitFor(() => expect(api.onStateChanged).toHaveBeenCalled());
+      emit(withExpression({ mood: "high", bubble: "happy" }));
+      await waitFor(() => expect(main).toHaveAttribute("data-mood", "high"));
+      expect(screen.getByRole("status")).toHaveTextContent("たのしい！");
+    });
+
+    it("makes the sprite droop when the pet is hungry", async () => {
+      api.getState.mockResolvedValue(withExpression({ hunger: "low", bubble: "hungry" }));
+      render(<App />);
+      expect(await screen.findByRole("img")).toHaveClass("hungry");
+    });
+
+    it("keeps the sprite upright when not hungry", async () => {
+      render(<App />);
+      expect(await screen.findByRole("img")).not.toHaveClass("hungry");
+    });
   });
 });
