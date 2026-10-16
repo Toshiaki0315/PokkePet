@@ -90,7 +90,7 @@ body { overflow: hidden; user-select: none; }
 @media (prefers-reduced-motion: reduce) { .sprite.hungry { animation: none; } }
 
 /* --- ボタン部分(画面とは別) --- */
-.controls { margin-top: 16px; display: flex; gap: 28px; align-items: flex-start; }
+.controls { margin-top: 16px; display: flex; gap: 14px; align-items: flex-start; }
 .control { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .control button {
   width: 44px; height: 44px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--body-color, #4b5fb8) 45%, black); cursor: pointer; font-size: 20px; line-height: 1;

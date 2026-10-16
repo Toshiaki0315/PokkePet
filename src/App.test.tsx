@@ -86,7 +86,7 @@ describe("App", () => {
     expect(screen.getByRole("img")).toHaveAttribute("alt", "stage 2 normal calm");
   });
 
-  it.each([["ご飯", "feed"], ["遊ぶ", "play"], ["掃除", "clean"]])("%s button calls performAction(%s)", async (label, action) => {
+  it.each([["ご飯", "feed"], ["おやつ", "snack"], ["遊ぶ", "play"], ["掃除", "clean"]])("%s button calls performAction(%s)", async (label, action) => {
     render(<App />);
     await userEvent.click(await screen.findByRole("button", { name: label }));
     expect(api.performAction).toHaveBeenCalledWith(action);
@@ -358,7 +358,7 @@ describe("App", () => {
       expect(within(display).getByRole("img")).toBeInTheDocument();
       expect(within(display).getByRole("status")).toHaveTextContent("たのしい！");
       expect(within(display).queryByRole("button")).toBeNull();
-      expect(within(controls).getAllByRole("button")).toHaveLength(3);
+      expect(within(controls).getAllByRole("button")).toHaveLength(4);
       expect(within(controls).queryByRole("img")).toBeNull();
       expect(within(controls).queryByRole("status")).toBeNull();
     });
@@ -778,6 +778,29 @@ describe("App", () => {
       await userEvent.click(screen.getByRole("button", { name: "ご飯" }));
       await waitFor(() => expect(screen.getByRole("img")).toHaveClass("hop"));
       expect(screen.getByRole("img")).not.toHaveClass("bounce");
+    });
+  });
+
+  describe("snack button", () => {
+    it("sits between the meal and play buttons", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      const names = within(screen.getByRole("group", { name: "ボタン" }))
+        .getAllByRole("button")
+        .map((b) => b.getAttribute("aria-label"));
+      expect(names).toEqual(["ご飯", "おやつ", "遊ぶ", "掃除"]);
+    });
+
+    it("makes the pet hop like the other care buttons", async () => {
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "おやつ" }));
+      await waitFor(() => expect(screen.getByRole("img")).toHaveClass("hop"));
+    });
+
+    it("is also available for an egg", async () => {
+      api.getState.mockResolvedValue({ ...base, stage: 1, playAction: "pet" });
+      render(<App />);
+      expect(await screen.findByRole("button", { name: "おやつ" })).toBeInTheDocument();
     });
   });
 });

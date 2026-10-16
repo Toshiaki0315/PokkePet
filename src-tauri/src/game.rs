@@ -25,6 +25,7 @@ pub const MAX_CATCHUP_TICKS: u32 = 200;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
     Feed,
+    Snack,
     Play,
     Clean,
 }
@@ -156,6 +157,10 @@ impl GameState {
             Action::Feed => {
                 self.status.feed();
                 self.history.feeds += 1;
+            }
+            Action::Snack => {
+                self.status.snack();
+                self.history.snacks += 1;
             }
             Action::Play if self.form.stage <= 1 => self.status.pet(),
             Action::Play => {
@@ -408,8 +413,40 @@ mod tests {
     }
 
     #[test]
+    fn a_snack_is_recorded_separately_from_meals() {
+        let mut s = new_state();
+        s.status.hunger = 30; // 新しいペットは満腹気味(80)なので、おなかをすかせておく
+        s.apply(Action::Snack);
+        s.apply(Action::Snack);
+        s.apply(Action::Feed);
+        assert_eq!(s.history, History { feeds: 1, snacks: 2, ..History::default() });
+        assert_eq!(s.status.affinity, 2 + 2 + 2); // おやつ2回 + ご飯1回
+    }
+
+    #[test]
+    fn eating_snacks_while_full_makes_the_pet_grumpy() {
+        let mut s = new_state();
+        s.status.hunger = 100;
+        let mood = s.status.mood;
+        s.apply(Action::Snack);
+        assert_eq!(s.status.mood, mood - 10);
+        assert_eq!(s.history.snacks, 1); // 食べすぎでも回数には数える
+    }
+
+    #[test]
+    fn many_snacks_make_a_gluttonous_pet() {
+        let mut s = new_state();
+        s.step(EGG_SECS); // 孵化
+        for _ in 0..3 {
+            s.apply(Action::Snack);
+        }
+        s.step(STAGE_SECS);
+        assert_eq!(s.form.personality, Personality::Gluttonous);
+    }
+
+    #[test]
     fn any_action_ends_the_intro() {
-        for action in [Action::Feed, Action::Play, Action::Clean] {
+        for action in [Action::Feed, Action::Snack, Action::Play, Action::Clean] {
             let mut s = new_state();
             s.apply(action);
             assert!(s.intro_seen, "{action:?}");
@@ -487,7 +524,7 @@ mod tests {
         s.apply(Action::Play);
         s.apply(Action::Play);
         s.apply(Action::Clean);
-        assert_eq!(s.history, History { feeds: 1, plays: 2, cleans: 1 });
+        assert_eq!(s.history, History { feeds: 1, plays: 2, cleans: 1, snacks: 0 });
         assert_eq!(s.status.dirtiness, 0);
         assert!(s.status.affinity > 0);
     }

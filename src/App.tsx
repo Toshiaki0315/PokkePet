@@ -24,6 +24,7 @@ const GAUGES: ReadonlyArray<readonly [string, keyof StateView]> = [
 
 const actions = (view: StateView): ReadonlyArray<{ name: ActionName; label: string; icon: string }> => [
   { name: "feed", label: "ご飯", icon: "🍙" },
+  { name: "snack", label: "おやつ", icon: "🍪" },
   // 卵の間は「撫でる」。送るアクションは同じ "play" で、効果の違いは Rust 側が決める。
   view.playAction === "pet" ? { name: "play", label: "撫でる", icon: "🤚" } : { name: "play", label: "遊ぶ", icon: "🎾" },
   { name: "clean", label: "掃除", icon: "🧹" },

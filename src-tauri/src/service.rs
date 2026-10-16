@@ -19,6 +19,7 @@ impl FromStr for Action {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "feed" => Ok(Action::Feed),
+            "snack" => Ok(Action::Snack),
             "play" => Ok(Action::Play),
             "clean" => Ok(Action::Clean),
             other => Err(format!("unknown action: {other}")),
@@ -237,6 +238,7 @@ mod tests {
     #[test]
     fn action_parses_known_names() {
         assert_eq!("feed".parse::<Action>(), Ok(Action::Feed));
+        assert_eq!("snack".parse::<Action>(), Ok(Action::Snack));
         assert_eq!("play".parse::<Action>(), Ok(Action::Play));
         assert_eq!("clean".parse::<Action>(), Ok(Action::Clean));
     }

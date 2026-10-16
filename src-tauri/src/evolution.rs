@@ -39,6 +39,9 @@ pub struct History {
     pub feeds: u32,
     pub plays: u32,
     pub cleans: u32,
+    /// おやつの回数。性格の判定では「ご飯」と合わせて食いしん坊の材料になる。
+    #[serde(default)]
+    pub snacks: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,7 +107,7 @@ impl Growth {
 /// 履歴から性格を決定する。最多の行動に対応し、同数・全0なら Calm。
 pub fn personality_from(h: &History) -> Personality {
     let counts = [
-        (h.feeds, Personality::Gluttonous),
+        (h.feeds + h.snacks, Personality::Gluttonous),
         (h.plays, Personality::Playful),
         (h.cleans, Personality::Tidy),
     ];
@@ -226,17 +229,37 @@ mod tests {
 
     #[test]
     fn personality_follows_most_frequent_action() {
-        let play = History { feeds: 1, plays: 5, cleans: 2 };
-        let feed = History { feeds: 9, plays: 5, cleans: 2 };
-        let clean = History { feeds: 1, plays: 5, cleans: 7 };
+        let play = History { feeds: 1, plays: 5, cleans: 2, snacks: 0 };
+        let feed = History { feeds: 9, plays: 5, cleans: 2, snacks: 0 };
+        let clean = History { feeds: 1, plays: 5, cleans: 7, snacks: 0 };
         assert_eq!(personality_from(&play), Personality::Playful);
         assert_eq!(personality_from(&feed), Personality::Gluttonous);
         assert_eq!(personality_from(&clean), Personality::Tidy);
     }
 
     #[test]
+    fn snacks_count_towards_a_gluttonous_personality() {
+        let h = History { feeds: 1, plays: 4, cleans: 2, snacks: 4 };
+        assert_eq!(personality_from(&h), Personality::Gluttonous); // 1 + 4 = 5 > 4
+        let only_snacks = History { snacks: 3, ..History::default() };
+        assert_eq!(personality_from(&only_snacks), Personality::Gluttonous);
+    }
+
+    #[test]
+    fn snacks_and_feeds_add_up_in_a_tie_check() {
+        let h = History { feeds: 2, plays: 4, cleans: 0, snacks: 2 };
+        assert_eq!(personality_from(&h), Personality::Calm); // 2 + 2 = 4 は遊ぶと同数
+    }
+
+    #[test]
+    fn histories_saved_before_snacks_existed_still_load() {
+        let h: History = serde_json::from_str(r#"{"feeds":3,"plays":1,"cleans":0}"#).unwrap();
+        assert_eq!(h, History { feeds: 3, plays: 1, cleans: 0, snacks: 0 });
+    }
+
+    #[test]
     fn personality_is_calm_on_tie_for_top() {
-        let h = History { feeds: 4, plays: 4, cleans: 1 };
+        let h = History { feeds: 4, plays: 4, cleans: 1, snacks: 0 };
         assert_eq!(personality_from(&h), Personality::Calm);
     }
 
@@ -258,7 +281,7 @@ mod tests {
 
     #[test]
     fn evolve_combines_next_stage_branch_and_personality() {
-        let h = History { feeds: 0, plays: 3, cleans: 0 };
+        let h = History { feeds: 0, plays: 3, cleans: 0, snacks: 0 };
         let f = evolve(2, &st(90, 90), &h);
         assert_eq!(
             f,

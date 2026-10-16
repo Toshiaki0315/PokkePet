@@ -20,6 +20,12 @@ const FEED_AFFINITY: u8 = 2;
 const PLAY_MOOD: u8 = 25;
 const PLAY_AFFINITY: u8 = 5;
 const PLAY_HUNGER_COST: u8 = 5;
+const SNACK_MOOD: u8 = 15;
+const SNACK_HUNGER: u8 = 10;
+const SNACK_AFFINITY: u8 = 2;
+/// 空腹度（満腹側が大きい）がこの値以上のときにおやつをあげると、食べすぎになる。
+pub const SNACK_FULL_AT: u8 = 80;
+const OVEREAT_MOOD_LOSS: u8 = 10;
 const PET_MOOD: u8 = 10;
 const PET_AFFINITY: u8 = 3;
 /// 汚れ度がこの値以上だと、ティックごとのご機嫌低下が大きくなる。
@@ -45,6 +51,19 @@ impl Status {
         self.mood = raise(self.mood, PLAY_MOOD);
         self.affinity = raise(self.affinity, PLAY_AFFINITY);
         self.hunger = self.hunger.saturating_sub(PLAY_HUNGER_COST);
+    }
+
+    /// おやつ。おなかに余裕があれば喜ぶが、満腹のときは食べすぎてご機嫌が下がる。
+    /// 喜んだなら true、食べすぎなら false。
+    pub fn snack(&mut self) -> bool {
+        if self.hunger >= SNACK_FULL_AT {
+            self.mood = self.mood.saturating_sub(OVEREAT_MOOD_LOSS);
+            return false;
+        }
+        self.mood = raise(self.mood, SNACK_MOOD);
+        self.hunger = raise(self.hunger, SNACK_HUNGER);
+        self.affinity = raise(self.affinity, SNACK_AFFINITY);
+        true
     }
 
     /// 撫でる（卵の間の「遊ぶ」）。ご機嫌と親密度が少し上がり、空腹度は減らない。
@@ -145,6 +164,41 @@ mod tests {
         let mut s = Status::new(0, 50, 0, 100);
         s.tick();
         assert_eq!((s.mood, s.hunger, s.dirtiness), (0, 0, 100));
+    }
+
+    #[test]
+    fn a_snack_cheers_the_pet_up_a_lot_and_fills_it_a_little() {
+        let mut s = base();
+        assert!(s.snack());
+        assert_eq!(s, Status { mood: 65, affinity: 52, hunger: 60, dirtiness: 50 });
+    }
+
+    #[test]
+    fn a_snack_is_still_enjoyed_just_below_the_full_mark() {
+        let mut s = Status::new(50, 50, SNACK_FULL_AT - 1, 0);
+        assert!(s.snack());
+        assert_eq!((s.mood, s.hunger), (65, SNACK_FULL_AT + 9));
+    }
+
+    #[test]
+    fn a_snack_when_full_causes_overeating_and_a_worse_mood() {
+        let mut s = Status::new(50, 50, SNACK_FULL_AT, 0);
+        assert!(!s.snack());
+        assert_eq!(s, Status { mood: 40, affinity: 50, hunger: SNACK_FULL_AT, dirtiness: 0 });
+    }
+
+    #[test]
+    fn overeating_cannot_push_the_mood_below_zero() {
+        let mut s = Status::new(4, 0, 100, 0);
+        assert!(!s.snack());
+        assert_eq!(s.mood, 0);
+    }
+
+    #[test]
+    fn a_snack_saturates_at_the_maximum() {
+        let mut s = Status::new(95, 99, 75, 0);
+        assert!(s.snack());
+        assert_eq!((s.mood, s.affinity, s.hunger), (100, 100, 85));
     }
 
     #[test]

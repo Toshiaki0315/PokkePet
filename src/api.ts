@@ -6,7 +6,7 @@ export type Personality = "calm" | "playful" | "gluttonous" | "tidy";
 export type Level = "low" | "mid" | "high";
 export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping";
 export type PlayAction = "play" | "pet";
-export type ActionName = "feed" | "play" | "clean";
+export type ActionName = "feed" | "snack" | "play" | "clean";
 
 export interface StateView {
   mood: number;
