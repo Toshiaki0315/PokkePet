@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
 use crate::dex::form_key;
-use crate::sleep::is_sleeping;
+use crate::sleep::{is_sleeping, SleepWindow};
 use crate::status::Status;
 
 /// 何秒ごとに1ティック進めるか。
@@ -83,6 +83,8 @@ pub struct Timeline {
     pub utc_offset: i32,
     /// 留守番（アプリ停止・スリープ明け）か。
     pub away: bool,
+    /// おやすみ時間の設定。
+    pub sleep: SleepWindow,
 }
 
 fn yes() -> bool {
@@ -100,7 +102,7 @@ fn decay_divisor(timeline: Option<Timeline>, tick_index: u32, carried_secs: u32)
     if t.away {
         div *= AWAY_DECAY_DIV;
     }
-    if is_sleeping(at, t.utc_offset) {
+    if is_sleeping(at, t.utc_offset, t.sleep) {
         div *= SLEEP_DECAY_DIV;
     }
     div
@@ -210,12 +212,12 @@ impl GameState {
 
     /// 経過時間を `scale` 倍して進める（動作確認用の時間短縮）。0 は 1 として扱う。UTC として扱う。
     pub fn step_to_scaled(&mut self, now_unix: u64, scale: u32) -> u8 {
-        self.step_to_in(now_unix, scale, 0)
+        self.step_to_in(now_unix, scale, 0, SleepWindow::default())
     }
 
     /// 現在時刻まで進める。`utc_offset` はローカル時刻の UTC からの差（秒）。
     /// 実際の経過が `AWAY_THRESHOLD_SECS` を超えていたら留守番として減りを緩める。
-    pub fn step_to_in(&mut self, now_unix: u64, scale: u32, utc_offset: i32) -> u8 {
+    pub fn step_to_in(&mut self, now_unix: u64, scale: u32, utc_offset: i32, sleep: SleepWindow) -> u8 {
         let start_unix = self.last_unix;
         let elapsed = now_unix.saturating_sub(start_unix);
         self.last_unix = now_unix;
@@ -224,7 +226,7 @@ impl GameState {
         }
         let secs = elapsed.saturating_mul(u64::from(scale.max(1)));
         let away = elapsed > AWAY_THRESHOLD_SECS;
-        self.step_in(u32::try_from(secs).unwrap_or(u32::MAX), Some(Timeline { start_unix, utc_offset, away }))
+        self.step_in(u32::try_from(secs).unwrap_or(u32::MAX), Some(Timeline { start_unix, utc_offset, away, sleep }))
     }
 
     pub fn to_json(&self) -> String {
@@ -514,7 +516,7 @@ mod tests {
     const FOUR_HOURS: u32 = 4 * 3600; // 120 ティック
 
     fn timeline(start_hour: u64, away: bool) -> Option<Timeline> {
-        Some(Timeline { start_unix: start_hour * H, utc_offset: 0, away })
+        Some(Timeline { start_unix: start_hour * H, utc_offset: 0, away, sleep: SleepWindow::default() })
     }
 
     fn hunger_drop(timeline: Option<Timeline>, secs: u32) -> u8 {
@@ -578,7 +580,7 @@ mod tests {
     fn step_to_in_treats_a_long_real_gap_as_being_away() {
         let mut s = GameState::new(12 * H); // 昼12時
         s.status.hunger = 100;
-        s.step_to_in(12 * H + 4 * H, 1, 0); // 4時間の空白 → 留守番(減り1/4)
+        s.step_to_in(12 * H + 4 * H, 1, 0, SleepWindow::default()); // 4時間の空白 → 留守番(減り1/4)
         assert_eq!(100 - s.status.hunger, 30);
     }
 
@@ -587,7 +589,7 @@ mod tests {
         let mut s = GameState::new(12 * H);
         s.status.hunger = 100;
         for i in 1..=120u64 {
-            s.step_to_in(12 * H + i * u64::from(TICK_SECS), 1, 0); // 2分おき（常駐中）
+            s.step_to_in(12 * H + i * u64::from(TICK_SECS), 1, 0, SleepWindow::default()); // 2分おき（常駐中）
         }
         assert_eq!(100 - s.status.hunger, 100);
     }
@@ -596,7 +598,7 @@ mod tests {
     fn step_to_in_judges_being_away_by_real_time_not_scaled_time() {
         let mut s = GameState::new(12 * H);
         s.status.hunger = 100;
-        s.step_to_in(12 * H + 10, 240, 0); // 実際は10秒。時間短縮で 40 分進むが留守番ではない
+        s.step_to_in(12 * H + 10, 240, 0, SleepWindow::default()); // 実際は10秒。時間短縮で 40 分進むが留守番ではない
         assert_eq!(100 - s.status.hunger, 20); // 2400 秒 = 20 ティック
     }
 
@@ -607,7 +609,7 @@ mod tests {
         let mut s = GameState::new(14 * H);
         s.status.hunger = 100;
         for i in 1..=120u64 {
-            s.step_to_in(14 * H + i * u64::from(TICK_SECS), 1, jst);
+            s.step_to_in(14 * H + i * u64::from(TICK_SECS), 1, jst, SleepWindow::default());
         }
         assert_eq!(100 - s.status.hunger, 30);
     }

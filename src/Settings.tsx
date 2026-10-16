@@ -6,6 +6,11 @@ import { NAME_INPUT_MAX } from "./NamePrompt";
 import { useListener } from "./useListener";
 import "./Settings.css";
 
+const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
+
+/** 「22時〜翌6時」のような表示。開始が終了より後なら翌日にまたがる。 */
+const describeWindow = (start: number, end: number) => (start > end ? `${start}時〜翌${end}時` : `${start}時〜${end}時`);
+
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /** メニューバーの「設定…」から開く設定ダイアログ。変更は即座に保存・反映される。 */
@@ -64,6 +69,36 @@ export default function Settings() {
           <input type="checkbox" checked={settings.showGauges} onChange={(e) => patch({ showGauges: e.target.checked })} />
           ゲージを表示
         </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>おやすみ時間</legend>
+        <p className="hint">
+          この間はキャラが眠り、状態の減りがゆっくりになります（今: <strong>{describeWindow(settings.sleepStartHour, settings.sleepEndHour)}</strong>）。
+        </p>
+        <div className="row">
+          <label>
+            開始
+            <select aria-label="おやすみ開始" value={settings.sleepStartHour} onChange={(e) => patch({ sleepStartHour: Number(e.target.value) })}>
+              {HOURS.map((hour) => (
+                <option key={hour} value={hour}>
+                  {hour}時
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            終了
+            <select aria-label="おやすみ終了" value={settings.sleepEndHour} onChange={(e) => patch({ sleepEndHour: Number(e.target.value) })}>
+              {HOURS.map((hour) => (
+                <option key={hour} value={hour}>
+                  {hour}時
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+        {settings.sleepStartHour === settings.sleepEndHour && <p className="hint">開始と終了が同じ時刻なので、おやすみしません</p>}
       </fieldset>
 
       <fieldset>

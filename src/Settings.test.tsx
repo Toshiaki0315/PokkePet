@@ -16,7 +16,7 @@ vi.mock("./api", () => api);
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showStage: true, showGauges: false, notifyCalls: true, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showStage: true, showGauges: false, notifyCalls: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 let emitState: (v: { name: string | null }) => void;
 const unlisten = vi.fn();
@@ -194,6 +194,62 @@ describe("Settings dialog", () => {
       api.getState.mockRejectedValue(new Error("state unreadable"));
       render(<Settings />);
       expect(await screen.findByRole("alert")).toHaveTextContent("state unreadable");
+    });
+  });
+
+  describe("sleep hours", () => {
+    const select = (name: string) => screen.getByRole("combobox", { name }) as HTMLSelectElement;
+
+    it("shows the saved sleep hours", async () => {
+      render(<Settings />);
+      await waitFor(() => expect(select("おやすみ開始").value).toBe("22"));
+      expect(select("おやすみ終了").value).toBe("6");
+    });
+
+    it("offers every hour of the day", async () => {
+      render(<Settings />);
+      await screen.findByRole("checkbox", { name: "段階を表示" });
+      const options = Array.from(select("おやすみ開始").options).map((o) => o.textContent);
+      expect(options).toHaveLength(24);
+      expect(options[0]).toBe("0時");
+      expect(options[23]).toBe("23時");
+    });
+
+    it("saves a new start hour as a number", async () => {
+      render(<Settings />);
+      await waitFor(() => expect(select("おやすみ開始").value).toBe("22"));
+      await userEvent.selectOptions(select("おやすみ開始"), "21");
+      expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, sleepStartHour: 21 });
+    });
+
+    it("saves a new end hour as a number", async () => {
+      render(<Settings />);
+      await waitFor(() => expect(select("おやすみ終了").value).toBe("6"));
+      await userEvent.selectOptions(select("おやすみ終了"), "8");
+      expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, sleepEndHour: 8 });
+    });
+
+    it("explains that equal hours mean no sleeping", async () => {
+      api.getSettings.mockResolvedValue({ ...custom, sleepStartHour: 0, sleepEndHour: 0 });
+      render(<Settings />);
+      expect(await screen.findByText("開始と終了が同じ時刻なので、おやすみしません")).toBeInTheDocument();
+    });
+
+    it("does not show that note for a normal window", async () => {
+      render(<Settings />);
+      await waitFor(() => expect(select("おやすみ開始").value).toBe("22"));
+      expect(screen.queryByText("開始と終了が同じ時刻なので、おやすみしません")).toBeNull();
+    });
+
+    it("describes the current window", async () => {
+      render(<Settings />);
+      expect(await screen.findByText("22時〜翌6時")).toBeInTheDocument();
+    });
+
+    it("describes a window within one day without 翌", async () => {
+      api.getSettings.mockResolvedValue({ ...custom, sleepStartHour: 13, sleepEndHour: 15 });
+      render(<Settings />);
+      expect(await screen.findByText("13時〜15時")).toBeInTheDocument();
     });
   });
 });

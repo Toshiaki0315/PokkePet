@@ -5,6 +5,8 @@ export const DEFAULT_SETTINGS: Settings = {
   showStage: false,
   showGauges: false,
   notifyCalls: true,
+  sleepStartHour: 23,
+  sleepEndHour: 7,
   bodyColor: "#4b5fb8",
   buttonColor: "#f280a8",
 };

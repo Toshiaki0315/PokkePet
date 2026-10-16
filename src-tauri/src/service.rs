@@ -11,7 +11,7 @@ use crate::evolution::{Branch, Personality};
 use crate::expression::{express, Bubble, Expression};
 use crate::dex::{build_view, DexView};
 use crate::game::{Action, GameState};
-use crate::sleep::{is_sleeping, local_utc_offset};
+use crate::sleep::{is_sleeping, local_utc_offset, SleepWindow};
 
 impl FromStr for Action {
     type Err = String;
@@ -95,11 +95,13 @@ pub struct GameService {
     time_scale: u32,
     /// None ならこのマシンのローカルタイムゾーンを使う（テストでは固定値を指定する）。
     utc_offset: Option<i32>,
+    /// おやすみ時間（設定ダイアログで変えられる）。
+    sleep: Mutex<SleepWindow>,
 }
 
 impl GameService {
     pub fn new(state: GameState, path: PathBuf) -> Self {
-        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None }
+        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()) }
     }
 
     /// 経過時間の倍率（動作確認用）。
@@ -119,12 +121,21 @@ impl GameService {
         self
     }
 
+    /// おやすみ時間を切り替える。次の更新・表示からすぐ使われる。
+    pub fn set_sleep_window(&self, window: SleepWindow) {
+        *self.sleep.lock().unwrap_or_else(|e| e.into_inner()) = window;
+    }
+
+    fn sleep_window(&self) -> SleepWindow {
+        *self.sleep.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn offset_at(&self, unix_secs: u64) -> i32 {
         self.utc_offset.unwrap_or_else(|| local_utc_offset(unix_secs))
     }
 
     fn view(&self, state: &GameState) -> StateView {
-        view_of(state, self.offset_at(state.last_unix))
+        view_of(state, self.offset_at(state.last_unix), self.sleep_window())
     }
 
     pub fn snapshot(&self) -> StateView {
@@ -134,7 +145,7 @@ impl GameService {
     /// 現在時刻まで進めたうえでアクションを適用し、保存する。
     pub fn perform(&self, action: Action, now_unix: u64) -> io::Result<StateView> {
         let mut state = self.lock();
-        state.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix));
+        state.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix), self.sleep_window());
         state.apply(action);
         state.save(&self.path)?;
         Ok(self.view(&state))
@@ -162,7 +173,7 @@ impl GameService {
     pub fn tick(&self, now_unix: u64) -> io::Result<Tick> {
         let mut state = self.lock();
         let was_egg = state.form.stage <= 1;
-        let evolutions = state.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix));
+        let evolutions = state.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix), self.sleep_window());
         state.save(&self.path)?;
         Ok(Tick { view: self.view(&state), evolutions, hatched: was_egg && evolutions > 0 })
     }
@@ -173,8 +184,8 @@ impl GameService {
     }
 }
 
-fn view_of(s: &GameState, utc_offset: i32) -> StateView {
-    let sleeping = is_sleeping(s.last_unix, utc_offset);
+fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
+    let sleeping = is_sleeping(s.last_unix, utc_offset, window);
     let mut expression = express(&s.status);
     if sleeping {
         expression.bubble = Some(Bubble::Sleeping);
@@ -326,6 +337,48 @@ mod tests {
         let night = GameService::new(GameState::new(0), tmp("night")).with_utc_offset(0); // 0:00
         assert!(night.snapshot().sleeping);
         assert!(!svc("day").snapshot().sleeping);
+    }
+
+    fn night_service(name: &str) -> GameService {
+        // UTC+0 で UNIX 秒 0 = 0:00（既定のおやすみ時間の真ん中）。
+        GameService::new(GameState::new(0), tmp(name)).with_utc_offset(0)
+    }
+
+    #[test]
+    fn a_custom_sleep_window_decides_whether_the_pet_is_asleep() {
+        let s = night_service("win-custom");
+        assert!(s.snapshot().sleeping); // 既定 23〜7 では 0:00 は夜
+        s.set_sleep_window(SleepWindow { start_hour: 1, end_hour: 5 });
+        assert!(!s.snapshot().sleeping); // 1〜5時にすると 0:00 は起きている
+        s.set_sleep_window(SleepWindow { start_hour: 22, end_hour: 6 });
+        assert!(s.snapshot().sleeping);
+    }
+
+    #[test]
+    fn a_window_with_equal_hours_means_the_pet_never_sleeps() {
+        let s = night_service("win-never");
+        s.set_sleep_window(SleepWindow { start_hour: 0, end_hour: 0 });
+        assert!(!s.snapshot().sleeping);
+    }
+
+    #[test]
+    fn the_sleep_window_also_changes_how_fast_the_pet_gets_hungry() {
+        fn hunger_after_four_hours(window: Option<SleepWindow>) -> u8 {
+            let mut state = GameState::new(0);
+            state.status.hunger = 100;
+            let s = GameService::new(state, tmp("win-decay")).with_utc_offset(0);
+            if let Some(w) = window {
+                s.set_sleep_window(w);
+            }
+            for i in 1..=120u64 {
+                s.tick(i * u64::from(TICK_SECS)).unwrap();
+            }
+            s.snapshot().hunger
+        }
+        let asleep = hunger_after_four_hours(None); // 既定 23〜7: 0〜4時はずっと寝ている
+        let awake = hunger_after_four_hours(Some(SleepWindow { start_hour: 0, end_hour: 0 }));
+        assert_eq!(100 - asleep, 30);
+        assert_eq!(awake, 0);
     }
 
     #[test]

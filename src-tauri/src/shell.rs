@@ -71,9 +71,11 @@ pub fn get_settings(svc: State<SettingsService>) -> Settings {
 
 /// 設定を検証・保存し、すべてのウィンドウへ `settings-changed` を通知する。
 #[tauri::command]
-pub fn save_settings(app: AppHandle, svc: State<SettingsService>, settings: Settings) -> Result<Settings, String> {
+pub fn save_settings(app: AppHandle, svc: State<SettingsService>, game: State<GameService>, settings: Settings) -> Result<Settings, String> {
     let saved = svc.update(settings)?;
+    game.set_sleep_window(saved.sleep_window()); // おやすみ時間の変更をすぐ反映する
     let _ = app.emit(SETTINGS_EVENT, saved.clone());
+    let _ = app.emit(STATE_EVENT, game.snapshot());
     Ok(saved)
 }
 
@@ -99,6 +101,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("failed to load settings, using defaults: {e}");
         Settings::default()
     });
+    app.state::<GameService>().set_sleep_window(settings.sleep_window());
     app.manage(SettingsService::new(settings, settings_path));
 
     setup_popup(app)?;
@@ -136,7 +139,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .on_menu_event(|app, event| {
             match event.id.as_ref() {
                 "dex" => open_window(app, DEX_WINDOW, "PokkePet 図鑑", (640.0, 580.0)),
-                "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 640.0)),
+                "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 770.0)),
                 "quit" => app.exit(0),
                 _ => {}
             }

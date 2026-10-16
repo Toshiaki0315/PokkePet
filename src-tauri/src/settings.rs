@@ -7,6 +7,8 @@ use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 
+use crate::sleep::{SleepWindow, DEFAULT_SLEEP_END_HOUR, DEFAULT_SLEEP_START_HOUR};
+
 pub const DEFAULT_BODY_COLOR: &str = "#4b5fb8";
 pub const DEFAULT_BUTTON_COLOR: &str = "#f280a8";
 
@@ -17,6 +19,9 @@ pub struct Settings {
     pub show_gauges: bool,
     /// お世話の呼びかけ（空腹・汚れ・つまらない）をmacOSの通知で知らせる。
     pub notify_calls: bool,
+    /// おやすみ時間の開始・終了（0〜23時）。同じ値ならおやすみなし。
+    pub sleep_start_hour: u8,
+    pub sleep_end_hour: u8,
     pub body_color: String,
     pub button_color: String,
 }
@@ -27,6 +32,8 @@ impl Default for Settings {
             show_stage: false,
             show_gauges: false,
             notify_calls: true,
+            sleep_start_hour: DEFAULT_SLEEP_START_HOUR,
+            sleep_end_hour: DEFAULT_SLEEP_END_HOUR,
             body_color: DEFAULT_BODY_COLOR.to_string(),
             button_color: DEFAULT_BUTTON_COLOR.to_string(),
         }
@@ -36,8 +43,15 @@ impl Default for Settings {
 impl Settings {
     /// 色は `#rrggbb` のみ許可する（CSS に埋め込むため厳密に検証する）。
     pub fn validate(&self) -> Result<(), String> {
+        check_hour("sleepStartHour", self.sleep_start_hour)?;
+        check_hour("sleepEndHour", self.sleep_end_hour)?;
         check_color("bodyColor", &self.body_color)?;
         check_color("buttonColor", &self.button_color)
+    }
+
+    /// ゲームに渡すおやすみ時間。
+    pub fn sleep_window(&self) -> SleepWindow {
+        SleepWindow { start_hour: self.sleep_start_hour, end_hour: self.sleep_end_hour }
     }
 
     /// ファイルが無ければ既定値。壊れていれば InvalidData。
@@ -61,6 +75,13 @@ impl Settings {
 
 fn invalid_data(e: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, e)
+}
+
+fn check_hour(field: &str, hour: u8) -> Result<(), String> {
+    if hour <= 23 {
+        return Ok(());
+    }
+    Err(format!("{field} must be 0-23: {hour}"))
 }
 
 fn check_color(field: &str, value: &str) -> Result<(), String> {
@@ -160,11 +181,59 @@ mod tests {
     }
 
     #[test]
+    fn the_default_sleep_hours_are_23_to_7() {
+        let s = Settings::default();
+        assert_eq!((s.sleep_start_hour, s.sleep_end_hour), (23, 7));
+        assert_eq!(s.sleep_window(), SleepWindow { start_hour: 23, end_hour: 7 });
+    }
+
+    #[test]
+    fn any_hour_from_0_to_23_is_valid() {
+        for h in 0..=23 {
+            let s = Settings { sleep_start_hour: h, sleep_end_hour: 23 - h, ..Settings::default() };
+            assert_eq!(s.validate(), Ok(()), "{h}");
+        }
+    }
+
+    #[test]
+    fn hours_above_23_are_rejected_and_named() {
+        let start = Settings { sleep_start_hour: 24, ..Settings::default() };
+        assert!(start.validate().unwrap_err().contains("sleepStartHour"));
+        let end = Settings { sleep_end_hour: 99, ..Settings::default() };
+        assert!(end.validate().unwrap_err().contains("sleepEndHour"));
+    }
+
+    #[test]
+    fn sleep_hours_are_saved_and_converted_to_a_window() {
+        let p = tmp("sleep-hours");
+        let s = Settings { sleep_start_hour: 21, sleep_end_hour: 5, ..Settings::default() };
+        s.save(&p).unwrap();
+        let back = Settings::load(&p).unwrap();
+        assert_eq!(back.sleep_window(), SleepWindow { start_hour: 21, end_hour: 5 });
+    }
+
+    #[test]
+    fn older_settings_files_get_the_default_sleep_hours() {
+        let p = tmp("older-sleep");
+        fs::write(&p, r##"{"showStage": true}"##).unwrap();
+        assert_eq!(Settings::load(&p).unwrap().sleep_window(), SleepWindow::default());
+    }
+
+    #[test]
+    fn a_settings_file_with_invalid_sleep_hours_is_invalid_data() {
+        let p = tmp("bad-sleep");
+        fs::write(&p, r##"{"sleepStartHour": 30}"##).unwrap();
+        assert_eq!(Settings::load(&p).unwrap_err().kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
     fn serializes_with_camel_case_keys() {
         let json = serde_json::to_value(Settings::default()).unwrap();
         assert_eq!(json["showStage"], false);
         assert_eq!(json["showGauges"], false);
         assert_eq!(json["notifyCalls"], true);
+        assert_eq!(json["sleepStartHour"], 23);
+        assert_eq!(json["sleepEndHour"], 7);
         assert_eq!(json["bodyColor"], "#4b5fb8");
         assert_eq!(json["buttonColor"], "#f280a8");
     }

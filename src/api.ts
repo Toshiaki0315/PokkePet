@@ -72,6 +72,9 @@ export interface Settings {
   showGauges: boolean;
   /** お世話の呼びかけ（空腹・汚れ・つまらない）をmacOSの通知で知らせる */
   notifyCalls: boolean;
+  /** おやすみ時間の開始・終了（0〜23時）。同じ値ならおやすみなし */
+  sleepStartHour: number;
+  sleepEndHour: number;
   bodyColor: string;
   buttonColor: string;
 }
