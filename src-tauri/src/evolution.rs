@@ -11,6 +11,7 @@ const GOOD_MIN_AVG: u16 = 70;
 const POOR_MAX_AVG: u16 = 40;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Personality {
     Calm,
     Playful,
@@ -27,6 +28,7 @@ pub struct History {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum Branch {
     Poor,
     Normal,

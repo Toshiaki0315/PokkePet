@@ -1,51 +1,79 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
-import { invoke } from "@tauri-apps/api/core";
+import { useEffect, useState } from "react";
+import { getState, onStateChanged, performAction } from "./api";
+import type { ActionName, StateView } from "./api";
+import { Sprite } from "./SpriteView";
 import "./App.css";
 
-function App() {
-  const [greetMsg, setGreetMsg] = useState("");
-  const [name, setName] = useState("");
+const GAUGES: ReadonlyArray<readonly [string, keyof StateView]> = [
+  ["ご機嫌", "mood"],
+  ["親密度", "affinity"],
+  ["空腹度", "hunger"],
+  ["汚れ度", "dirtiness"],
+];
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-    setGreetMsg(await invoke("greet", { name }));
+const ACTIONS: ReadonlyArray<readonly [string, ActionName]> = [
+  ["ご飯", "feed"],
+  ["遊ぶ", "play"],
+  ["掃除", "clean"],
+];
+
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+export default function App() {
+  const [view, setView] = useState<StateView | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    getState().then(setView, (e) => setError(errorText(e)));
+    onStateChanged(setView).then((off) => {
+      if (disposed) return off();
+      unlisten = off;
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, []);
+
+  const act = (action: ActionName) =>
+    performAction(action).then(
+      (next) => {
+        setError(null);
+        setView(next);
+      },
+      (e) => setError(errorText(e)),
+    );
+
+  if (!view) {
+    return (
+      <main className="container">
+        {error ? <p role="alert">{error}</p> : <p>読み込み中…</p>}
+      </main>
+    );
   }
 
   return (
     <main className="container">
-      <h1>Welcome to Tauri + React</h1>
-
-      <div className="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/vite.svg" className="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img src="/tauri.svg" className="logo tauri" alt="Tauri logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+      <Sprite view={view} />
+      <p className="stage">段階 {view.stage} / 10</p>
+      <div className="gauges">
+        {GAUGES.map(([label, key]) => (
+          <label key={key} className="gauge">
+            <span>{label}</span>
+            <progress aria-label={label} role="progressbar" aria-valuenow={Number(view[key])} max={100} value={Number(view[key])} />
+          </label>
+        ))}
       </div>
-      <p>Click on the Tauri, Vite, and React logos to learn more.</p>
-
-      <form
-        className="row"
-        onSubmit={(e) => {
-          e.preventDefault();
-          greet();
-        }}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-        />
-        <button type="submit">Greet</button>
-      </form>
-      <p>{greetMsg}</p>
+      <div className="actions">
+        {ACTIONS.map(([label, action]) => (
+          <button key={action} type="button" onClick={() => act(action)}>
+            {label}
+          </button>
+        ))}
+      </div>
+      {error && <p role="alert">{error}</p>}
     </main>
   );
 }
-
-export default App;
