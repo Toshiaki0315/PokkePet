@@ -2,9 +2,11 @@
 //!
 //! `hunger` は「満腹側が大きい」値として扱う（ご飯で回復＝増加、遊ぶと減少）。
 
+use serde::{Deserialize, Serialize};
+
 pub const PARAM_MAX: u8 = 100;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Status {
     pub mood: u8,
     pub affinity: u8,

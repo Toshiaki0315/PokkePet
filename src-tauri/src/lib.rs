@@ -1,4 +1,5 @@
 pub mod evolution;
+pub mod game;
 pub mod status;
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/

@@ -1,5 +1,7 @@
 //! 成長段階の進行と、進化時の分岐判定。
 
+use serde::{Deserialize, Serialize};
+
 use crate::status::Status;
 
 pub const MAX_STAGE: u8 = 10;
@@ -8,7 +10,7 @@ pub const STAGE_SECS: u32 = 3600;
 const GOOD_MIN_AVG: u16 = 70;
 const POOR_MAX_AVG: u16 = 40;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Personality {
     Calm,
     Playful,
@@ -17,28 +19,28 @@ pub enum Personality {
 }
 
 /// 行動履歴（性格形成の材料）。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct History {
     pub feeds: u32,
     pub plays: u32,
     pub cleans: u32,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Branch {
     Poor,
     Normal,
     Good,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Form {
     pub stage: u8,
     pub branch: Branch,
     pub personality: Personality,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Growth {
     pub stage: u8,
     pub elapsed_secs: u32,
