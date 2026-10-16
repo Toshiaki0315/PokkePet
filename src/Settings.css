@@ -5,6 +5,8 @@
 .settings .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .settings .row input[type="checkbox"] { order: -1; margin-right: 6px; }
 .settings .row:has(input[type="checkbox"]) { justify-content: flex-start; }
+.settings input[type="text"] { margin-left: 8px; width: 120px; padding: 4px 8px; border: 1px solid #0003; border-radius: 6px; font-size: 13px; user-select: text; }
+.settings button:disabled { opacity: 0.45; cursor: default; }
 .settings input[type="color"] { width: 54px; height: 28px; padding: 0; border: 1px solid #0003; border-radius: 6px; background: none; cursor: pointer; }
 .settings .presets { display: flex; flex-wrap: wrap; gap: 6px; }
 .settings button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 8px; border: 1px solid #0003; background: #fff; color: inherit; cursor: pointer; font-size: 12px; }

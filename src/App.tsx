@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { ackHatch, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
+import { ackHatch, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
 import type { ActionName, Settings, StateView } from "./api";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { Sprite } from "./SpriteView";
-import { BUBBLE_TEXT } from "./bubble";
+import { bubbleText } from "./bubble";
+import { NamePrompt } from "./NamePrompt";
 import { useHiddenCommand } from "./hiddenCommand";
 import { HatchSequence } from "./hatch";
 import { useListener } from "./useListener";
@@ -37,6 +38,7 @@ export default function App() {
   const [reaction, setReaction] = useState<{ name: "wobble" | "hop"; id: number } | null>(null);
   // ポップアップが開いている間だけ孵化の演出を再生する（Rust が表示/非表示を通知する）。
   const [popupOpen, setPopupOpen] = useState(false);
+  const [namingLater, setNamingLater] = useState(false);
 
   useEffect(() => {
     getState().then(setView, (e) => setError(errorText(e)));
@@ -61,6 +63,16 @@ export default function App() {
       },
       (e) => setError(errorText(e)),
     );
+
+  const submitName = (name: string) => {
+    setName(name).then(
+      (next) => {
+        setError(null);
+        setView(next);
+      },
+      (e) => setError(errorText(e)),
+    );
+  };
 
   const finishHatch = () => {
     ackHatch().then(setView, (e) => setError(errorText(e)));
@@ -87,10 +99,12 @@ export default function App() {
       <div className="device">
         <section className={`screen${settings.showGauges ? " compact" : ""}`} aria-label="画面">
           {settings.showStage && <p className="stage">段階 {view.stage} / 10</p>}
+          {view.name && <p className="name">{view.name}</p>}
+          {view.needsName && !namingLater && <NamePrompt onSubmit={submitName} onLater={() => setNamingLater(true)} />}
           <div className="stage-area">
             {view.expression.bubble && (
               <div className="bubble" role="status">
-                {BUBBLE_TEXT[view.expression.bubble]}
+                {bubbleText(view.expression.bubble, view.name)}
               </div>
             )}
             {view.hatching && popupOpen ? (

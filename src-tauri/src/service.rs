@@ -34,7 +34,7 @@ pub enum PlayAction {
     Pet,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StateView {
     pub mood: u8,
@@ -52,10 +52,14 @@ pub struct StateView {
     pub hatching: bool,
     /// おやすみ時間中（ローカル時刻）。
     pub sleeping: bool,
+    /// ペットの名前（未設定なら null）。
+    pub name: Option<String>,
+    /// 孵化の演出が終わったのに、まだ名前がない（名前を付けてもらう）。
+    pub needs_name: bool,
 }
 
 /// `tick` の結果。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tick {
     pub view: StateView,
     /// 今回の時間経過で起きた進化の回数。
@@ -130,6 +134,16 @@ impl GameService {
         Ok(self.view(&state))
     }
 
+    /// 名前を付けて（または付け直して）保存する。
+    pub fn set_name(&self, raw: &str) -> Result<StateView, String> {
+        let mut state = self.lock();
+        let mut next = state.clone();
+        next.set_name(raw)?;
+        next.save(&self.path).map_err(|e| e.to_string())?;
+        *state = next;
+        Ok(self.view(&state))
+    }
+
     /// 孵化の演出を見せたことを記録して保存する。
     pub fn ack_hatch(&self) -> io::Result<StateView> {
         let mut state = self.lock();
@@ -174,6 +188,8 @@ fn view_of(s: &GameState, utc_offset: i32) -> StateView {
         intro: !s.intro_seen,
         hatching: s.hatching(),
         sleeping,
+        name: s.name.clone(),
+        needs_name: s.form.stage >= 2 && s.hatch_shown && s.name.is_none(),
         play_action: if s.form.stage <= 1 { PlayAction::Pet } else { PlayAction::Play },
     }
 }
@@ -236,6 +252,8 @@ mod tests {
                 intro: true,
                 hatching: false,
                 sleeping: false,
+                name: None,
+                needs_name: false,
             }
         );
     }
@@ -328,6 +346,66 @@ mod tests {
     fn the_welcome_bubble_still_wins_over_sleeping() {
         let night = GameService::new(GameState::new(0), tmp("night-welcome")).with_utc_offset(0);
         assert_eq!(night.snapshot().expression.bubble, Some(Bubble::Welcome));
+    }
+
+    fn hatched_and_shown(name: &str) -> GameService {
+        let s = svc(name);
+        s.tick(u64::from(EGG_SECS)).unwrap();
+        s.ack_hatch().unwrap();
+        s
+    }
+
+    #[test]
+    fn nobody_is_asked_for_a_name_while_still_an_egg() {
+        let v = svc("name-egg").snapshot();
+        assert_eq!((v.name.clone(), v.needs_name), (None, false));
+    }
+
+    #[test]
+    fn the_name_is_asked_for_only_after_the_hatch_animation_has_been_shown() {
+        let s = svc("name-ask");
+        let t = s.tick(u64::from(EGG_SECS)).unwrap();
+        assert!(t.view.hatching);
+        assert!(!t.view.needs_name); // 演出が先
+        assert!(s.ack_hatch().unwrap().needs_name);
+    }
+
+    #[test]
+    fn naming_the_pet_stops_the_question_and_exposes_the_name() {
+        let s = hatched_and_shown("name-set");
+        let v = s.set_name("  ごま ").unwrap();
+        assert_eq!((v.name.as_deref(), v.needs_name), (Some("ごま"), false));
+        assert_eq!(s.snapshot().name.as_deref(), Some("ごま"));
+    }
+
+    #[test]
+    fn the_name_is_persisted() {
+        let p = tmp("name-persist");
+        let s = GameService::new(GameState::new(0), p.clone()).with_utc_offset(NOON_AT_ZERO);
+        s.set_name("ごま").unwrap();
+        assert_eq!(GameState::load(&p, 0).unwrap().name.as_deref(), Some("ごま"));
+    }
+
+    #[test]
+    fn an_invalid_name_is_an_error_and_changes_nothing() {
+        let s = hatched_and_shown("name-bad");
+        assert!(s.set_name("").is_err());
+        assert!(s.set_name(&"あ".repeat(50)).is_err());
+        assert_eq!(s.snapshot().name, None);
+    }
+
+    #[test]
+    fn a_failure_to_save_the_name_is_reported() {
+        let bad = tmp("name-save").parent().unwrap().join("no/such/dir/save.json");
+        let s = GameService::new(GameState::new(0), bad);
+        assert!(s.set_name("ごま").is_err());
+    }
+
+    #[test]
+    fn the_view_json_exposes_the_name_fields() {
+        let json = serde_json::to_value(svc("name-json").snapshot()).unwrap();
+        assert_eq!(json["name"], serde_json::Value::Null);
+        assert_eq!(json["needsName"], false);
     }
 
     #[test]

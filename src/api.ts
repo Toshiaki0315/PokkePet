@@ -25,6 +25,10 @@ export interface StateView {
   hatching: boolean;
   /** おやすみ時間中（ローカル時刻） */
   sleeping: boolean;
+  /** ペットの名前（未設定なら null） */
+  name: string | null;
+  /** 孵化の演出が終わったのに、まだ名前がない */
+  needsName: boolean;
 }
 
 export interface Expression {
@@ -47,6 +51,11 @@ export function performAction(action: ActionName): Promise<StateView> {
 /** ポップアップが開いた(true)/閉じた(false)ことの通知。 */
 export function onPopupVisibility(handler: (visible: boolean) => void): Promise<() => void> {
   return listen<boolean>("popup-visibility", (event) => handler(event.payload));
+}
+
+/** 名前を付ける（付け直す）。長さなどの検証は Rust 側。 */
+export function setName(name: string): Promise<StateView> {
+  return invoke<StateView>("set_name", { name });
 }
 
 /** 孵化の演出を見せ終えたことを記録する。 */

@@ -10,6 +10,7 @@ const api = vi.hoisted(() => ({
   performAction: vi.fn(),
   onStateChanged: vi.fn(),
   ackHatch: vi.fn(),
+  setName: vi.fn(),
   getSettings: vi.fn(),
   saveSettings: vi.fn(),
   onSettingsChanged: vi.fn(),
@@ -32,6 +33,8 @@ const base: StateView = {
   intro: false,
   hatching: false,
   sleeping: false,
+  name: null,
+  needsName: false,
 };
 const withExpression = (e: Partial<StateView["expression"]>): StateView => ({ ...base, expression: { ...base.expression, ...e } });
 const gaugesOn: Settings = { ...DEFAULT_SETTINGS, showStage: true, showGauges: true };
@@ -599,6 +602,101 @@ describe("App", () => {
       emit(base);
       await waitFor(() => expect(screen.getByRole("main")).toHaveAttribute("data-sleep", "false"));
       expect(screen.getByRole("img")).not.toHaveClass("sleeping");
+    });
+  });
+
+  describe("naming", () => {
+    const unnamed: StateView = { ...base, needsName: true };
+
+    it("asks for a name once the pet has hatched and has none", async () => {
+      api.getState.mockResolvedValue(unnamed);
+      render(<App />);
+      expect(await screen.findByRole("textbox", { name: "名前" })).toBeInTheDocument();
+      expect(screen.getByText("名前をつけてあげてね")).toBeInTheDocument();
+    });
+
+    it("does not ask when no name is needed", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      expect(screen.queryByRole("textbox", { name: "名前" })).toBeNull();
+    });
+
+    it("sends the typed name and shows it afterwards", async () => {
+      api.getState.mockResolvedValue(unnamed);
+      api.setName.mockResolvedValue({ ...base, name: "ごま", needsName: false });
+      render(<App />);
+      await userEvent.type(await screen.findByRole("textbox", { name: "名前" }), "ごま");
+      await userEvent.click(screen.getByRole("button", { name: "決定" }));
+      expect(api.setName).toHaveBeenCalledWith("ごま");
+      expect(await screen.findByText("ごま")).toBeInTheDocument();
+      expect(screen.queryByRole("textbox", { name: "名前" })).toBeNull();
+    });
+
+    it("limits the length of the input", async () => {
+      api.getState.mockResolvedValue(unnamed);
+      render(<App />);
+      expect(await screen.findByRole("textbox", { name: "名前" })).toHaveAttribute("maxlength", "8");
+    });
+
+    it("also submits with the Enter key", async () => {
+      api.getState.mockResolvedValue(unnamed);
+      api.setName.mockResolvedValue({ ...base, name: "もち" });
+      render(<App />);
+      await userEvent.type(await screen.findByRole("textbox", { name: "名前" }), "もち{Enter}");
+      expect(api.setName).toHaveBeenCalledWith("もち");
+    });
+
+    it("does not send an empty name", async () => {
+      api.getState.mockResolvedValue(unnamed);
+      render(<App />);
+      await screen.findByRole("textbox", { name: "名前" });
+      expect(screen.getByRole("button", { name: "決定" })).toBeDisabled();
+      await userEvent.type(screen.getByRole("textbox", { name: "名前" }), "   ");
+      expect(screen.getByRole("button", { name: "決定" })).toBeDisabled();
+      expect(api.setName).not.toHaveBeenCalled();
+    });
+
+    it("ignores Enter on a blank input", async () => {
+      api.getState.mockResolvedValue(unnamed);
+      render(<App />);
+      await userEvent.type(await screen.findByRole("textbox", { name: "名前" }), "  {Enter}");
+      expect(api.setName).not.toHaveBeenCalled();
+    });
+
+    it("shows the reason when the name is rejected and keeps asking", async () => {
+      api.getState.mockResolvedValue(unnamed);
+      api.setName.mockRejectedValue(new Error("name must be at most 8 characters"));
+      render(<App />);
+      await userEvent.type(await screen.findByRole("textbox", { name: "名前" }), "ごま");
+      await userEvent.click(screen.getByRole("button", { name: "決定" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("at most 8");
+      expect(screen.getByRole("textbox", { name: "名前" })).toBeInTheDocument();
+    });
+
+    it("lets the player decide later", async () => {
+      api.getState.mockResolvedValue(unnamed);
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "あとで" }));
+      expect(screen.queryByRole("textbox", { name: "名前" })).toBeNull();
+      expect(screen.getByRole("img")).toBeInTheDocument();
+    });
+
+    it("shows the pet's name on the screen", async () => {
+      api.getState.mockResolvedValue({ ...base, name: "ごま" });
+      render(<App />);
+      expect(await screen.findByText("ごま")).toHaveClass("name");
+    });
+
+    it("speaks with the name in the speech bubble", async () => {
+      api.getState.mockResolvedValue({ ...base, name: "ごま", expression: { ...base.expression, bubble: "hungry" } });
+      render(<App />);
+      expect(await screen.findByRole("status")).toHaveTextContent("ごま「おなかすいたよ…」");
+    });
+
+    it("keeps the bubble unchanged for an unnamed pet", async () => {
+      api.getState.mockResolvedValue({ ...base, expression: { ...base.expression, bubble: "happy" } });
+      render(<App />);
+      expect((await screen.findByRole("status")).textContent).toBe("たのしい！");
     });
   });
 });

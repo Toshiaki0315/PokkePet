@@ -129,3 +129,12 @@ body { overflow: hidden; user-select: none; }
 .sprite.sleeping { animation: sleeping 3.2s ease-in-out infinite; filter: brightness(0.75) saturate(0.8); }
 @keyframes sleeping { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(2px) scale(1.02, 0.98); } }
 @media (prefers-reduced-motion: reduce) { .sprite.sleeping { animation: none; } }
+
+/* --- 名前 --- */
+.screen > .name { position: absolute; top: 5px; right: 6px; margin: 0; font-size: 10px; font-weight: 700; color: #3b3f55; background: rgba(255, 255, 255, 0.75); padding: 1px 6px; border-radius: 8px; z-index: 2; }
+.screen > .name-prompt { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: rgba(255, 255, 255, 0.88); color: #222; }
+.name-prompt p { margin: 0; font-weight: 700; font-size: 13px; }
+.name-prompt input { width: 140px; padding: 6px 8px; border: 1px solid #0004; border-radius: 8px; font-size: 14px; text-align: center; user-select: text; }
+.name-actions { display: flex; gap: 8px; }
+.name-actions button { padding: 5px 14px; border-radius: 8px; border: 1px solid #0003; background: #fff; color: inherit; cursor: pointer; font-size: 12px; }
+.name-actions button:disabled { opacity: 0.45; cursor: default; }

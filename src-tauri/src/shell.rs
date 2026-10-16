@@ -43,6 +43,14 @@ pub fn perform_action(app: AppHandle, svc: State<GameService>, gate: State<Mutex
     Ok(view)
 }
 
+/// 名前を付ける（付け直す）。すべてのウィンドウへ最新の状態を通知する。
+#[tauri::command]
+pub fn set_name(app: AppHandle, svc: State<GameService>, name: String) -> Result<StateView, String> {
+    let view = svc.set_name(&name)?;
+    let _ = app.emit(STATE_EVENT, view.clone());
+    Ok(view)
+}
+
 /// 孵化の演出を見せ終えたことを記録する。
 #[tauri::command]
 pub fn ack_hatch(svc: State<GameService>) -> Result<StateView, String> {
@@ -202,12 +210,13 @@ fn notify_call_if_needed(app: &AppHandle, view: &StateView, popup_open: bool) {
     let quiet = view.sleeping || popup_open || !notify_calls;
     let call = app.state::<Mutex<CallGate>>().lock().unwrap_or_else(|e| e.into_inner()).decide(now_unix(), view.expression.bubble, quiet);
     if let Some(call) = call {
-        notify_call(app, call);
+        notify_call(app, call, view.name.as_deref());
     }
 }
 
-fn notify_call(app: &AppHandle, call: Call) {
-    if let Err(e) = app.notification().builder().title("PokkePet").body(call.message()).show() {
+fn notify_call(app: &AppHandle, call: Call, name: Option<&str>) {
+    let title = name.unwrap_or("PokkePet");
+    if let Err(e) = app.notification().builder().title(title).body(call.message()).show() {
         eprintln!("failed to show notification: {e}");
     }
 }
@@ -230,7 +239,7 @@ fn spawn_loop(handle: AppHandle) {
         let svc = handle.state::<GameService>();
         match svc.tick(now_unix()) {
             Ok(tick) => {
-                let _ = handle.emit(STATE_EVENT, tick.view);
+                let _ = handle.emit(STATE_EVENT, tick.view.clone());
                 update_tray_title(&handle, &tick.view);
                 let popup_open = popup_is_open(&handle);
                 if should_notify_hatch(tick.hatched, popup_open) {

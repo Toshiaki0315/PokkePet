@@ -46,6 +46,27 @@ pub struct GameState {
     /// これまでに進めたティック数。減りをゆっくりにする間引きに使う。
     #[serde(default)]
     pub tick_count: u32,
+    /// ペットの名前。孵化後に付ける。
+    #[serde(default)]
+    pub name: Option<String>,
+}
+
+/// 名前の最大文字数（バイトではなく文字数）。
+pub const NAME_MAX_CHARS: usize = 8;
+
+/// 名前を検証して、前後の空白を除いたものを返す。
+pub fn validate_name(raw: &str) -> Result<String, String> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Err("name must not be empty".to_string());
+    }
+    if name.chars().count() > NAME_MAX_CHARS {
+        return Err(format!("name must be at most {NAME_MAX_CHARS} characters"));
+    }
+    if name.chars().any(char::is_control) {
+        return Err("name must not contain control characters".to_string());
+    }
+    Ok(name.to_string())
 }
 
 /// 時間を進めるときの文脈（おやすみ・留守番の判定に使う）。
@@ -92,7 +113,14 @@ impl GameState {
             intro_seen: false,
             hatch_shown: false,
             tick_count: 0,
+            name: None,
         }
+    }
+
+    /// 名前を付ける（付け直しもできる）。
+    pub fn set_name(&mut self, raw: &str) -> Result<(), String> {
+        self.name = Some(validate_name(raw)?);
+        Ok(())
     }
 
     /// 孵化したが、まだ演出を見せていない。
@@ -238,6 +266,71 @@ mod tests {
             Form { stage: 1, branch: Branch::Normal, personality: Personality::Calm }
         );
         assert_eq!((s.tick_acc, s.last_unix), (0, 1_000));
+    }
+
+    #[test]
+    fn a_new_pet_has_no_name() {
+        assert_eq!(new_state().name, None);
+    }
+
+    #[test]
+    fn names_are_trimmed() {
+        assert_eq!(validate_name("  ごま \u{3000}"), Ok("ごま".to_string()));
+    }
+
+    #[test]
+    fn names_may_contain_inner_spaces_and_any_script() {
+        assert_eq!(validate_name("Mochi 2"), Ok("Mochi 2".to_string()));
+        assert_eq!(validate_name("ぽっけ🐣"), Ok("ぽっけ🐣".to_string()));
+    }
+
+    #[test]
+    fn empty_or_blank_names_are_rejected() {
+        assert!(validate_name("").is_err());
+        assert!(validate_name("   \u{3000} ").is_err());
+    }
+
+    #[test]
+    fn names_are_limited_by_characters_not_bytes() {
+        let ok: String = "あ".repeat(NAME_MAX_CHARS);
+        assert_eq!(validate_name(&ok), Ok(ok.clone()));
+        assert!(validate_name(&"あ".repeat(NAME_MAX_CHARS + 1)).is_err());
+        assert!(validate_name(&"a".repeat(NAME_MAX_CHARS + 1)).is_err());
+    }
+
+    #[test]
+    fn names_with_control_characters_are_rejected() {
+        assert!(validate_name("ご\nま").is_err());
+        assert!(validate_name("ご\tま").is_err());
+        assert!(validate_name("\u{0}x").is_err());
+    }
+
+    #[test]
+    fn set_name_stores_the_trimmed_name_and_can_rename() {
+        let mut s = new_state();
+        s.set_name("  ごま ").unwrap();
+        assert_eq!(s.name.as_deref(), Some("ごま"));
+        s.set_name("もち").unwrap();
+        assert_eq!(s.name.as_deref(), Some("もち"));
+    }
+
+    #[test]
+    fn set_name_rejects_bad_names_and_keeps_the_old_one() {
+        let mut s = new_state();
+        s.set_name("ごま").unwrap();
+        assert!(s.set_name("").is_err());
+        assert!(s.set_name(&"あ".repeat(99)).is_err());
+        assert_eq!(s.name.as_deref(), Some("ごま"));
+    }
+
+    #[test]
+    fn the_name_survives_a_save_round_trip_and_old_saves_have_none() {
+        let mut s = new_state();
+        s.set_name("ごま").unwrap();
+        assert_eq!(GameState::from_json(&s.to_json()).unwrap().name.as_deref(), Some("ごま"));
+        let mut json = serde_json::to_value(new_state()).unwrap();
+        json.as_object_mut().unwrap().remove("name");
+        assert_eq!(GameState::from_json(&json.to_string()).unwrap().name, None);
     }
 
     #[test]

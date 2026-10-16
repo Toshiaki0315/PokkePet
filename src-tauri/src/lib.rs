@@ -15,7 +15,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_notification::init())
         .setup(shell::setup)
-        .invoke_handler(tauri::generate_handler![shell::get_state, shell::perform_action, shell::ack_hatch, shell::get_settings, shell::save_settings])
+        .invoke_handler(tauri::generate_handler![shell::get_state, shell::perform_action, shell::ack_hatch, shell::set_name, shell::get_settings, shell::save_settings])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
