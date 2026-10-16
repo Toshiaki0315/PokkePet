@@ -15,18 +15,20 @@
         "label": "main",
         "title": "PokkePet",
         "width": 320,
-        "height": 400,
+        "height": 440,
         "visible": false,
         "decorations": false,
         "alwaysOnTop": true,
         "skipTaskbar": true,
         "resizable": false,
-        "shadow": true
+        "shadow": false,
+        "transparent": true
       }
     ],
     "security": {
       "csp": null
-    }
+    },
+    "macOSPrivateApi": true
   },
   "bundle": {
     "active": true,

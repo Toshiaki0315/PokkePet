@@ -23,6 +23,8 @@ const ACTIONS: ReadonlyArray<readonly [string, ActionName]> = [
   ["掃除", "clean"],
 ];
 
+const ACTION_ICON: Record<ActionName, string> = { feed: "🍙", play: "🎾", clean: "🧹" };
+
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export default function App() {
@@ -71,33 +73,42 @@ export default function App() {
       data-dirt={view.expression.dirtiness}
       data-hunger={view.expression.hunger}
     >
-      <div className="stage-area">
-        {view.expression.bubble && (
-          <div className="bubble" role="status">
-            {BUBBLE_TEXT[view.expression.bubble]}
+      <div className="device">
+        <section className={`screen${showGauges ? " compact" : ""}`} aria-label="画面">
+          {showGauges && <p className="stage">段階 {view.stage} / 10</p>}
+          <div className="stage-area">
+            {view.expression.bubble && (
+              <div className="bubble" role="status">
+                {BUBBLE_TEXT[view.expression.bubble]}
+              </div>
+            )}
+            <Sprite view={view} />
           </div>
-        )}
-        <Sprite view={view} />
-      </div>
-      <p className="stage">段階 {view.stage} / 10</p>
-      {showGauges && (
-        <div className="gauges">
-          {GAUGES.map(([label, key]) => (
-            <label key={key} className="gauge">
-              <span>{label}</span>
-              <progress aria-label={label} role="progressbar" aria-valuenow={Number(view[key])} max={100} value={Number(view[key])} />
-            </label>
+          {showGauges && (
+            <div className="gauges">
+              {GAUGES.map(([label, key]) => (
+                <label key={key} className="gauge">
+                  <span>{label}</span>
+                  <progress aria-label={label} role="progressbar" aria-valuenow={Number(view[key])} max={100} value={Number(view[key])} />
+                </label>
+              ))}
+            </div>
+          )}
+        </section>
+        <div className="controls" role="group" aria-label="ボタン">
+          {ACTIONS.map(([label, action]) => (
+            <div key={action} className="control">
+              <button type="button" aria-label={label} onClick={() => act(action)}>
+                <span aria-hidden="true">{ACTION_ICON[action]}</span>
+              </button>
+              <span className="caption" aria-hidden="true">
+                {label}
+              </span>
+            </div>
           ))}
         </div>
-      )}
-      <div className="actions">
-        {ACTIONS.map(([label, action]) => (
-          <button key={action} type="button" onClick={() => act(action)}>
-            {label}
-          </button>
-        ))}
+        {error && <p role="alert">{error}</p>}
       </div>
-      {error && <p role="alert">{error}</p>}
     </main>
   );
 }

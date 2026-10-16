@@ -2,44 +2,68 @@
   font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif;
   font-size: 14px;
   color: #222;
-  background: #fff;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root { color: #eee; background: #1e1e1e; }
+html, body, #root { height: 100%; margin: 0; background: transparent; }
+body { overflow: hidden; user-select: none; }
+
+/* ウィンドウ全体(透過)。中央にたまご型の本体を置く */
+.container { height: 100%; display: flex; align-items: center; justify-content: center; box-sizing: border-box; padding: 6px; }
+
+/* --- 本体(たまご型のシェル) --- */
+.device {
+  position: relative;
+  width: 296px;
+  height: 100%;
+  max-height: 420px;
+  box-sizing: border-box;
+  padding: 76px 26px 20px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  border-radius: 50% 50% 50% 50% / 56% 56% 44% 44%;
+  background:
+    radial-gradient(circle at 22% 18%, rgba(255, 255, 255, 0.55) 0 2px, transparent 3px),
+    radial-gradient(circle at 78% 26%, rgba(255, 230, 140, 0.8) 0 2px, transparent 3px),
+    radial-gradient(circle at 14% 62%, rgba(255, 230, 140, 0.7) 0 1.5px, transparent 2.5px),
+    radial-gradient(circle at 88% 70%, rgba(255, 255, 255, 0.5) 0 2px, transparent 3px),
+    radial-gradient(circle at 40% 88%, rgba(255, 230, 140, 0.7) 0 1.5px, transparent 2.5px),
+    linear-gradient(160deg, #6f86e0 0%, #4b5fb8 55%, #36448f 100%);
+  box-shadow: inset 0 0 0 3px rgba(255, 255, 255, 0.25), inset 0 -10px 18px rgba(0, 0, 40, 0.3), 0 6px 14px rgba(0, 0, 0, 0.35);
 }
 
-body { margin: 0; overflow: hidden; user-select: none; }
+/* --- 画面(LCD): キャラ・背景・吹き出し・ゲージはここだけ --- */
+.screen {
+  position: relative;
+  width: 198px;
+  flex: 1 1 auto;
+  min-height: 0;
+  box-sizing: border-box;
+  border-radius: 12px;
+  border: 5px solid #26305f;
+  box-shadow: inset 0 0 0 2px #0e1433, 0 0 0 3px #7c8fe8;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  transition: background 0.6s;
+  background: linear-gradient(#f6f8ff, #ffffff);
+}
+.container[data-mood="high"] .screen { background: linear-gradient(#fff3c9, #ffe0ec); }
+.container[data-mood="mid"] .screen { background: linear-gradient(#f6f8ff, #ffffff); }
+.container[data-mood="low"] .screen { background: linear-gradient(#aab4c8, #d3d8e2); }
 
-.container { display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 16px; }
-.sprite { width: 128px; height: 128px; image-rendering: pixelated; }
-.placeholder { display: flex; align-items: center; justify-content: center; font-size: 64px; }
-.stage { margin: 0; font-weight: 600; }
-.gauges { width: 100%; display: grid; gap: 6px; }
-.gauge { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 8px; }
-.gauge progress { width: 100%; height: 10px; }
-.actions { display: flex; gap: 8px; }
-.actions button { padding: 6px 14px; border-radius: 8px; border: 1px solid #8884; background: #8881; color: inherit; cursor: pointer; }
-.actions button:hover { background: #8883; }
-[role="alert"] { color: #d33; margin: 0; }
-
-/* --- 状態の表現: 背景(機嫌)・ほこり(汚れ)・吹き出し・しょんぼり(空腹) --- */
-html, body, #root { height: 100%; }
-.container { position: relative; min-height: 100%; box-sizing: border-box; justify-content: flex-start; transition: background 0.6s; }
-.container[data-mood="high"] { background: linear-gradient(#fff3c9, #ffe0ec); }
-.container[data-mood="mid"] { background: linear-gradient(#f6f8ff, #ffffff); }
-.container[data-mood="low"] { background: linear-gradient(#aab4c8, #d3d8e2); }
-
-/* 汚れ: ほこり(斑点)が増え、全体にうっすらくすむ */
-.container::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.6s; }
-.container[data-dirt="mid"]::before {
+/* 汚れ: ほこりの斑点が増え、画面全体がうっすらくすむ */
+.screen::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.6s; z-index: 0; }
+.container[data-dirt="mid"] .screen::before {
   opacity: 0.55;
   background:
     radial-gradient(circle at 18% 78%, #8a7358 0 2px, transparent 3px),
     radial-gradient(circle at 82% 66%, #8a7358 0 2px, transparent 3px),
     radial-gradient(circle at 60% 90%, #8a7358 0 2px, transparent 3px);
 }
-.container[data-dirt="high"]::before {
+.container[data-dirt="high"] .screen::before {
   opacity: 0.8;
   background:
     radial-gradient(circle at 18% 78%, #6b5740 0 3px, transparent 4px),
@@ -50,13 +74,40 @@ html, body, #root { height: 100%; }
     radial-gradient(circle at 45% 70%, #6b5740 0 2px, transparent 3px),
     linear-gradient(rgba(110, 90, 60, 0.18), rgba(110, 90, 60, 0.28));
 }
-.container > * { position: relative; }
+.screen > * { position: relative; z-index: 1; }
 
-.stage-area { position: relative; display: flex; flex-direction: column; align-items: center; min-height: 168px; justify-content: flex-end; }
-.bubble { position: relative; max-width: 220px; padding: 6px 12px; border-radius: 14px; background: #fff; color: #333; border: 1px solid #8884; box-shadow: 0 1px 4px #0002; margin-bottom: 10px; text-align: center; font-size: 13px; }
+.stage { align-self: flex-start; flex: none; margin: 5px 0 0 6px; font-size: 10px; font-weight: 700; color: #3b3f55; background: rgba(255, 255, 255, 0.75); padding: 1px 6px; border-radius: 8px; }
+
+.stage-area { flex: 1 1 auto; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 6px; }
+.sprite { width: 128px; height: 128px; flex: none; image-rendering: pixelated; }
+.screen.compact .sprite { width: 96px; height: 96px; }
+.placeholder { display: flex; align-items: center; justify-content: center; font-size: 64px; }
+
+.bubble { position: relative; max-width: 190px; padding: 5px 10px; border-radius: 14px; background: #fff; color: #333; border: 1px solid #8884; box-shadow: 0 1px 4px #0002; margin-bottom: 10px; text-align: center; font-size: 12px; }
 .bubble::after { content: ""; position: absolute; left: 50%; bottom: -7px; width: 10px; height: 10px; background: #fff; border-right: 1px solid #8884; border-bottom: 1px solid #8884; transform: translateX(-50%) rotate(45deg); }
+
+/* ゲージ(隠しコマンドで表示)は画面の下部に重ねる */
+.gauges { width: 100%; box-sizing: border-box; padding: 3px 7px 5px; display: grid; gap: 1px; background: rgba(255, 255, 255, 0.72); }
+.gauge { display: grid; grid-template-columns: 40px 1fr; align-items: center; gap: 5px; font-size: 9px; color: #333; }
+.gauge progress { width: 100%; height: 6px; }
 
 /* 空腹: 元気なくゆらゆら */
 .sprite.hungry { animation: droop 2.4s ease-in-out infinite; filter: saturate(0.7); }
 @keyframes droop { 0%, 100% { transform: translateY(0) rotate(0); } 50% { transform: translateY(3px) rotate(-3deg); } }
 @media (prefers-reduced-motion: reduce) { .sprite.hungry { animation: none; } }
+
+/* --- ボタン部分(画面とは別) --- */
+.controls { margin-top: 14px; display: flex; gap: 22px; align-items: flex-start; }
+.control { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.control:nth-child(2) { margin-top: 12px; }
+.control button {
+  width: 44px; height: 44px; border-radius: 50%; border: 2px solid #2b2f66; cursor: pointer; font-size: 20px; line-height: 1;
+  background: radial-gradient(circle at 35% 30%, #ffc3d6, #f280a8 70%);
+  box-shadow: 0 3px 0 #2b2f66, inset 0 -3px 5px rgba(120, 20, 60, 0.35);
+  transition: transform 0.05s, box-shadow 0.05s;
+}
+.control button:active { transform: translateY(2px); box-shadow: 0 1px 0 #2b2f66, inset 0 -2px 4px rgba(120, 20, 60, 0.35); }
+.control button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.caption { font-size: 10px; color: rgba(255, 255, 255, 0.85); }
+
+[role="alert"] { position: absolute; bottom: 6px; left: 30px; right: 30px; margin: 0; text-align: center; font-size: 11px; color: #ffd2d2; }
