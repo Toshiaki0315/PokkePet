@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+env:
+  COVERAGE_MIN: 90
+
+jobs:
+  frontend:
+    name: Frontend (vitest, coverage >= 90%)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec tsc --noEmit
+      # vite.config.ts の coverage.thresholds (90%) を下回ると失敗する。
+      - run: pnpm test:coverage
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: frontend-coverage
+          path: coverage
+
+  backend:
+    name: Backend (cargo test, coverage >= 90%)
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: src-tauri
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.14.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      # tauri::generate_context! が frontendDist (../dist) を必要とするため先にビルドする。
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+      - run: pnpm build
+        working-directory: .
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
+      # tarpaulin.toml で接着層 (lib.rs / main.rs / shell.rs) を除外。90% 未満なら失敗する。
+      - run: cargo tarpaulin --lib --fail-under ${{ env.COVERAGE_MIN }} --out Html --out Xml --output-dir ../coverage-rust
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-coverage
+          path: coverage-rust
