@@ -14,7 +14,7 @@ use crate::dex::DexView;
 use crate::diary::DiaryView;
 use crate::game::GameState;
 use crate::minigame::Side;
-use crate::service::{should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
+use crate::service::{should_notify_graduation, should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
 use crate::settings::{Settings, SettingsService};
 
 const LOOP_INTERVAL: Duration = Duration::from_secs(10);
@@ -56,6 +56,16 @@ pub fn play_minigame(app: AppHandle, svc: State<GameService>, gate: State<Mutex<
     gate.lock().unwrap_or_else(|e| e.into_inner()).answered(); // 遊んだので、次の困りごとはすぐ呼べる
     update_tray_title(&app, &report.view);
     Ok(report)
+}
+
+/// 旅立ちを見送り、次の世代の卵を迎える。すべてのウィンドウへ最新の状態を通知する。
+#[tauri::command]
+pub fn graduate(app: AppHandle, svc: State<GameService>, gate: State<Mutex<CallGate>>) -> Result<StateView, String> {
+    let view = svc.graduate()?;
+    gate.lock().unwrap_or_else(|e| e.into_inner()).answered();
+    update_tray_title(&app, &view);
+    let _ = app.emit(STATE_EVENT, view.clone());
+    Ok(view)
 }
 
 /// 名前を付ける（付け直す）。すべてのウィンドウへ最新の状態を通知する。
@@ -246,6 +256,14 @@ fn notify_call_if_needed(app: &AppHandle, view: &StateView, popup_open: bool) {
     }
 }
 
+/// 旅立ちの時が来たことを知らせる（ポップアップを開いていないとき）。
+fn notify_graduation(app: &AppHandle, name: Option<&str>) {
+    let title = name.unwrap_or("PokkePet");
+    if let Err(e) = app.notification().builder().title(title).body("旅立ちの時がきたよ。会いにきてね").show() {
+        eprintln!("failed to show notification: {e}");
+    }
+}
+
 fn notify_call(app: &AppHandle, call: Call, name: Option<&str>) {
     let title = name.unwrap_or("PokkePet");
     if let Err(e) = app.notification().builder().title(title).body(call.message()).show() {
@@ -276,6 +294,9 @@ fn spawn_loop(handle: AppHandle) {
                 let popup_open = popup_is_open(&handle);
                 if should_notify_hatch(tick.hatched, popup_open) {
                     notify_hatch(&handle);
+                }
+                if should_notify_graduation(tick.graduation_ready, popup_open) {
+                    notify_graduation(&handle, tick.view.name.as_deref());
                 }
                 notify_call_if_needed(&handle, &tick.view, popup_open);
             }

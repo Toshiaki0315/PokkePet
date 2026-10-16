@@ -61,6 +61,19 @@ describe("Diary window", () => {
     expect(screen.getByText("お世話が 50 回になった")).toBeInTheDocument();
   });
 
+  it("remembers farewells, with or without a name", async () => {
+    api.getDiary.mockResolvedValue({
+      daysTogether: 1,
+      entries: [
+        { atUnix: at(10, 17, 12, 0), event: { kind: "graduated", name: "ごま", personality: "playful" } },
+        { atUnix: at(10, 17, 11, 0), event: { kind: "graduated", name: null, personality: "calm" } },
+      ],
+    });
+    render(<Diary />);
+    expect(await screen.findByText("「ごま」が旅立った（きつね）")).toBeInTheDocument();
+    expect(screen.getByText("旅立ちを見送った（ふわもち）")).toBeInTheDocument();
+  });
+
   it("names the branch and species of every evolution", async () => {
     api.getDiary.mockResolvedValue({
       daysTogether: 1,

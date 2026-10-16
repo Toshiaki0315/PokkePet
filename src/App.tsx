@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { ackHatch, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
+import { ackHatch, graduate, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
 import type { ActionName, MiniGameReport, Settings, Side, StateView } from "./api";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { Sprite } from "./SpriteView";
 import { bubbleText } from "./bubble";
+import { Farewell } from "./Farewell";
 import { MiniGame } from "./MiniGame";
 import { NamePrompt } from "./NamePrompt";
 import { useHiddenCommand } from "./hiddenCommand";
@@ -47,6 +48,8 @@ export default function App() {
   const [popupOpen, setPopupOpen] = useState(false);
   const [namingLater, setNamingLater] = useState(false);
   const [gameOpen, setGameOpen] = useState(false);
+  // 「もう少しいっしょにいる」を選んだ世代（その世代の間だけお別れ画面を隠す）。
+  const [stayedGeneration, setStayedGeneration] = useState<number | null>(null);
 
   useEffect(() => {
     getState().then(setView, (e) => setError(errorText(e)));
@@ -92,6 +95,16 @@ export default function App() {
       },
     );
 
+  const seeOff = () => {
+    graduate().then(
+      (next) => {
+        setError(null);
+        setView(next);
+      },
+      (e) => setError(errorText(e)),
+    );
+  };
+
   const submitName = (name: string) => {
     setName(name).then(
       (next) => {
@@ -127,7 +140,11 @@ export default function App() {
       <div className="device">
         <section className={`screen${settings.showGauges ? " compact" : ""}`} aria-label="画面">
           {settings.showStage && <p className="stage">段階 {view.stage} / 10</p>}
+          {settings.showStage && view.generation > 1 && <p className="generation">{view.generation}代目</p>}
           {view.name && <p className="name">{view.name}</p>}
+          {view.graduating && stayedGeneration !== view.generation && (
+            <Farewell name={view.name} onSeeOff={seeOff} onStay={() => setStayedGeneration(view.generation)} />
+          )}
           {gameOpen && <MiniGame onPlay={playGame} onClose={() => setGameOpen(false)} />}
           {view.needsName && !namingLater && <NamePrompt onSubmit={submitName} onLater={() => setNamingLater(true)} />}
           <div className="stage-area">

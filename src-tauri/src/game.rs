@@ -62,6 +62,12 @@ pub struct GameState {
     /// 卵が届いた時刻（UNIX秒）。いっしょの日数の起点。古いセーブでは読み込み時に補う。
     #[serde(default)]
     pub born_unix: u64,
+    /// 何代目か（最初のペットが 1）。
+    #[serde(default = "first_generation")]
+    pub generation: u32,
+    /// 前の世代から受け継いだ性格。新しいペットは、何もしなければこの性格に育つ。
+    #[serde(default)]
+    pub legacy: Option<Personality>,
 }
 
 /// 名前の最大文字数（バイトではなく文字数）。
@@ -99,6 +105,10 @@ fn yes() -> bool {
     true
 }
 
+fn first_generation() -> u32 {
+    1
+}
+
 /// k 番目のティックで状態を減らす間隔（1=毎回、4=4回に1回…）。おやすみ・留守番で間引く。
 fn decay_divisor(timeline: Option<Timeline>, tick_index: u32, carried_secs: u32) -> u32 {
     let Some(t) = timeline else {
@@ -132,10 +142,39 @@ impl GameState {
             discovered: BTreeSet::new(),
             diary: Vec::new(),
             born_unix: now_unix,
+            generation: 1,
+            legacy: None,
         };
         state.record_form();
         state.remember(DiaryEvent::Born);
         state
+    }
+
+    /// 旅立ちの時か（最終段階になって 1 時間が経った）。見送るまで、そのまま一緒にいられる。
+    pub fn graduating(&self) -> bool {
+        self.growth.ready_to_graduate()
+    }
+
+    /// 旅立ちを見送り、次の世代の卵を迎える。図鑑と思い出は引き継ぎ、性格が少し受け継がれる。
+    pub fn graduate(&mut self) -> Result<(), String> {
+        if !self.graduating() {
+            return Err("it is not time to say goodbye yet".to_string());
+        }
+        let farewell = DiaryEvent::Graduated { name: self.name.take(), personality: self.form.personality };
+        self.remember(farewell);
+        self.legacy = Some(self.form.personality);
+        self.generation += 1;
+        self.status = Status::new(50, 0, 80, 0);
+        self.growth = Growth::egg();
+        self.history = History::default();
+        self.form = Form { stage: 1, branch: Branch::Normal, personality: Personality::Calm };
+        self.tick_acc = 0;
+        self.intro_seen = false;
+        self.hatch_shown = false;
+        self.born_unix = self.last_unix;
+        self.record_form();
+        self.remember(DiaryEvent::Born);
+        Ok(())
     }
 
     /// 思い出を記録する（時刻は最後に時間を進めた時刻）。
@@ -239,7 +278,7 @@ impl GameState {
         let mut advanced = self.growth.advance(secs);
         while advanced {
             let previous_stage = self.growth.stage - 1;
-            self.form = evolve(previous_stage, &self.status, &self.history);
+            self.form = evolve(previous_stage, &self.status, &self.history, self.legacy);
             self.record_form();
             self.remember(if previous_stage <= 1 {
                 DiaryEvent::Hatched
@@ -463,6 +502,134 @@ mod tests {
         s.set_name("ごま").unwrap();
         let back = GameState::from_json(&s.to_json()).unwrap();
         assert_eq!((back.diary, back.born_unix), (s.diary, s.born_unix));
+    }
+
+    /// 最終段階になって旅立ちの時を迎えるまで育てた状態。
+    fn elder_state() -> GameState {
+        let mut s = new_state();
+        s.step(EGG_SECS + STAGE_SECS * 9);
+        s
+    }
+
+    #[test]
+    fn a_pet_is_ready_to_leave_an_hour_after_reaching_the_final_stage() {
+        let mut s = new_state();
+        s.step(EGG_SECS + STAGE_SECS * 9 - 1);
+        assert_eq!(s.form.stage, 10);
+        assert!(!s.graduating());
+        s.step(1);
+        assert!(s.graduating());
+    }
+
+    #[test]
+    fn nobody_leaves_before_their_time() {
+        for mut young in [new_state(), hatched_state()] {
+            let before = young.clone();
+            assert!(!young.graduating());
+            assert!(young.graduate().is_err());
+            assert_eq!(young, before);
+        }
+    }
+
+    #[test]
+    fn saying_goodbye_brings_a_new_egg_and_a_new_generation() {
+        let mut s = elder_state();
+        s.set_name("ごま").unwrap();
+        s.apply(Action::Feed);
+        s.graduate().unwrap();
+        assert_eq!(s.generation, 2);
+        assert_eq!((s.form.stage, s.growth.stage, s.growth.elapsed_secs), (1, 1, 0));
+        assert_eq!(s.name, None);
+        assert_eq!(s.history, History::default());
+        assert_eq!(s.status, Status::new(50, 0, 80, 0));
+        assert!(!s.graduating());
+        assert!(!s.hatching());
+        assert!(!s.intro_seen); // 「卵が届いたよ」から始まる
+        assert!(!s.hatch_shown);
+        assert_eq!(s.born_unix, s.last_unix);
+    }
+
+    #[test]
+    fn the_dex_and_the_diary_are_kept_for_the_next_generation() {
+        let mut s = elder_state();
+        let dex = s.discovered.clone();
+        let memories = s.diary.len();
+        s.graduate().unwrap();
+        assert_eq!(s.discovered, dex);
+        assert_eq!(s.diary.len(), memories + 2); // 旅立ち + 新しい卵
+    }
+
+    #[test]
+    fn the_farewell_is_remembered_with_the_name_and_personality() {
+        let mut s = elder_state();
+        s.set_name("ごま").unwrap();
+        let personality = s.form.personality;
+        s.graduate().unwrap();
+        let tail: Vec<&DiaryEvent> = s.diary.iter().rev().take(2).map(|e| &e.event).collect();
+        assert_eq!(tail[0], &DiaryEvent::Born);
+        assert_eq!(tail[1], &DiaryEvent::Graduated { name: Some("ごま".to_string()), personality });
+    }
+
+    #[test]
+    fn an_unnamed_pet_leaves_without_a_name_in_the_diary() {
+        let mut s = elder_state();
+        s.graduate().unwrap();
+        assert!(s.diary.iter().any(|e| matches!(e.event, DiaryEvent::Graduated { name: None, .. })));
+    }
+
+    #[test]
+    fn the_next_pet_inherits_the_personality_when_nothing_else_decides_it() {
+        let mut s = new_state();
+        s.step(EGG_SECS);
+        for _ in 0..3 {
+            s.apply(Action::Clean); // 掃除好き（うさぎ）に育てる
+        }
+        s.step(EGG_SECS + STAGE_SECS * 9);
+        assert_eq!(s.form.personality, Personality::Tidy);
+        s.graduate().unwrap();
+        assert_eq!(s.legacy, Some(Personality::Tidy));
+        s.step(EGG_SECS); // 何もしないまま孵化
+        assert_eq!(s.form.personality, Personality::Tidy);
+    }
+
+    #[test]
+    fn what_the_next_pet_does_overrides_the_inheritance() {
+        let mut s = elder_state();
+        s.graduate().unwrap();
+        s.legacy = Some(Personality::Tidy);
+        s.step(EGG_SECS);
+        for _ in 0..4 {
+            s.apply(Action::Snack);
+        }
+        s.step(STAGE_SECS);
+        assert_eq!(s.form.personality, Personality::Gluttonous);
+    }
+
+    #[test]
+    fn generations_count_up_and_the_second_pet_can_leave_too() {
+        let mut s = elder_state();
+        s.graduate().unwrap();
+        s.step(EGG_SECS + STAGE_SECS * 9);
+        assert!(s.graduating());
+        s.graduate().unwrap();
+        assert_eq!(s.generation, 3);
+    }
+
+    #[test]
+    fn saves_from_before_generations_start_as_the_first_generation() {
+        let mut json = serde_json::to_value(new_state()).unwrap();
+        json.as_object_mut().unwrap().remove("generation");
+        json.as_object_mut().unwrap().remove("legacy");
+        let s = GameState::from_json(&json.to_string()).unwrap();
+        assert_eq!((s.generation, s.legacy), (1, None));
+    }
+
+    #[test]
+    fn the_generation_survives_a_save_round_trip() {
+        let mut s = elder_state();
+        s.graduate().unwrap();
+        let back = GameState::from_json(&s.to_json()).unwrap();
+        assert_eq!((back.generation, back.legacy), (2, s.legacy));
     }
 
     #[test]

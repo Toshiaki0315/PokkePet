@@ -29,6 +29,10 @@ export interface StateView {
   name: string | null;
   /** 孵化の演出が終わったのに、まだ名前がない */
   needsName: boolean;
+  /** 旅立ちの時を迎えている（見送るまで一緒にいられる） */
+  graduating: boolean;
+  /** 何代目か */
+  generation: number;
 }
 
 export interface Expression {
@@ -56,6 +60,11 @@ export function onPopupVisibility(handler: (visible: boolean) => void): Promise<
 /** 名前を付ける（付け直す）。長さなどの検証は Rust 側。 */
 export function setName(name: string): Promise<StateView> {
   return invoke<StateView>("set_name", { name });
+}
+
+/** 旅立ちを見送り、次の世代の卵を迎える。 */
+export function graduate(): Promise<StateView> {
+  return invoke<StateView>("graduate");
 }
 
 /** 孵化の演出を見せ終えたことを記録する。 */
@@ -115,7 +124,8 @@ export type DiaryEvent =
   | { kind: "hatched" }
   | { kind: "evolved"; stage: number; branch: Branch; personality: Personality }
   | { kind: "named"; name: string }
-  | { kind: "careMilestone"; count: number };
+  | { kind: "careMilestone"; count: number }
+  | { kind: "graduated"; name: string | null; personality: Personality };
 
 export interface DiaryEntry {
   atUnix: number;

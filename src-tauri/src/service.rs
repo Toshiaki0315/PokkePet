@@ -60,6 +60,10 @@ pub struct StateView {
     pub name: Option<String>,
     /// 孵化の演出が終わったのに、まだ名前がない（名前を付けてもらう）。
     pub needs_name: bool,
+    /// 旅立ちの時を迎えている（見送るまで一緒にいられる）。
+    pub graduating: bool,
+    /// 何代目か。
+    pub generation: u32,
 }
 
 /// ミニゲームの結果。
@@ -80,12 +84,17 @@ pub struct Tick {
     pub evolutions: u8,
     /// 卵が孵った（段階 1 → 2 になった）。
     pub hatched: bool,
+    /// 今回の時間経過で、旅立ちの時を迎えた（それまでは迎えていなかった）。
+    pub graduation_ready: bool,
 }
 
 /// メニューバーのアイコン横に出す目印。ポップアップを開かなくても状態がわかるようにする。
 pub fn tray_title(view: &StateView) -> Option<&'static str> {
     if view.hatching {
         return Some("🐣");
+    }
+    if view.graduating {
+        return Some("👋");
     }
     match view.expression.bubble? {
         Bubble::Hungry => Some("🍙"),
@@ -95,6 +104,11 @@ pub fn tray_title(view: &StateView) -> Option<&'static str> {
         Bubble::Welcome => Some("🥚"),
         Bubble::Happy => None,
     }
+}
+
+/// 旅立ちの通知を出すか。ポップアップが開いていれば、お別れの画面で伝わる。
+pub fn should_notify_graduation(ready: bool, popup_open: bool) -> bool {
+    ready && !popup_open
 }
 
 /// 孵化の通知を出すか。ポップアップが開いていれば演出で伝わるので出さない。
@@ -201,6 +215,16 @@ impl GameService {
         Ok(self.view(&state))
     }
 
+    /// 旅立ちを見送り、次の世代の卵を迎える。
+    pub fn graduate(&self) -> Result<StateView, String> {
+        let mut state = self.lock();
+        let mut next = state.clone();
+        next.graduate()?;
+        next.save(&self.path).map_err(|e| e.to_string())?;
+        *state = next;
+        Ok(self.view(&state))
+    }
+
     /// 孵化の演出を見せたことを記録して保存する。
     pub fn ack_hatch(&self) -> io::Result<StateView> {
         let mut state = self.lock();
@@ -213,9 +237,10 @@ impl GameService {
     pub fn tick(&self, now_unix: u64) -> io::Result<Tick> {
         let mut state = self.lock();
         let was_egg = state.form.stage <= 1;
+        let was_graduating = state.graduating();
         let evolutions = state.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix), self.sleep_window());
         state.save(&self.path)?;
-        Ok(Tick { view: self.view(&state), evolutions, hatched: was_egg && evolutions > 0 })
+        Ok(Tick { view: self.view(&state), evolutions, hatched: was_egg && evolutions > 0, graduation_ready: !was_graduating && state.graduating() })
     }
 
     /// パニックしたスレッドがロックを汚染しても状態自体は有効なので続行する。
@@ -252,6 +277,8 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
         sleeping,
         name: s.name.clone(),
         needs_name: s.form.stage >= 2 && s.hatch_shown && s.name.is_none(),
+        graduating: s.graduating(),
+        generation: s.generation,
         play_action: if s.form.stage <= 1 { PlayAction::Pet } else { PlayAction::Play },
     }
 }
@@ -317,6 +344,8 @@ mod tests {
                 sleeping: false,
                 name: None,
                 needs_name: false,
+                graduating: false,
+                generation: 1,
             }
         );
     }
@@ -595,6 +624,97 @@ mod tests {
         assert!(json["win"].is_boolean());
         assert!(json["answer"] == "left" || json["answer"] == "right");
         assert_eq!(json["view"]["stage"], 2);
+    }
+
+    fn elder_service(name: &str) -> GameService {
+        let mut state = GameState::new(0);
+        state.step(EGG_SECS + STAGE_SECS * 9);
+        state.intro_seen = true;
+        GameService::new(state, tmp(name)).with_utc_offset(NOON_AT_ZERO)
+    }
+
+    #[test]
+    fn a_young_pet_is_not_graduating_and_is_the_first_generation() {
+        let v = svc("grad-young").snapshot();
+        assert_eq!((v.graduating, v.generation), (false, 1));
+    }
+
+    #[test]
+    fn an_elder_pet_is_graduating() {
+        assert!(elder_service("grad-elder").snapshot().graduating);
+    }
+
+    #[test]
+    fn saying_goodbye_returns_the_view_of_a_new_egg() {
+        let s = elder_service("grad-bye");
+        let v = s.graduate().unwrap();
+        assert_eq!((v.stage, v.generation, v.graduating, v.intro), (1, 2, false, true));
+        assert_eq!(v.expression.bubble, Some(Bubble::Welcome));
+        assert_eq!(v.name, None);
+        assert_eq!(s.snapshot().generation, 2);
+    }
+
+    #[test]
+    fn it_is_an_error_to_say_goodbye_too_early() {
+        let s = svc("grad-early");
+        assert!(s.graduate().is_err());
+        assert_eq!(s.snapshot().generation, 1);
+    }
+
+    #[test]
+    fn the_farewell_is_saved() {
+        let p = tmp("grad-save");
+        let mut state = GameState::new(0);
+        state.step(EGG_SECS + STAGE_SECS * 9);
+        let s = GameService::new(state, p.clone()).with_utc_offset(NOON_AT_ZERO);
+        s.graduate().unwrap();
+        let saved = GameState::load(&p, 0).unwrap();
+        assert_eq!((saved.generation, saved.growth.stage), (2, 1));
+    }
+
+    #[test]
+    fn a_failure_to_save_the_farewell_leaves_the_pet_as_it_was() {
+        let bad = tmp("grad-bad").parent().unwrap().join("no/such/dir/save.json");
+        let mut state = GameState::new(0);
+        state.step(EGG_SECS + STAGE_SECS * 9);
+        let s = GameService::new(state, bad).with_utc_offset(NOON_AT_ZERO);
+        assert!(s.graduate().is_err());
+        assert!(s.snapshot().graduating);
+    }
+
+    #[test]
+    fn the_tick_that_makes_the_pet_ready_to_leave_says_so_once() {
+        let mut state = GameState::new(0);
+        state.step(EGG_SECS + STAGE_SECS * 9 - 1); // あと 1 秒
+        let s = GameService::new(state, tmp("grad-tick")).with_utc_offset(NOON_AT_ZERO);
+        let first = s.tick(1).unwrap();
+        assert!(first.graduation_ready);
+        assert!(first.view.graduating);
+        let second = s.tick(2).unwrap();
+        assert!(!second.graduation_ready);
+        assert!(second.view.graduating);
+    }
+
+    #[test]
+    fn nothing_to_report_for_an_ordinary_tick() {
+        assert!(!svc("grad-normal").tick(10).unwrap().graduation_ready);
+    }
+
+    #[test]
+    fn the_menu_bar_waves_goodbye_for_a_graduating_pet() {
+        let mut v = view_with(Some(Bubble::Hungry));
+        v.graduating = true;
+        assert_eq!(tray_title(&v), Some("👋"));
+        v.hatching = true;
+        assert_eq!(tray_title(&v), Some("🐣")); // 孵化の確認が先
+    }
+
+    #[test]
+    fn the_farewell_notification_is_only_for_a_closed_popup() {
+        assert!(should_notify_graduation(true, false));
+        assert!(!should_notify_graduation(true, true));
+        assert!(!should_notify_graduation(false, false));
+        assert!(!should_notify_graduation(false, true));
     }
 
     #[test]

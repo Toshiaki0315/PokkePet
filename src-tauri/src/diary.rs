@@ -24,6 +24,8 @@ pub enum DiaryEvent {
     Named { name: String },
     /// お世話の回数が節目になった。
     CareMilestone { count: u32 },
+    /// 旅立ちを見送った（世代交代）。
+    Graduated { name: Option<String>, personality: Personality },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -135,6 +137,17 @@ mod tests {
     }
 
     #[test]
+    fn a_farewell_serializes_with_the_name_and_personality() {
+        let named = DiaryEvent::Graduated { name: Some("ごま".into()), personality: Personality::Tidy };
+        let json = serde_json::to_value(named).unwrap();
+        assert_eq!(json["kind"], "graduated");
+        assert_eq!(json["name"], "ごま");
+        assert_eq!(json["personality"], "tidy");
+        let unnamed = DiaryEvent::Graduated { name: None, personality: Personality::Calm };
+        assert_eq!(serde_json::to_value(unnamed).unwrap()["name"], serde_json::Value::Null);
+    }
+
+    #[test]
     fn events_survive_a_save_round_trip() {
         let all = vec![
             DiaryEntry { at_unix: 1, event: DiaryEvent::Born },
@@ -142,6 +155,8 @@ mod tests {
             DiaryEntry { at_unix: 3, event: DiaryEvent::Evolved { stage: 4, branch: Branch::Poor, personality: Personality::Tidy } },
             DiaryEntry { at_unix: 4, event: DiaryEvent::Named { name: "ごま".into() } },
             DiaryEntry { at_unix: 5, event: DiaryEvent::CareMilestone { count: 50 } },
+            DiaryEntry { at_unix: 6, event: DiaryEvent::Graduated { name: Some("ごま".into()), personality: Personality::Playful } },
+            DiaryEntry { at_unix: 7, event: DiaryEvent::Graduated { name: None, personality: Personality::Calm } },
         ];
         let json = serde_json::to_string(&all).unwrap();
         assert_eq!(serde_json::from_str::<Vec<DiaryEntry>>(&json).unwrap(), all);

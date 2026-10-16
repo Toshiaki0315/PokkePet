@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   performAction: vi.fn(),
   onStateChanged: vi.fn(),
   ackHatch: vi.fn(),
+  graduate: vi.fn(),
   playMinigame: vi.fn(),
   setName: vi.fn(),
   getSettings: vi.fn(),
@@ -37,6 +38,8 @@ const base: StateView = {
   sleeping: false,
   name: null,
   needsName: false,
+  graduating: false,
+  generation: 1,
 };
 const withExpression = (e: Partial<StateView["expression"]>): StateView => ({ ...base, expression: { ...base.expression, ...e } });
 const gaugesOn: Settings = { ...DEFAULT_SETTINGS, showStage: true, showGauges: true };
@@ -902,6 +905,93 @@ describe("App", () => {
       await userEvent.click(await screen.findByRole("button", { name: "撫でる" }));
       expect(api.performAction).toHaveBeenCalledWith("play");
       expect(screen.queryByRole("dialog")).toBeNull();
+    });
+  });
+
+  describe("farewell", () => {
+    const elder: StateView = { ...base, stage: 10, name: "ごま", graduating: true };
+    const nextEgg: StateView = { ...base, stage: 1, playAction: "pet", generation: 2, intro: true, name: null, expression: { ...base.expression, bubble: "welcome" } };
+
+    it("announces that it is time to say goodbye", async () => {
+      api.getState.mockResolvedValue(elder);
+      render(<App />);
+      const dialog = await screen.findByRole("dialog", { name: "旅立ち" });
+      expect(within(dialog).getByText("旅立ちの時がきたよ")).toBeInTheDocument();
+      expect(within(dialog).getByText("ごまはりっぱに育ちました。ありがとう！")).toBeInTheDocument();
+    });
+
+    it("works for a pet that was never named", async () => {
+      api.getState.mockResolvedValue({ ...elder, name: null });
+      render(<App />);
+      const dialog = await screen.findByRole("dialog", { name: "旅立ち" });
+      expect(within(dialog).getByText("りっぱに育ちました。ありがとう！")).toBeInTheDocument();
+    });
+
+    it("stays out of the way before the time comes", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      expect(screen.queryByRole("dialog", { name: "旅立ち" })).toBeNull();
+    });
+
+    it("shows it on the screen, apart from the buttons", async () => {
+      api.getState.mockResolvedValue(elder);
+      render(<App />);
+      const dialog = await screen.findByRole("dialog", { name: "旅立ち" });
+      expect(within(screen.getByRole("region", { name: "画面" })).getByRole("dialog", { name: "旅立ち" })).toBe(dialog);
+    });
+
+    it("sees the pet off and welcomes the next egg", async () => {
+      api.getState.mockResolvedValue(elder);
+      api.graduate.mockResolvedValue(nextEgg);
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "見送る" }));
+      expect(api.graduate).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "旅立ち" })).toBeNull());
+      expect(await screen.findByRole("status")).toHaveTextContent("卵が届いたよ！撫でてあげてね");
+      expect(screen.getByRole("img")).toHaveAttribute("alt", expect.stringContaining("stage 1"));
+    });
+
+    it("lets the player stay a little longer", async () => {
+      api.getState.mockResolvedValue(elder);
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "もう少しいっしょにいる" }));
+      expect(screen.queryByRole("dialog", { name: "旅立ち" })).toBeNull();
+      expect(api.graduate).not.toHaveBeenCalled();
+    });
+
+    it("asks again for the next generation even after staying longer once", async () => {
+      api.getState.mockResolvedValue(elder);
+      api.graduate.mockResolvedValue(nextEgg);
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "もう少しいっしょにいる" }));
+      await waitFor(() => expect(api.onStateChanged).toHaveBeenCalled());
+      emit({ ...elder, generation: 2 }); // 次の世代が旅立ちの時を迎えた
+      // 「もう少しいっしょにいる」は、その世代にだけ効く
+      expect(await screen.findByRole("dialog", { name: "旅立ち" })).toBeInTheDocument();
+    });
+
+    it("shows the reason when the goodbye fails and keeps the dialog", async () => {
+      api.getState.mockResolvedValue(elder);
+      api.graduate.mockRejectedValue(new Error("not yet"));
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "見送る" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("not yet");
+      expect(screen.getByRole("dialog", { name: "旅立ち" })).toBeInTheDocument();
+    });
+
+    it("shows the generation next to the stage from the second generation on", async () => {
+      localStorage.clear();
+      enableGauges();
+      api.getState.mockResolvedValue({ ...base, generation: 2 });
+      render(<App />);
+      expect(await screen.findByText("2代目")).toBeInTheDocument();
+    });
+
+    it("does not mention the generation for the first pet", async () => {
+      enableGauges();
+      render(<App />);
+      await screen.findByText("段階 2 / 10");
+      expect(screen.queryByText(/代目/)).toBeNull();
     });
   });
 });
