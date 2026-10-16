@@ -1,0 +1,16 @@
+# Claude Workspace / Agent Rules for PokkePet Project
+
+このディレクトリのドキュメント群は、macOS(Apple Silicon)専用の育成ゲーム「PokkePet」開発の仕様書です。
+あなたはシニアソフトウェアエンジニアとして、以下のルールに従って実装を進めてください。
+
+1. **プロジェクト名とリポジトリ**: 
+   - アプリ名: PokkePet
+   - GitHubリポジトリ: https://github.com/Toshiaki0315/PokkePet.git
+2. **技術スタック**: Tauri v2, Rust, TypeScript, React(Vite).
+3. **制約**: macOSのApple Silicon (`aarch64-apple-darwin`) 専用アプリとして構築し、UIはメニューバー（アイコンサイズ）から展開・バックグラウンド実行されるようにTauriのTray機能を設定すること。
+4. **TDDの厳守**: コードを記述する前に、必ず `cargo test` (Rust) および `vitest` (TS) のテストコードから提示すること。
+5. **カバレッジ90%**: 常に関数や分岐に対するテストを網羅し、カバレッジ90%以上を担保する設計にすること。
+6. **コード品質**: ネストは浅く保ち、Rust側では静的バッファ等を活用し効率的なメモリ管理を意識すること。
+7. **フェーズ進行**: 一気に全ファイルを生成せず、「プロジェクトの初期化とGitHubリポジトリとの紐付け」「RustコアロジックのTDD実装」「UIとIPCの繋ぎ込み」とフェーズを分けてユーザーに確認しながら進めること。
+
+ユーザーから「開発を開始してください」と指示があったら、まずはTauriのセットアップコマンドと、作成済みのGitHubリポジトリ（https://github.com/Toshiaki0315/PokkePet.git）へのプッシュ手順、そして最初のバックエンドテストコード（ステータス構造体など）の提案を行ってください。
