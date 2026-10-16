@@ -4,12 +4,12 @@
 ファイル名は src/sprite.ts の spritePath と対応する:
   egg.png / {stage}-{branch}-{personality}.png  (stage 2..10)
 
-使い方: python3 tools/gen_sprites.py [出力ディレクトリ] [--sheet コンタクトシートのパス]
+使い方: python3 tools/gen_sprites.py [出力ディレクトリ] [--sheet コンタクトシートのパス] [--catalog ラベル付き一覧画像のパス]
 """
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 SIZE = 16
 BRANCHES = ["poor", "normal", "good"]
@@ -165,6 +165,36 @@ def contact_sheet(sprites, path, scale=4):
     sheet.save(path)
 
 
+def labeled_catalog(sprites, path, scale=5):
+    """ラベル付き一覧画像（docs 用）。行=成長段階、列=分岐×性格。"""
+    names = dict(sprites)
+    cell = SIZE * scale
+    left, top = 64, 56
+    cols = len(BRANCHES) * len(PERSONALITIES)
+    sheet = Image.new("RGBA", (left + cols * cell, top + 10 * cell), (245, 245, 248, 255))
+    draw = ImageDraw.Draw(sheet)
+    font = ImageFont.load_default()
+    for bi, branch in enumerate(BRANCHES):
+        x0 = left + bi * len(PERSONALITIES) * cell
+        draw.rectangle([x0, 0, x0 + len(PERSONALITIES) * cell - 2, 18], fill=(225, 228, 238, 255))
+        draw.text((x0 + 6, 4), f"branch: {branch}", fill=DARK, font=font)
+        for pi, personality in enumerate(PERSONALITIES):
+            draw.text((x0 + pi * cell + 4, 30), personality, fill=DARK, font=font)
+    for stage in range(1, 11):
+        y = top + (stage - 1) * cell
+        draw.text((8, y + cell // 2 - 5), f"stage {stage}", fill=DARK, font=font)
+        if stage == 1:
+            im = names["egg.png"].resize((cell, cell), Image.NEAREST)
+            sheet.alpha_composite(im, (left, y))
+            draw.text((left + cell + 8, y + cell // 2 - 5), "egg (shared by all branches/personalities)", fill=DARK, font=font)
+            continue
+        for bi, branch in enumerate(BRANCHES):
+            for pi, personality in enumerate(PERSONALITIES):
+                im = names[f"{stage}-{branch}-{personality}.png"].resize((cell, cell), Image.NEAREST)
+                sheet.alpha_composite(im, (left + (bi * len(PERSONALITIES) + pi) * cell, y))
+    sheet.save(path)
+
+
 def main(argv):
     args = [a for a in argv if not a.startswith("--")]
     out = Path(args[0]) if args else Path(__file__).resolve().parent.parent / "public" / "sprites"
@@ -174,6 +204,8 @@ def main(argv):
         img.save(out / name)
     if "--sheet" in argv:
         contact_sheet(sprites, argv[argv.index("--sheet") + 1])
+    if "--catalog" in argv:
+        labeled_catalog(sprites, argv[argv.index("--catalog") + 1])
     print(f"wrote {len(sprites)} sprites to {out}")
 
 
