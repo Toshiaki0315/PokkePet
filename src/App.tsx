@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { ackHatch, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
-import type { ActionName, Settings, StateView } from "./api";
+import { ackHatch, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
+import type { ActionName, MiniGameReport, Settings, Side, StateView } from "./api";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { Sprite } from "./SpriteView";
 import { bubbleText } from "./bubble";
+import { MiniGame } from "./MiniGame";
 import { NamePrompt } from "./NamePrompt";
 import { useHiddenCommand } from "./hiddenCommand";
 import { HatchSequence } from "./hatch";
@@ -45,6 +46,7 @@ export default function App() {
   // ポップアップが開いている間だけ孵化の演出を再生する（Rust が表示/非表示を通知する）。
   const [popupOpen, setPopupOpen] = useState(false);
   const [namingLater, setNamingLater] = useState(false);
+  const [gameOpen, setGameOpen] = useState(false);
 
   useEffect(() => {
     getState().then(setView, (e) => setError(errorText(e)));
@@ -73,6 +75,21 @@ export default function App() {
         setReaction((prev) => ({ name: petting ? "wobble" : "hop", id: (prev?.id ?? 0) + 1 }));
       },
       (e) => setError(errorText(e)),
+    );
+
+  // ミニゲーム: 結果が届いたら状態を更新してキャラを跳ねさせる。失敗はエラー欄に出して、選び直せるようにする。
+  const playGame = (guess: Side): Promise<MiniGameReport> =>
+    playMinigame(guess).then(
+      (report) => {
+        setError(null);
+        setView(report.view);
+        setReaction((prev) => ({ name: "hop", id: (prev?.id ?? 0) + 1 }));
+        return report;
+      },
+      (e) => {
+        setError(errorText(e));
+        throw e;
+      },
     );
 
   const submitName = (name: string) => {
@@ -111,6 +128,7 @@ export default function App() {
         <section className={`screen${settings.showGauges ? " compact" : ""}`} aria-label="画面">
           {settings.showStage && <p className="stage">段階 {view.stage} / 10</p>}
           {view.name && <p className="name">{view.name}</p>}
+          {gameOpen && <MiniGame onPlay={playGame} onClose={() => setGameOpen(false)} />}
           {view.needsName && !namingLater && <NamePrompt onSubmit={submitName} onLater={() => setNamingLater(true)} />}
           <div className="stage-area">
             {view.expression.bubble && (
@@ -143,7 +161,7 @@ export default function App() {
         <div className="controls" role="group" aria-label="ボタン">
           {actions(view).map(({ name, label, icon }) => (
             <div key={label} className="control">
-              <button type="button" aria-label={label} onClick={() => act(name, view.playAction === "pet" && name === "play")}>
+              <button type="button" aria-label={label} onClick={() => (name === "play" && view.playAction === "play" ? setGameOpen(true) : act(name, name === "play"))}>
                 <span aria-hidden="true">{icon}</span>
               </button>
               <span className="caption" aria-hidden="true">

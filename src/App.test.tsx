@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   performAction: vi.fn(),
   onStateChanged: vi.fn(),
   ackHatch: vi.fn(),
+  playMinigame: vi.fn(),
   setName: vi.fn(),
   getSettings: vi.fn(),
   saveSettings: vi.fn(),
@@ -86,7 +87,7 @@ describe("App", () => {
     expect(screen.getByRole("img")).toHaveAttribute("alt", "stage 2 normal calm");
   });
 
-  it.each([["ご飯", "feed"], ["おやつ", "snack"], ["遊ぶ", "play"], ["掃除", "clean"]])("%s button calls performAction(%s)", async (label, action) => {
+  it.each([["ご飯", "feed"], ["おやつ", "snack"], ["掃除", "clean"]])("%s button calls performAction(%s)", async (label, action) => {
     render(<App />);
     await userEvent.click(await screen.findByRole("button", { name: label }));
     expect(api.performAction).toHaveBeenCalledWith(action);
@@ -108,9 +109,9 @@ describe("App", () => {
   it("clears a previous error after a successful action", async () => {
     api.performAction.mockRejectedValueOnce(new Error("x")).mockResolvedValue(base);
     render(<App />);
-    await userEvent.click(await screen.findByRole("button", { name: "遊ぶ" }));
+    await userEvent.click(await screen.findByRole("button", { name: "ご飯" }));
     await screen.findByRole("alert");
-    await userEvent.click(screen.getByRole("button", { name: "遊ぶ" }));
+    await userEvent.click(screen.getByRole("button", { name: "ご飯" }));
     await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
   });
 
@@ -151,7 +152,7 @@ describe("App", () => {
   it("shows an error message when performAction rejects", async () => {
     api.performAction.mockRejectedValue(new Error("save failed"));
     render(<App />);
-    await userEvent.click(await screen.findByRole("button", { name: "遊ぶ" }));
+    await userEvent.click(await screen.findByRole("button", { name: "ご飯" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("save failed");
   });
 
@@ -801,6 +802,106 @@ describe("App", () => {
       api.getState.mockResolvedValue({ ...base, stage: 1, playAction: "pet" });
       render(<App />);
       expect(await screen.findByRole("button", { name: "おやつ" })).toBeInTheDocument();
+    });
+  });
+
+  describe("mini game", () => {
+    const report = (win: boolean, answer: "left" | "right") => ({ view: { ...base, mood: 90 }, win, answer });
+    const openGame = async () => {
+      await userEvent.click(await screen.findByRole("button", { name: "遊ぶ" }));
+      return screen.findByRole("dialog", { name: "どっちの手？" });
+    };
+
+    it("opens instead of playing right away", async () => {
+      render(<App />);
+      const dialog = await openGame();
+      expect(within(dialog).getByText("どっちの手に入ってるかな？")).toBeInTheDocument();
+      expect(within(dialog).getByRole("button", { name: "左の手" })).toBeInTheDocument();
+      expect(within(dialog).getByRole("button", { name: "右の手" })).toBeInTheDocument();
+      expect(api.performAction).not.toHaveBeenCalled();
+    });
+
+    it("shows the game on the screen, apart from the buttons", async () => {
+      render(<App />);
+      const dialog = await openGame();
+      expect(within(screen.getByRole("region", { name: "画面" })).getByRole("dialog")).toBe(dialog);
+    });
+
+    it("sends the chosen hand and celebrates a win", async () => {
+      api.playMinigame.mockResolvedValue(report(true, "left"));
+      render(<App />);
+      const dialog = await openGame();
+      await userEvent.click(within(dialog).getByRole("button", { name: "左の手" }));
+      expect(api.playMinigame).toHaveBeenCalledWith("left");
+      expect(await within(dialog).findByText("あたり！🎉")).toBeInTheDocument();
+      expect(within(dialog).getByText("左の手でした")).toBeInTheDocument();
+    });
+
+    it("consoles the player after a loss and shows where the treat was", async () => {
+      api.playMinigame.mockResolvedValue(report(false, "right"));
+      render(<App />);
+      const dialog = await openGame();
+      await userEvent.click(within(dialog).getByRole("button", { name: "左の手" }));
+      expect(await within(dialog).findByText("ざんねん…")).toBeInTheDocument();
+      expect(within(dialog).getByText("右の手でした")).toBeInTheDocument();
+    });
+
+    it("updates the pet with the state returned by the game and makes it hop", async () => {
+      localStorage.clear();
+      enableGauges();
+      api.playMinigame.mockResolvedValue(report(true, "right"));
+      render(<App />);
+      const dialog = await openGame();
+      await userEvent.click(within(dialog).getByRole("button", { name: "右の手" }));
+      await within(dialog).findByText("あたり！🎉");
+      expect(screen.getByRole("progressbar", { name: "ご機嫌" })).toHaveAttribute("aria-valuenow", "90");
+      expect(screen.getByRole("img")).toHaveClass("hop");
+    });
+
+    it("closes after the result", async () => {
+      api.playMinigame.mockResolvedValue(report(true, "left"));
+      render(<App />);
+      const dialog = await openGame();
+      await userEvent.click(within(dialog).getByRole("button", { name: "左の手" }));
+      await userEvent.click(await within(dialog).findByRole("button", { name: "とじる" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+    });
+
+    it("can be cancelled before choosing", async () => {
+      render(<App />);
+      const dialog = await openGame();
+      await userEvent.click(within(dialog).getByRole("button", { name: "やめる" }));
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(api.playMinigame).not.toHaveBeenCalled();
+    });
+
+    it("lets the player play again", async () => {
+      api.playMinigame.mockResolvedValue(report(false, "right"));
+      render(<App />);
+      const dialog = await openGame();
+      await userEvent.click(within(dialog).getByRole("button", { name: "左の手" }));
+      await userEvent.click(await within(dialog).findByRole("button", { name: "もういちど" }));
+      expect(within(dialog).getByText("どっちの手に入ってるかな？")).toBeInTheDocument();
+      await userEvent.click(within(dialog).getByRole("button", { name: "右の手" }));
+      expect(api.playMinigame).toHaveBeenLastCalledWith("right");
+    });
+
+    it("shows the reason when the game fails and keeps the choice open", async () => {
+      api.playMinigame.mockRejectedValue(new Error("disk full"));
+      render(<App />);
+      const dialog = await openGame();
+      await userEvent.click(within(dialog).getByRole("button", { name: "左の手" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("disk full");
+      expect(within(dialog).getByRole("button", { name: "左の手" })).toBeInTheDocument();
+    });
+
+    it("is not offered to an egg, which is just petted", async () => {
+      api.getState.mockResolvedValue({ ...base, stage: 1, playAction: "pet" });
+      api.performAction.mockResolvedValue({ ...base, stage: 1, playAction: "pet" });
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "撫でる" }));
+      expect(api.performAction).toHaveBeenCalledWith("play");
+      expect(screen.queryByRole("dialog")).toBeNull();
     });
   });
 });

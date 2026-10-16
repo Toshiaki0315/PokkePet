@@ -153,3 +153,12 @@ body { overflow: hidden; user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   .sprite.rock, .sprite.bounce, .sprite.walk, .sprite.look, .sprite.stretch { animation: none; }
 }
+
+/* --- ミニゲーム「どっちの手？」 --- */
+.screen > .minigame { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; background: rgba(255, 255, 255, 0.98); color: #222; text-align: center; }
+.minigame p { margin: 0; font-size: 13px; font-weight: 700; }
+.minigame .result { font-size: 20px; }
+.game-actions { display: flex; gap: 10px; }
+.minigame button { padding: 7px 16px; border-radius: 10px; border: 1px solid #0003; background: #fff; color: inherit; cursor: pointer; font-size: 13px; }
+.minigame button:hover { background: #f0f3ff; }
+.minigame .quit { border: none; background: none; color: #666; font-size: 11px; text-decoration: underline; }

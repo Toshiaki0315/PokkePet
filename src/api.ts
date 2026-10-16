@@ -133,3 +133,17 @@ export interface DiaryView {
 export function getDiary(): Promise<DiaryView> {
   return invoke<DiaryView>("get_diary");
 }
+
+export type Side = "left" | "right";
+
+export interface MiniGameReport {
+  view: StateView;
+  win: boolean;
+  /** ペットがおやつを隠していた手 */
+  answer: Side;
+}
+
+/** ミニゲーム「どっちの手？」。勝敗の判定と効果は Rust 側。 */
+export function playMinigame(guess: Side): Promise<MiniGameReport> {
+  return invoke<MiniGameReport>("play_minigame", { guess });
+}

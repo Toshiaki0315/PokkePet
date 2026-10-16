@@ -5,7 +5,7 @@ const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
-import { ackHatch, getDex, getDiary, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
+import { ackHatch, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
 
 const view = { mood: 1, affinity: 2, hunger: 3, dirtiness: 4, stage: 1, branch: "normal", personality: "calm" };
 
@@ -101,5 +101,12 @@ describe("api", () => {
     invoke.mockResolvedValue({ daysTogether: 1, entries: [] });
     await expect(getDiary()).resolves.toEqual({ daysTogether: 1, entries: [] });
     expect(invoke).toHaveBeenCalledWith("get_diary");
+  });
+
+  it("playMinigame invokes play_minigame with the guess", async () => {
+    const report = { view, win: true, answer: "left" };
+    invoke.mockResolvedValue(report);
+    await expect(playMinigame("left")).resolves.toEqual(report);
+    expect(invoke).toHaveBeenCalledWith("play_minigame", { guess: "left" });
   });
 });

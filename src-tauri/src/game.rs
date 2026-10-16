@@ -148,6 +148,18 @@ impl GameState {
         self.discovered.insert(form_key(&self.form));
     }
 
+    /// ミニゲームの結果を反映する。普通に遊んだ効果に加えて、勝てばボーナス。卵は遊べない。
+    pub fn play_minigame(&mut self, win: bool) -> Result<(), String> {
+        if self.form.stage <= 1 {
+            return Err("an egg cannot play games".to_string());
+        }
+        self.apply(Action::Play);
+        if win {
+            self.status.win_bonus();
+        }
+        Ok(())
+    }
+
     /// 名前を付ける（付け直しもできる）。
     pub fn set_name(&mut self, raw: &str) -> Result<(), String> {
         let name = validate_name(raw)?;
@@ -604,6 +616,53 @@ mod tests {
         }
         s.step(STAGE_SECS);
         assert_eq!(s.form.personality, Personality::Gluttonous);
+    }
+
+    fn hatched_state() -> GameState {
+        let mut s = new_state();
+        s.step(EGG_SECS);
+        s
+    }
+
+    #[test]
+    fn an_egg_cannot_play_the_game() {
+        let mut s = new_state();
+        let before = s.clone();
+        assert!(s.play_minigame(true).is_err());
+        assert_eq!(s, before);
+    }
+
+    #[test]
+    fn losing_a_game_still_counts_as_playing() {
+        let mut played = hatched_state();
+        let mut lost = played.clone();
+        played.apply(Action::Play);
+        lost.play_minigame(false).unwrap();
+        assert_eq!(lost.status, played.status);
+        assert_eq!(lost.history.plays, 1);
+    }
+
+    #[test]
+    fn winning_a_game_adds_the_bonus_to_playing() {
+        let mut played = hatched_state();
+        let mut won = played.clone();
+        played.apply(Action::Play);
+        won.play_minigame(true).unwrap();
+        assert_eq!(won.status.mood, (played.status.mood + 10).min(100));
+        assert_eq!(won.status.affinity, played.status.affinity + 3);
+        assert_eq!(won.status.hunger, played.status.hunger);
+        assert_eq!(won.history.plays, 1);
+    }
+
+    #[test]
+    fn playing_the_game_ends_the_intro_and_counts_as_care() {
+        let mut s = hatched_state();
+        s.intro_seen = false;
+        for _ in 0..10 {
+            s.play_minigame(false).unwrap();
+        }
+        assert!(s.intro_seen);
+        assert!(kinds(&s).contains(&"careMilestone".to_string()));
     }
 
     #[test]

@@ -12,6 +12,7 @@ use crate::expression::{express, Bubble, Expression};
 use crate::dex::{build_view, DexView};
 use crate::diary::{self, DiaryView};
 use crate::game::{Action, GameState};
+use crate::minigame::{is_win, Rng, Side};
 use crate::sleep::{is_sleeping, local_utc_offset, SleepWindow};
 
 impl FromStr for Action {
@@ -61,6 +62,16 @@ pub struct StateView {
     pub needs_name: bool,
 }
 
+/// ミニゲームの結果。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MiniGameReport {
+    pub view: StateView,
+    pub win: bool,
+    /// ペットがおやつを隠していた手。
+    pub answer: Side,
+}
+
 /// `tick` の結果。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tick {
@@ -99,17 +110,38 @@ pub struct GameService {
     utc_offset: Option<i32>,
     /// おやすみ時間（設定ダイアログで変えられる）。
     sleep: Mutex<SleepWindow>,
+    /// ミニゲームの乱数。
+    rng: Mutex<Rng>,
 }
 
 impl GameService {
     pub fn new(state: GameState, path: PathBuf) -> Self {
-        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()) }
+        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()), rng: Mutex::new(Rng::new(time_seed())) }
     }
 
     /// 経過時間の倍率（動作確認用）。
     pub fn with_time_scale(mut self, scale: u32) -> Self {
         self.time_scale = scale;
         self
+    }
+
+    /// ミニゲームの乱数の種を固定する（テスト用）。
+    pub fn with_seed(self, seed: u64) -> Self {
+        *self.rng.lock().unwrap_or_else(|e| e.into_inner()) = Rng::new(seed);
+        self
+    }
+
+    /// ミニゲーム「どっちの手？」。時間を進め、答えを決め、結果（当たり・外れ）を反映して保存する。
+    pub fn play_minigame(&self, guess: Side, now_unix: u64) -> Result<MiniGameReport, String> {
+        let mut state = self.lock();
+        let mut next = state.clone();
+        next.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix), self.sleep_window());
+        let answer = self.rng.lock().unwrap_or_else(|e| e.into_inner()).next_side();
+        let win = is_win(guess, answer);
+        next.play_minigame(win)?;
+        next.save(&self.path).map_err(|e| e.to_string())?;
+        *state = next;
+        Ok(MiniGameReport { view: self.view(&state), win, answer })
     }
 
     /// 図鑑（全 109 種と発見済みの印）。
@@ -190,6 +222,11 @@ impl GameService {
     fn lock(&self) -> MutexGuard<'_, GameState> {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
+}
+
+/// 乱数の種に使う、いまの時刻（ナノ秒）。
+fn time_seed() -> u64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64)
 }
 
 fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
@@ -474,6 +511,90 @@ mod tests {
         let json = serde_json::to_value(svc("name-json").snapshot()).unwrap();
         assert_eq!(json["name"], serde_json::Value::Null);
         assert_eq!(json["needsName"], false);
+    }
+
+    fn hatched_service(name: &str, seed: u64) -> GameService {
+        let s = svc(name).with_seed(seed);
+        s.tick(u64::from(EGG_SECS)).unwrap();
+        s.ack_hatch().unwrap();
+        s
+    }
+
+    fn other(side: Side) -> Side {
+        match side {
+            Side::Left => Side::Right,
+            Side::Right => Side::Left,
+        }
+    }
+
+    #[test]
+    fn guessing_the_hidden_hand_wins_and_the_report_says_where_it_was() {
+        let answer = Rng::new(7).next_side();
+        let s = hatched_service("game-win", 7);
+        let r = s.play_minigame(answer, 1000).unwrap();
+        assert!(r.win);
+        assert_eq!(r.answer, answer);
+    }
+
+    #[test]
+    fn guessing_wrong_loses_but_still_reveals_the_answer() {
+        let answer = Rng::new(7).next_side();
+        let s = hatched_service("game-lose", 7);
+        let r = s.play_minigame(other(answer), 1000).unwrap();
+        assert!(!r.win);
+        assert_eq!(r.answer, answer);
+    }
+
+    #[test]
+    fn a_win_cheers_the_pet_up_more_than_a_loss() {
+        let answer = Rng::new(7).next_side();
+        let won = hatched_service("game-cmp-a", 7).play_minigame(answer, 1000).unwrap().view;
+        let lost = hatched_service("game-cmp-b", 7).play_minigame(other(answer), 1000).unwrap().view;
+        assert!(won.mood > lost.mood);
+        assert!(won.affinity > lost.affinity);
+    }
+
+    #[test]
+    fn every_round_gets_a_fresh_answer() {
+        let mut rng = Rng::new(99);
+        let (first, second) = (rng.next_side(), rng.next_side());
+        let s = hatched_service("game-rounds", 99);
+        assert_eq!(s.play_minigame(first, 1000).unwrap().answer, first);
+        assert_eq!(s.play_minigame(second, 1001).unwrap().answer, second);
+    }
+
+    #[test]
+    fn the_game_result_is_saved() {
+        let p = tmp("game-save");
+        let s = GameService::new(GameState::new(0), p.clone()).with_utc_offset(NOON_AT_ZERO).with_seed(3);
+        s.tick(u64::from(EGG_SECS)).unwrap();
+        s.play_minigame(Side::Left, 1000).unwrap();
+        assert_eq!(GameState::load(&p, 0).unwrap().history.plays, 1);
+    }
+
+    #[test]
+    fn an_egg_cannot_play_and_nothing_changes() {
+        let s = svc("game-egg").with_seed(1);
+        assert!(s.play_minigame(Side::Left, 0).is_err());
+        assert_eq!(s.snapshot().affinity, 0);
+    }
+
+    #[test]
+    fn a_failure_to_save_the_game_is_reported() {
+        let bad = tmp("game-bad").parent().unwrap().join("no/such/dir/save.json");
+        let mut state = GameState::new(0);
+        state.step(u32::MAX); // 孵化させる
+        let s = GameService::new(state, bad).with_seed(1);
+        assert!(s.play_minigame(Side::Left, 0).is_err());
+    }
+
+    #[test]
+    fn the_report_serializes_with_camel_case_keys() {
+        let s = hatched_service("game-json", 5);
+        let json = serde_json::to_value(s.play_minigame(Side::Right, 1000).unwrap()).unwrap();
+        assert!(json["win"].is_boolean());
+        assert!(json["answer"] == "left" || json["answer"] == "right");
+        assert_eq!(json["view"]["stage"], 2);
     }
 
     #[test]

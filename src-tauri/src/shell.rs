@@ -13,7 +13,8 @@ use crate::calls::{Call, CallGate};
 use crate::dex::DexView;
 use crate::diary::DiaryView;
 use crate::game::GameState;
-use crate::service::{should_notify_hatch, tray_title, GameService, StateView};
+use crate::minigame::Side;
+use crate::service::{should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
 use crate::settings::{Settings, SettingsService};
 
 const LOOP_INTERVAL: Duration = Duration::from_secs(10);
@@ -45,6 +46,16 @@ pub fn perform_action(app: AppHandle, svc: State<GameService>, gate: State<Mutex
     gate.lock().unwrap_or_else(|e| e.into_inner()).answered(); // 世話をしたので、次の困りごとはすぐ呼べる
     update_tray_title(&app, &view);
     Ok(view)
+}
+
+/// ミニゲーム「どっちの手？」。`guess` は "left" か "right"。
+#[tauri::command]
+pub fn play_minigame(app: AppHandle, svc: State<GameService>, gate: State<Mutex<CallGate>>, guess: String) -> Result<MiniGameReport, String> {
+    let side: Side = guess.parse()?;
+    let report = svc.play_minigame(side, now_unix())?;
+    gate.lock().unwrap_or_else(|e| e.into_inner()).answered(); // 遊んだので、次の困りごとはすぐ呼べる
+    update_tray_title(&app, &report.view);
+    Ok(report)
 }
 
 /// 名前を付ける（付け直す）。すべてのウィンドウへ最新の状態を通知する。

@@ -26,6 +26,8 @@ const SNACK_AFFINITY: u8 = 2;
 /// 空腹度（満腹側が大きい）がこの値以上のときにおやつをあげると、食べすぎになる。
 pub const SNACK_FULL_AT: u8 = 80;
 const OVEREAT_MOOD_LOSS: u8 = 10;
+const WIN_MOOD: u8 = 10;
+const WIN_AFFINITY: u8 = 3;
 const PET_MOOD: u8 = 10;
 const PET_AFFINITY: u8 = 3;
 /// 汚れ度がこの値以上だと、ティックごとのご機嫌低下が大きくなる。
@@ -64,6 +66,12 @@ impl Status {
         self.hunger = raise(self.hunger, SNACK_HUNGER);
         self.affinity = raise(self.affinity, SNACK_AFFINITY);
         true
+    }
+
+    /// ミニゲームに勝ったときのボーナス（通常の「遊ぶ」の効果に上乗せ）。
+    pub fn win_bonus(&mut self) {
+        self.mood = raise(self.mood, WIN_MOOD);
+        self.affinity = raise(self.affinity, WIN_AFFINITY);
     }
 
     /// 撫でる（卵の間の「遊ぶ」）。ご機嫌と親密度が少し上がり、空腹度は減らない。
@@ -199,6 +207,20 @@ mod tests {
         let mut s = Status::new(95, 99, 75, 0);
         assert!(s.snack());
         assert_eq!((s.mood, s.affinity, s.hunger), (100, 100, 85));
+    }
+
+    #[test]
+    fn winning_a_game_adds_mood_and_affinity() {
+        let mut s = base();
+        s.win_bonus();
+        assert_eq!(s, Status { mood: 60, affinity: 53, hunger: 50, dirtiness: 50 });
+    }
+
+    #[test]
+    fn the_win_bonus_saturates() {
+        let mut s = Status::new(98, 99, 10, 0);
+        s.win_bonus();
+        assert_eq!((s.mood, s.affinity), (100, 100));
     }
 
     #[test]
