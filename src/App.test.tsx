@@ -1,12 +1,16 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { StateView } from "./api";
+import type { Settings, StateView } from "./api";
+import { DEFAULT_SETTINGS } from "./defaults";
 
 const api = vi.hoisted(() => ({
   getState: vi.fn(),
   performAction: vi.fn(),
   onStateChanged: vi.fn(),
+  getSettings: vi.fn(),
+  saveSettings: vi.fn(),
+  onSettingsChanged: vi.fn(),
 }));
 vi.mock("./api", () => api);
 
@@ -21,18 +25,27 @@ const base: StateView = {
   branch: "normal",
   personality: "calm",
   expression: { mood: "mid", hunger: "high", dirtiness: "low", bubble: null },
+  playAction: "play",
 };
 const withExpression = (e: Partial<StateView["expression"]>): StateView => ({ ...base, expression: { ...base.expression, ...e } });
-const KEY = "pokkepet.showGauges";
+const gaugesOn: Settings = { ...DEFAULT_SETTINGS, showStage: true, showGauges: true };
+const enableGauges = () => api.getSettings.mockResolvedValue(gaugesOn);
 const konami = async () => {
   await userEvent.keyboard("{ArrowUp}{ArrowUp}{ArrowDown}{ArrowDown}");
 };
 let emit: (v: StateView) => void;
+let emitSettings: (s: Settings) => void;
 const unlisten = vi.fn();
+const unlistenSettings = vi.fn();
 
 beforeEach(() => {
   vi.resetAllMocks();
-  localStorage.clear();
+  api.getSettings.mockResolvedValue(DEFAULT_SETTINGS);
+  api.saveSettings.mockImplementation((s: Settings) => Promise.resolve(s));
+  api.onSettingsChanged.mockImplementation((h: (s: Settings) => void) => {
+    emitSettings = h;
+    return Promise.resolve(unlistenSettings);
+  });
   api.getState.mockResolvedValue(base);
   api.performAction.mockResolvedValue(base);
   api.onStateChanged.mockImplementation((h: (v: StateView) => void) => {
@@ -43,7 +56,7 @@ beforeEach(() => {
 
 describe("App", () => {
   it("renders four gauges from get_state when enabled", async () => {
-    localStorage.setItem(KEY, "1");
+    enableGauges();
     render(<App />);
     for (const [name, now] of [["ご機嫌", "50"], ["親密度", "10"], ["空腹度", "80"], ["汚れ度", "5"]]) {
       expect(await screen.findByRole("progressbar", { name })).toHaveAttribute("aria-valuenow", now);
@@ -51,7 +64,7 @@ describe("App", () => {
   });
 
   it("shows the stage (with the gauges) and the sprite", async () => {
-    localStorage.setItem(KEY, "1");
+    enableGauges();
     render(<App />);
     expect(await screen.findByText("段階 2 / 10")).toBeInTheDocument();
     expect(screen.getByRole("img")).toHaveAttribute("alt", "stage 2 normal calm");
@@ -86,7 +99,7 @@ describe("App", () => {
   });
 
   it("shows the state returned by an action", async () => {
-    localStorage.setItem(KEY, "1");
+    enableGauges();
     api.performAction.mockResolvedValue({ ...base, hunger: 100 });
     render(<App />);
     await userEvent.click(await screen.findByRole("button", { name: "ご飯" }));
@@ -94,7 +107,7 @@ describe("App", () => {
   });
 
   it("updates the view when a state-changed event arrives", async () => {
-    localStorage.setItem(KEY, "1");
+    enableGauges();
     render(<App />);
     await screen.findByRole("progressbar", { name: "ご機嫌" });
     await waitFor(() => expect(api.onStateChanged).toHaveBeenCalled());
@@ -163,29 +176,102 @@ describe("App", () => {
       expect(screen.getAllByRole("progressbar")).toHaveLength(4);
     });
 
-    it("remembers the setting across reloads", async () => {
-      const { unmount } = render(<App />);
+    it("saves both switches through the settings API when the command is used", async () => {
+      render(<App />);
       await screen.findByRole("img");
       await konami();
-      expect(localStorage.getItem(KEY)).toBe("1");
-      unmount();
-      render(<App />);
-      expect(await screen.findAllByRole("progressbar")).toHaveLength(4);
+      await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, showStage: true, showGauges: true }));
+      await konami();
+      await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith({ ...DEFAULT_SETTINGS, showStage: false, showGauges: false }));
     });
 
-    it("still works when localStorage is unavailable", async () => {
-      const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
-        throw new Error("blocked");
-      });
-      const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-        throw new Error("blocked");
-      });
+    it("turns both off when only one of them was on", async () => {
+      api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, showStage: true });
+      render(<App />);
+      await screen.findByText("段階 2 / 10");
+      await konami();
+      await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, showStage: false, showGauges: false }));
+    });
+
+    it("shows an error when saving the settings fails", async () => {
+      api.saveSettings.mockRejectedValue(new Error("disk full"));
       render(<App />);
       await screen.findByRole("img");
       await konami();
-      expect(screen.getAllByRole("progressbar")).toHaveLength(4);
-      get.mockRestore();
-      set.mockRestore();
+      expect(await screen.findByRole("alert")).toHaveTextContent("disk full");
+    });
+
+    it("shows the stage and the gauges independently according to the settings", async () => {
+      api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, showStage: true });
+      render(<App />);
+      expect(await screen.findByText("段階 2 / 10")).toBeInTheDocument();
+      expect(screen.queryByRole("progressbar")).toBeNull();
+    });
+
+    it("follows settings-changed events from the settings dialog", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onSettingsChanged).toHaveBeenCalled());
+      emitSettings(gaugesOn);
+      expect(await screen.findAllByRole("progressbar")).toHaveLength(4);
+      expect(screen.getByText("段階 2 / 10")).toBeInTheDocument();
+    });
+  });
+
+  describe("colour scheme", () => {
+    it("shows an error when the settings cannot be loaded and keeps the defaults", async () => {
+      api.getSettings.mockRejectedValue(new Error("unreadable"));
+      render(<App />);
+      expect(await screen.findByRole("alert")).toHaveTextContent("unreadable");
+      expect(screen.getByRole("main").style.getPropertyValue("--body-color")).toBe(DEFAULT_SETTINGS.bodyColor);
+    });
+
+    it("applies the configured colours as CSS variables", async () => {
+      api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, bodyColor: "#112233", buttonColor: "#445566" });
+      render(<App />);
+      await waitFor(() => expect(screen.getByRole("main").style.getPropertyValue("--body-color")).toBe("#112233"));
+      expect(screen.getByRole("main").style.getPropertyValue("--button-color")).toBe("#445566");
+    });
+
+    it("updates the colours live when settings change", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onSettingsChanged).toHaveBeenCalled());
+      emitSettings({ ...DEFAULT_SETTINGS, bodyColor: "#abcdef" });
+      await waitFor(() => expect(screen.getByRole("main").style.getPropertyValue("--body-color")).toBe("#abcdef"));
+    });
+
+    it("unsubscribes from settings events on unmount", async () => {
+      const { unmount } = render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onSettingsChanged).toHaveBeenCalled());
+      unmount();
+      await waitFor(() => expect(unlistenSettings).toHaveBeenCalled());
+    });
+  });
+
+  describe("egg stage", () => {
+    it("calls the play button 撫でる while the pet is an egg", async () => {
+      api.getState.mockResolvedValue({ ...base, stage: 1, playAction: "pet" });
+      render(<App />);
+      expect(await screen.findByRole("button", { name: "撫でる" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "遊ぶ" })).toBeNull();
+    });
+
+    it("still sends the play action from the 撫でる button (Rust decides what it means)", async () => {
+      api.getState.mockResolvedValue({ ...base, stage: 1, playAction: "pet" });
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "撫でる" }));
+      expect(api.performAction).toHaveBeenCalledWith("play");
+    });
+
+    it("switches the label back to 遊ぶ after hatching", async () => {
+      api.getState.mockResolvedValue({ ...base, stage: 1, playAction: "pet" });
+      render(<App />);
+      await screen.findByRole("button", { name: "撫でる" });
+      await waitFor(() => expect(api.onStateChanged).toHaveBeenCalled());
+      emit({ ...base, stage: 2, playAction: "play" });
+      expect(await screen.findByRole("button", { name: "遊ぶ" })).toBeInTheDocument();
     });
   });
 
@@ -262,7 +348,7 @@ describe("App", () => {
     });
 
     it("shows the gauges and the stage label on the screen when enabled", async () => {
-      localStorage.setItem(KEY, "1");
+      enableGauges();
       render(<App />);
       const display = await screen.findByRole("region", { name: "画面" });
       expect(within(display).getAllByRole("progressbar")).toHaveLength(4);

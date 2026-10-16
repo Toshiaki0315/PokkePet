@@ -1,13 +1,15 @@
 import { useEffect, useState } from "react";
-import { getState, onStateChanged, performAction } from "./api";
-import type { ActionName, StateView } from "./api";
+import type { CSSProperties } from "react";
+import { getSettings, getState, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
+import type { ActionName, Settings, StateView } from "./api";
+import { DEFAULT_SETTINGS } from "./defaults";
 import { Sprite } from "./SpriteView";
 import { BUBBLE_TEXT } from "./bubble";
 import { useHiddenCommand } from "./hiddenCommand";
-import { loadShowGauges, saveShowGauges } from "./settings";
+import { useListener } from "./useListener";
 import "./App.css";
 
-// 隠しコマンド: ↑ ↑ ↓ ↓ でパラメータのゲージ表示を切り替える。
+// 隠しコマンド: ↑ ↑ ↓ ↓ で段階とゲージの表示を切り替える。
 const GAUGE_COMMAND = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown"] as const;
 
 const GAUGES: ReadonlyArray<readonly [string, keyof StateView]> = [
@@ -17,37 +19,32 @@ const GAUGES: ReadonlyArray<readonly [string, keyof StateView]> = [
   ["汚れ度", "dirtiness"],
 ];
 
-const ACTIONS: ReadonlyArray<readonly [string, ActionName]> = [
-  ["ご飯", "feed"],
-  ["遊ぶ", "play"],
-  ["掃除", "clean"],
+const actions = (view: StateView): ReadonlyArray<{ name: ActionName; label: string; icon: string }> => [
+  { name: "feed", label: "ご飯", icon: "🍙" },
+  // 卵の間は「撫でる」。送るアクションは同じ "play" で、効果の違いは Rust 側が決める。
+  view.playAction === "pet" ? { name: "play", label: "撫でる", icon: "🤚" } : { name: "play", label: "遊ぶ", icon: "🎾" },
+  { name: "clean", label: "掃除", icon: "🧹" },
 ];
-
-const ACTION_ICON: Record<ActionName, string> = { feed: "🍙", play: "🎾", clean: "🧹" };
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export default function App() {
   const [view, setView] = useState<StateView | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [showGauges, setShowGauges] = useState(loadShowGauges);
-
-  useHiddenCommand(GAUGE_COMMAND, () => setShowGauges((on) => !on));
-  useEffect(() => saveShowGauges(showGauges), [showGauges]);
+  const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
 
   useEffect(() => {
-    let disposed = false;
-    let unlisten: (() => void) | undefined;
     getState().then(setView, (e) => setError(errorText(e)));
-    onStateChanged(setView).then((off) => {
-      if (disposed) return off();
-      unlisten = off;
-    });
-    return () => {
-      disposed = true;
-      unlisten?.();
-    };
+    getSettings().then(setSettings, (e) => setError(errorText(e)));
   }, []);
+  useListener(onStateChanged, setView);
+  useListener(onSettingsChanged, setSettings);
+
+  // 隠しコマンドは段階表示とゲージ表示をまとめて切り替える（どちらかがオンならオフにする）。
+  useHiddenCommand(GAUGE_COMMAND, () => {
+    const next = !(settings.showStage || settings.showGauges);
+    saveSettings({ ...settings, showStage: next, showGauges: next }).then(setSettings, (e) => setError(errorText(e)));
+  });
 
   const act = (action: ActionName) =>
     performAction(action).then(
@@ -72,10 +69,11 @@ export default function App() {
       data-mood={view.expression.mood}
       data-dirt={view.expression.dirtiness}
       data-hunger={view.expression.hunger}
+      style={{ "--body-color": settings.bodyColor, "--button-color": settings.buttonColor } as CSSProperties}
     >
       <div className="device">
-        <section className={`screen${showGauges ? " compact" : ""}`} aria-label="画面">
-          {showGauges && <p className="stage">段階 {view.stage} / 10</p>}
+        <section className={`screen${settings.showGauges ? " compact" : ""}`} aria-label="画面">
+          {settings.showStage && <p className="stage">段階 {view.stage} / 10</p>}
           <div className="stage-area">
             {view.expression.bubble && (
               <div className="bubble" role="status">
@@ -84,7 +82,7 @@ export default function App() {
             )}
             <Sprite view={view} />
           </div>
-          {showGauges && (
+          {settings.showGauges && (
             <div className="gauges">
               {GAUGES.map(([label, key]) => (
                 <label key={key} className="gauge">
@@ -96,10 +94,10 @@ export default function App() {
           )}
         </section>
         <div className="controls" role="group" aria-label="ボタン">
-          {ACTIONS.map(([label, action]) => (
-            <div key={action} className="control">
-              <button type="button" aria-label={label} onClick={() => act(action)}>
-                <span aria-hidden="true">{ACTION_ICON[action]}</span>
+          {actions(view).map(({ name, label, icon }) => (
+            <div key={label} className="control">
+              <button type="button" aria-label={label} onClick={() => act(name)}>
+                <span aria-hidden="true">{icon}</span>
               </button>
               <span className="caption" aria-hidden="true">
                 {label}

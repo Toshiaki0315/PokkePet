@@ -1,0 +1,20 @@
+.settings { box-sizing: border-box; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; color: #222; background: #f6f6f9; min-height: 100%; user-select: none; }
+.settings h1 { margin: 0; font-size: 18px; }
+.settings fieldset { border: 1px solid #0002; border-radius: 10px; padding: 10px 14px 12px; display: grid; gap: 8px; }
+.settings legend { padding: 0 6px; font-weight: 700; font-size: 13px; }
+.settings .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.settings .row input[type="checkbox"] { order: -1; margin-right: 6px; }
+.settings .row:has(input[type="checkbox"]) { justify-content: flex-start; }
+.settings input[type="color"] { width: 54px; height: 28px; padding: 0; border: 1px solid #0003; border-radius: 6px; background: none; cursor: pointer; }
+.settings .presets { display: flex; flex-wrap: wrap; gap: 6px; }
+.settings button { display: inline-flex; align-items: center; gap: 5px; padding: 5px 10px; border-radius: 8px; border: 1px solid #0003; background: #fff; color: inherit; cursor: pointer; font-size: 12px; }
+.settings button:hover { background: #eef; }
+.settings .swatch { width: 12px; height: 12px; border-radius: 50%; border: 1px solid #0003; }
+.settings .reset { align-self: flex-start; }
+.settings [role="alert"] { margin: 0; color: #c22; font-size: 12px; position: static; text-align: left; }
+@media (prefers-color-scheme: dark) {
+  .settings { background: #26262b; color: #eee; }
+  .settings fieldset { border-color: #fff3; }
+  .settings button { background: #34343b; border-color: #fff3; }
+  .settings button:hover { background: #3f3f48; }
+}

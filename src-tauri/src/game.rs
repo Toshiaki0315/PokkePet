@@ -51,6 +51,7 @@ impl GameState {
                 self.status.feed();
                 self.history.feeds += 1;
             }
+            Action::Play if self.form.stage <= 1 => self.status.pet(),
             Action::Play => {
                 self.status.play();
                 self.history.plays += 1;
@@ -158,6 +159,7 @@ mod tests {
     #[test]
     fn apply_updates_status_and_history() {
         let mut s = new_state();
+        s.step(STAGE_SECS); // 卵の間の「遊ぶ」は撫でる扱いなので、孵化させてから確認する。
         s.apply(Action::Feed);
         s.apply(Action::Play);
         s.apply(Action::Play);
@@ -165,6 +167,24 @@ mod tests {
         assert_eq!(s.history, History { feeds: 1, plays: 2, cleans: 1 });
         assert_eq!(s.status.dirtiness, 0);
         assert!(s.status.affinity > 0);
+    }
+
+    #[test]
+    fn play_on_an_egg_is_petting() {
+        let mut s = new_state();
+        s.apply(Action::Play);
+        assert_eq!(s.status, Status::new(60, 3, 80, 0));
+        assert_eq!(s.history.plays, 0);
+    }
+
+    #[test]
+    fn play_after_hatching_is_real_play() {
+        let mut s = new_state();
+        s.step(STAGE_SECS);
+        let hunger = s.status.hunger;
+        s.apply(Action::Play);
+        assert_eq!(s.history.plays, 1);
+        assert_eq!(s.status.hunger, hunger - 5);
     }
 
     #[test]
@@ -215,6 +235,7 @@ mod tests {
     #[test]
     fn step_applies_personality_from_history_on_evolution() {
         let mut s = new_state();
+        s.step(STAGE_SECS); // 孵化
         for _ in 0..3 {
             s.apply(Action::Play);
         }

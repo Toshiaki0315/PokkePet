@@ -20,6 +20,8 @@ const FEED_AFFINITY: u8 = 2;
 const PLAY_MOOD: u8 = 25;
 const PLAY_AFFINITY: u8 = 5;
 const PLAY_HUNGER_COST: u8 = 5;
+const PET_MOOD: u8 = 10;
+const PET_AFFINITY: u8 = 3;
 /// 汚れ度がこの値以上だと、ティックごとのご機嫌低下が大きくなる。
 pub const DIRTY_THRESHOLD: u8 = 70;
 
@@ -43,6 +45,12 @@ impl Status {
         self.mood = raise(self.mood, PLAY_MOOD);
         self.affinity = raise(self.affinity, PLAY_AFFINITY);
         self.hunger = self.hunger.saturating_sub(PLAY_HUNGER_COST);
+    }
+
+    /// 撫でる（卵の間の「遊ぶ」）。ご機嫌と親密度が少し上がり、空腹度は減らない。
+    pub fn pet(&mut self) {
+        self.mood = raise(self.mood, PET_MOOD);
+        self.affinity = raise(self.affinity, PET_AFFINITY);
     }
 
     pub fn clean(&mut self) {
@@ -137,6 +145,20 @@ mod tests {
         let mut s = Status::new(0, 50, 0, 100);
         s.tick();
         assert_eq!((s.mood, s.hunger, s.dirtiness), (0, 0, 100));
+    }
+
+    #[test]
+    fn pet_raises_mood_and_affinity_without_costing_hunger() {
+        let mut s = base();
+        s.pet();
+        assert_eq!(s, Status { mood: 60, affinity: 53, hunger: 50, dirtiness: 50 });
+    }
+
+    #[test]
+    fn pet_saturates_at_max() {
+        let mut s = Status::new(95, 99, 10, 0);
+        s.pet();
+        assert_eq!((s.mood, s.affinity), (100, 100));
     }
 
     #[test]

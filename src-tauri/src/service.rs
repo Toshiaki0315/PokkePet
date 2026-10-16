@@ -25,6 +25,14 @@ impl FromStr for Action {
 }
 
 /// フロントエンドへ渡す表示用スナップショット。
+/// 「遊ぶ」ボタンの中身。卵の間は「撫でる」(pet)。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PlayAction {
+    Play,
+    Pet,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StateView {
@@ -36,6 +44,7 @@ pub struct StateView {
     pub branch: Branch,
     pub personality: Personality,
     pub expression: Expression,
+    pub play_action: PlayAction,
 }
 
 pub struct GameService {
@@ -92,6 +101,7 @@ fn view_of(s: &GameState) -> StateView {
         branch: s.form.branch,
         personality: s.form.personality,
         expression: express(&s.status),
+        play_action: if s.form.stage <= 1 { PlayAction::Pet } else { PlayAction::Play },
     }
 }
 
@@ -146,6 +156,7 @@ mod tests {
                     dirtiness: Level::Low,
                     bubble: None,
                 },
+                play_action: PlayAction::Pet,
             }
         );
     }
@@ -157,6 +168,20 @@ mod tests {
         let (v, _) = s.tick(u64::from(TICK_SECS) * 90).unwrap();
         assert_eq!(v.expression.hunger, Level::Low);
         assert_eq!(v.expression.bubble, Some(Bubble::Hungry));
+    }
+
+    #[test]
+    fn play_action_is_pet_only_while_an_egg() {
+        let s = svc("play-action");
+        assert_eq!(s.snapshot().play_action, PlayAction::Pet);
+        let (v, _) = s.tick(u64::from(STAGE_SECS)).unwrap();
+        assert_eq!(v.play_action, PlayAction::Play);
+    }
+
+    #[test]
+    fn view_json_exposes_play_action() {
+        let json = serde_json::to_value(svc("pa-json").snapshot()).unwrap();
+        assert_eq!(json["playAction"], "pet");
     }
 
     #[test]

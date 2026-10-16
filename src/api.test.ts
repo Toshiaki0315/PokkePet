@@ -5,7 +5,7 @@ const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
-import { getState, onStateChanged, performAction } from "./api";
+import { getSettings, getState, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
 
 const view = { mood: 1, affinity: 2, hunger: 3, dirtiness: 4, stage: 1, branch: "normal", personality: "calm" };
 
@@ -37,6 +37,32 @@ describe("api", () => {
     const off = await onStateChanged(handler);
     expect(listen).toHaveBeenCalledWith("state-changed", expect.any(Function));
     expect(handler).toHaveBeenCalledWith(view);
+    expect(off).toBe(unlisten);
+  });
+
+  it("getSettings invokes get_settings", async () => {
+    invoke.mockResolvedValue({ showStage: false });
+    await expect(getSettings()).resolves.toEqual({ showStage: false });
+    expect(invoke).toHaveBeenCalledWith("get_settings");
+  });
+
+  it("saveSettings invokes save_settings with the settings", async () => {
+    const settings = { showStage: true, showGauges: false, bodyColor: "#112233", buttonColor: "#445566" };
+    invoke.mockResolvedValue(settings);
+    await expect(saveSettings(settings)).resolves.toEqual(settings);
+    expect(invoke).toHaveBeenCalledWith("save_settings", { settings });
+  });
+
+  it("onSettingsChanged listens to settings-changed and forwards the payload", async () => {
+    const unlisten = vi.fn();
+    listen.mockImplementation((_name: string, cb: (e: { payload: unknown }) => void) => {
+      cb({ payload: { showStage: true } });
+      return Promise.resolve(unlisten);
+    });
+    const handler = vi.fn();
+    const off = await onSettingsChanged(handler);
+    expect(listen).toHaveBeenCalledWith("settings-changed", expect.any(Function));
+    expect(handler).toHaveBeenCalledWith({ showStage: true });
     expect(off).toBe(unlisten);
   });
 });
