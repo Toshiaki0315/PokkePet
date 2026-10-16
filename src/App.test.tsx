@@ -1,16 +1,19 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings, StateView } from "./api";
 import { DEFAULT_SETTINGS } from "./defaults";
+import { HATCH_FLASH_MS, HATCH_SHAKE_MS } from "./hatch";
 
 const api = vi.hoisted(() => ({
   getState: vi.fn(),
   performAction: vi.fn(),
   onStateChanged: vi.fn(),
+  ackHatch: vi.fn(),
   getSettings: vi.fn(),
   saveSettings: vi.fn(),
   onSettingsChanged: vi.fn(),
+  onPopupVisibility: vi.fn(),
 }));
 vi.mock("./api", () => api);
 
@@ -26,6 +29,8 @@ const base: StateView = {
   personality: "calm",
   expression: { mood: "mid", hunger: "high", dirtiness: "low", bubble: null },
   playAction: "play",
+  intro: false,
+  hatching: false,
 };
 const withExpression = (e: Partial<StateView["expression"]>): StateView => ({ ...base, expression: { ...base.expression, ...e } });
 const gaugesOn: Settings = { ...DEFAULT_SETTINGS, showStage: true, showGauges: true };
@@ -35,13 +40,19 @@ const konami = async () => {
 };
 let emit: (v: StateView) => void;
 let emitSettings: (s: Settings) => void;
+let emitVisible: (visible: boolean) => void;
 const unlisten = vi.fn();
 const unlistenSettings = vi.fn();
+const unlistenVisible = vi.fn();
 
 beforeEach(() => {
   vi.resetAllMocks();
   api.getSettings.mockResolvedValue(DEFAULT_SETTINGS);
   api.saveSettings.mockImplementation((s: Settings) => Promise.resolve(s));
+  api.onPopupVisibility.mockImplementation((h: (v: boolean) => void) => {
+    emitVisible = h;
+    return Promise.resolve(unlistenVisible);
+  });
   api.onSettingsChanged.mockImplementation((h: (s: Settings) => void) => {
     emitSettings = h;
     return Promise.resolve(unlistenSettings);
@@ -368,6 +379,178 @@ describe("App", () => {
       const alert = await screen.findByRole("alert");
       expect(within(screen.getByRole("region", { name: "画面" })).queryByRole("alert")).toBeNull();
       expect(alert).toHaveTextContent("save failed");
+    });
+  });
+
+  describe("opening", () => {
+    const intro = { ...base, stage: 1, playAction: "pet", intro: true, expression: { ...base.expression, bubble: "welcome" } } as StateView;
+
+    it("welcomes the player with a speech bubble on the first launch", async () => {
+      api.getState.mockResolvedValue(intro);
+      render(<App />);
+      expect(await screen.findByRole("status")).toHaveTextContent("卵が届いたよ！撫でてあげてね");
+    });
+
+    it("fades the egg in during the opening only", async () => {
+      api.getState.mockResolvedValue(intro);
+      render(<App />);
+      expect(await screen.findByRole("img")).toHaveClass("appear");
+      expect(screen.getByRole("main")).toHaveAttribute("data-intro", "true");
+    });
+
+    it("has no opening effect afterwards", async () => {
+      render(<App />);
+      expect(await screen.findByRole("img")).not.toHaveClass("appear");
+      expect(screen.getByRole("main")).toHaveAttribute("data-intro", "false");
+    });
+  });
+
+  describe("reactions to the buttons", () => {
+    it("makes the egg wobble when it is stroked", async () => {
+      api.getState.mockResolvedValue({ ...base, stage: 1, playAction: "pet" });
+      api.performAction.mockResolvedValue({ ...base, stage: 1, playAction: "pet" });
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "撫でる" }));
+      await waitFor(() => expect(screen.getByRole("img")).toHaveClass("wobble"));
+    });
+
+    it("makes the pet hop for the other buttons", async () => {
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "ご飯" }));
+      await waitFor(() => expect(screen.getByRole("img")).toHaveClass("hop"));
+    });
+
+    it("clears the reaction when the animation ends so that other animations can continue", async () => {
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "掃除" }));
+      await waitFor(() => expect(screen.getByRole("img")).toHaveClass("hop"));
+      // jsdom の React は webkit 接頭辞付きの名前で待つので、両方の名前で発火させる。
+      for (const name of ["animationend", "webkitAnimationEnd"]) fireEvent(screen.getByRole("img"), new Event(name, { bubbles: true }));
+      expect(screen.getByRole("img")).not.toHaveClass("hop");
+    });
+
+    it("restarts the animation on every press", async () => {
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "ご飯" }));
+      await waitFor(() => expect(screen.getByRole("img")).toHaveClass("hop"));
+      const first = screen.getByRole("img");
+      await userEvent.click(screen.getByRole("button", { name: "ご飯" }));
+      await waitFor(() => expect(screen.getByRole("img")).not.toBe(first));
+      expect(screen.getByRole("img")).toHaveClass("hop");
+    });
+
+    it("does not react when the action fails", async () => {
+      api.performAction.mockRejectedValue(new Error("x"));
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "ご飯" }));
+      await screen.findByRole("alert");
+      expect(screen.getByRole("img")).not.toHaveClass("hop");
+    });
+  });
+
+  describe("hatching", () => {
+    const hatching = { ...base, hatching: true };
+    const settled = { ...base, hatching: false };
+    const showPopup = (visible: boolean) => {
+      act(() => emitVisible(visible));
+    };
+    const tick = async (ms: number) => {
+      await act(async () => {
+        vi.advanceTimersByTime(ms);
+      });
+    };
+
+    beforeEach(() => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      api.getState.mockResolvedValue(hatching);
+      api.ackHatch.mockResolvedValue(settled);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("shakes the egg first, then flashes, then shows the newborn and reports it", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      showPopup(true);
+      const egg = screen.getByRole("img");
+      expect(egg).toHaveAttribute("alt", expect.stringContaining("stage 1"));
+      expect(egg).toHaveClass("shake");
+      expect(screen.queryByTestId("hatch-flash")).toBeNull();
+      expect(api.ackHatch).not.toHaveBeenCalled();
+
+      await tick(HATCH_SHAKE_MS + 10);
+      expect(screen.getByTestId("hatch-flash")).toBeInTheDocument();
+      expect(api.ackHatch).not.toHaveBeenCalled();
+
+      await tick(HATCH_FLASH_MS + 10);
+      expect(api.ackHatch).toHaveBeenCalledTimes(1);
+      await waitFor(() => expect(screen.getByRole("img")).toHaveAttribute("alt", expect.stringContaining("stage 2")));
+      expect(screen.queryByTestId("hatch-flash")).toBeNull();
+    });
+
+    it("plays the sequence only once", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      showPopup(true);
+      await tick(HATCH_SHAKE_MS + HATCH_FLASH_MS + 500);
+      await tick(5000);
+      expect(api.ackHatch).toHaveBeenCalledTimes(1);
+    });
+
+    it("waits until the popup is actually opened before playing", async () => {
+      render(<App />);
+      const sprite = await screen.findByRole("img");
+      expect(sprite).toHaveAttribute("alt", expect.stringContaining("stage 2"));
+      await tick(HATCH_SHAKE_MS + HATCH_FLASH_MS + 500);
+      expect(api.ackHatch).not.toHaveBeenCalled();
+
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      showPopup(true);
+      expect(screen.getByRole("img")).toHaveClass("shake");
+    });
+
+    it("is interrupted, not lost, when the popup is closed midway", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      showPopup(true);
+      expect(screen.getByRole("img")).toHaveClass("shake");
+      showPopup(false);
+      expect(screen.getByRole("img")).not.toHaveClass("shake");
+      await tick(HATCH_SHAKE_MS + HATCH_FLASH_MS + 500);
+      expect(api.ackHatch).not.toHaveBeenCalled();
+      showPopup(true);
+      expect(screen.getByRole("img")).toHaveClass("shake");
+    });
+
+    it("shows an error when the hatch cannot be recorded", async () => {
+      api.ackHatch.mockRejectedValue(new Error("disk full"));
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      showPopup(true);
+      await tick(HATCH_SHAKE_MS + HATCH_FLASH_MS + 10);
+      expect(await screen.findByRole("alert")).toHaveTextContent("disk full");
+    });
+
+    it("does not hatch anything for an egg that is still an egg", async () => {
+      api.getState.mockResolvedValue({ ...base, stage: 1, hatching: false });
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      showPopup(true);
+      expect(screen.getByRole("img")).not.toHaveClass("shake");
+    });
+
+    it("unsubscribes from popup events on unmount", async () => {
+      const { unmount } = render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      unmount();
+      await waitFor(() => expect(unlistenVisible).toHaveBeenCalled());
     });
   });
 });

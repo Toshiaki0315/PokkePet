@@ -8,7 +8,7 @@ use std::sync::{Mutex, MutexGuard};
 use serde::Serialize;
 
 use crate::evolution::{Branch, Personality};
-use crate::expression::{express, Expression};
+use crate::expression::{express, Bubble, Expression};
 use crate::game::{Action, GameState};
 
 impl FromStr for Action {
@@ -45,6 +45,10 @@ pub struct StateView {
     pub personality: Personality,
     pub expression: Expression,
     pub play_action: PlayAction,
+    /// 初回オープニング中（最初の操作まで）。
+    pub intro: bool,
+    /// 孵化したが、演出をまだ見せていない。
+    pub hatching: bool,
 }
 
 pub struct GameService {
@@ -77,6 +81,14 @@ impl GameService {
         Ok(view_of(&state))
     }
 
+    /// 孵化の演出を見せたことを記録して保存する。
+    pub fn ack_hatch(&self) -> io::Result<StateView> {
+        let mut state = self.lock();
+        state.ack_hatch();
+        state.save(&self.path)?;
+        Ok(view_of(&state))
+    }
+
     /// 時間を進めて保存する。表示用スナップショットと進化回数を返す。
     pub fn tick(&self, now_unix: u64) -> io::Result<(StateView, u8)> {
         let mut state = self.lock();
@@ -92,6 +104,10 @@ impl GameService {
 }
 
 fn view_of(s: &GameState) -> StateView {
+    let mut expression = express(&s.status);
+    if !s.intro_seen {
+        expression.bubble = Some(Bubble::Welcome);
+    }
     StateView {
         mood: s.status.mood,
         affinity: s.status.affinity,
@@ -100,7 +116,9 @@ fn view_of(s: &GameState) -> StateView {
         stage: s.form.stage,
         branch: s.form.branch,
         personality: s.form.personality,
-        expression: express(&s.status),
+        expression,
+        intro: !s.intro_seen,
+        hatching: s.hatching(),
         play_action: if s.form.stage <= 1 { PlayAction::Pet } else { PlayAction::Play },
     }
 }
@@ -109,7 +127,7 @@ fn view_of(s: &GameState) -> StateView {
 mod tests {
     use super::*;
     use crate::evolution::STAGE_SECS;
-    use crate::expression::{Bubble, Level};
+    use crate::expression::Level;
     use crate::game::TICK_SECS;
     use std::fs;
     use std::sync::Arc;
@@ -154,9 +172,11 @@ mod tests {
                     mood: Level::Mid,
                     hunger: Level::High,
                     dirtiness: Level::Low,
-                    bubble: None,
+                    bubble: Some(Bubble::Welcome),
                 },
                 play_action: PlayAction::Pet,
+                intro: true,
+                hatching: false,
             }
         );
     }
@@ -164,10 +184,55 @@ mod tests {
     #[test]
     fn view_reflects_expression_after_actions() {
         let s = svc("expr");
+        s.perform(Action::Clean, 0).unwrap(); // 初回オープニングを終える
         // 時間経過で汚れが溜まり、空腹になると吹き出しが変わる。
         let (v, _) = s.tick(u64::from(TICK_SECS) * 90).unwrap();
         assert_eq!(v.expression.hunger, Level::Low);
         assert_eq!(v.expression.bubble, Some(Bubble::Hungry));
+    }
+
+    #[test]
+    fn the_first_view_shows_the_welcome_bubble_until_the_first_action() {
+        let s = svc("welcome");
+        assert_eq!(s.snapshot().expression.bubble, Some(Bubble::Welcome));
+        assert!(s.snapshot().intro);
+        let v = s.perform(Action::Play, 0).unwrap();
+        assert!(!v.intro);
+        assert_eq!(v.expression.bubble, None);
+    }
+
+    #[test]
+    fn time_passing_keeps_the_welcome_bubble() {
+        let s = svc("welcome-tick");
+        let (v, _) = s.tick(u64::from(TICK_SECS)).unwrap();
+        assert!(v.intro);
+        assert_eq!(v.expression.bubble, Some(Bubble::Welcome));
+    }
+
+    #[test]
+    fn hatching_is_reported_until_acknowledged_and_persisted() {
+        let p = tmp("hatch");
+        let s = GameService::new(GameState::new(0), p.clone());
+        let (v, evo) = s.tick(u64::from(STAGE_SECS)).unwrap();
+        assert_eq!((evo, v.hatching), (1, true));
+        let v = s.ack_hatch().unwrap();
+        assert!(!v.hatching);
+        assert!(GameState::load(&p, 0).unwrap().hatch_shown);
+    }
+
+    #[test]
+    fn ack_hatch_returns_an_error_when_saving_fails() {
+        let bad = tmp("hatch-bad").parent().unwrap().join("no/such/dir/save.json");
+        let s = GameService::new(GameState::new(0), bad);
+        assert!(s.ack_hatch().is_err());
+    }
+
+    #[test]
+    fn view_json_exposes_intro_and_hatching() {
+        let json = serde_json::to_value(svc("intro-json").snapshot()).unwrap();
+        assert_eq!(json["intro"], true);
+        assert_eq!(json["hatching"], false);
+        assert_eq!(json["expression"]["bubble"], "welcome");
     }
 
     #[test]
@@ -186,7 +251,9 @@ mod tests {
 
     #[test]
     fn view_json_exposes_expression() {
-        let json = serde_json::to_value(svc("expr-json").snapshot()).unwrap();
+        let s = svc("expr-json");
+        s.perform(Action::Clean, 0).unwrap(); // 初回オープニングを終える
+        let json = serde_json::to_value(s.snapshot()).unwrap();
         assert_eq!(json["expression"]["mood"], "mid");
         assert_eq!(json["expression"]["dirtiness"], "low");
         assert_eq!(json["expression"]["bubble"], serde_json::Value::Null);

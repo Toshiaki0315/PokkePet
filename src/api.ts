@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 export type Branch = "poor" | "normal" | "good";
 export type Personality = "calm" | "playful" | "gluttonous" | "tidy";
 export type Level = "low" | "mid" | "high";
-export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy";
+export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome";
 export type PlayAction = "play" | "pet";
 export type ActionName = "feed" | "play" | "clean";
 
@@ -19,6 +19,10 @@ export interface StateView {
   expression: Expression;
   /** 卵の間は "pet"（ボタンの表示が「撫でる」になる） */
   playAction: PlayAction;
+  /** 初回オープニング中（最初の操作まで） */
+  intro: boolean;
+  /** 孵化したが、演出をまだ見せていない */
+  hatching: boolean;
 }
 
 export interface Expression {
@@ -36,6 +40,16 @@ export function getState(): Promise<StateView> {
 
 export function performAction(action: ActionName): Promise<StateView> {
   return invoke<StateView>("perform_action", { action });
+}
+
+/** ポップアップが開いた(true)/閉じた(false)ことの通知。 */
+export function onPopupVisibility(handler: (visible: boolean) => void): Promise<() => void> {
+  return listen<boolean>("popup-visibility", (event) => handler(event.payload));
+}
+
+/** 孵化の演出を見せ終えたことを記録する。 */
+export function ackHatch(): Promise<StateView> {
+  return invoke<StateView>("ack_hatch");
 }
 
 export function onStateChanged(handler: (view: StateView) => void): Promise<() => void> {

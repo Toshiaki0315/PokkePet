@@ -31,6 +31,16 @@ pub struct GameState {
     pub tick_acc: u32,
     /// 最後に時間を進めた時刻（UNIX秒）。
     pub last_unix: u64,
+    /// 初回オープニング（「卵が届いたよ」）を済ませたか。最初の操作で済みになる。旧セーブは済み扱い。
+    #[serde(default = "yes")]
+    pub intro_seen: bool,
+    /// 孵化の演出を見せたか。旧セーブは済み扱い。
+    #[serde(default = "yes")]
+    pub hatch_shown: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 impl GameState {
@@ -42,10 +52,25 @@ impl GameState {
             form: Form { stage: 1, branch: Branch::Normal, personality: Personality::Calm },
             tick_acc: 0,
             last_unix: now_unix,
+            intro_seen: false,
+            hatch_shown: false,
+        }
+    }
+
+    /// 孵化したが、まだ演出を見せていない。
+    pub fn hatching(&self) -> bool {
+        self.form.stage >= 2 && !self.hatch_shown
+    }
+
+    /// 孵化の演出を見せたことを記録する（卵のままなら何もしない）。
+    pub fn ack_hatch(&mut self) {
+        if self.form.stage >= 2 {
+            self.hatch_shown = true;
         }
     }
 
     pub fn apply(&mut self, action: Action) {
+        self.intro_seen = true;
         match action {
             Action::Feed => {
                 self.status.feed();
@@ -80,6 +105,9 @@ impl GameState {
             self.form = evolve(self.growth.stage - 1, &self.status, &self.history);
             evolutions += 1;
             advanced = self.growth.advance(0);
+        }
+        if evolutions > 0 {
+            self.intro_seen = true; // 卵が孵ったら「卵が届いたよ」は役目を終える
         }
         evolutions
     }
@@ -154,6 +182,74 @@ mod tests {
             Form { stage: 1, branch: Branch::Normal, personality: Personality::Calm }
         );
         assert_eq!((s.tick_acc, s.last_unix), (0, 1_000));
+    }
+
+    #[test]
+    fn a_new_game_starts_with_the_intro_and_the_hatch_pending() {
+        let s = new_state();
+        assert_eq!((s.intro_seen, s.hatch_shown), (false, false));
+        assert!(!s.hatching()); // まだ卵なので孵化はしていない
+    }
+
+    #[test]
+    fn any_action_ends_the_intro() {
+        for action in [Action::Feed, Action::Play, Action::Clean] {
+            let mut s = new_state();
+            s.apply(action);
+            assert!(s.intro_seen, "{action:?}");
+        }
+    }
+
+    #[test]
+    fn hatching_ends_the_intro_too() {
+        let mut s = new_state();
+        s.step(STAGE_SECS);
+        assert!(s.intro_seen);
+    }
+
+    #[test]
+    fn time_passing_alone_does_not_end_the_intro() {
+        let mut s = new_state();
+        s.step(STAGE_SECS / 2);
+        assert!(!s.intro_seen);
+    }
+
+    #[test]
+    fn hatching_lasts_from_the_hatch_until_it_is_acknowledged() {
+        let mut s = new_state();
+        s.step(STAGE_SECS);
+        assert!(s.hatching());
+        s.ack_hatch();
+        assert!(!s.hatching());
+        assert!(s.hatch_shown);
+    }
+
+    #[test]
+    fn acknowledging_before_the_egg_hatches_does_nothing() {
+        let mut s = new_state();
+        s.ack_hatch();
+        assert!(!s.hatch_shown);
+        s.step(STAGE_SECS);
+        assert!(s.hatching());
+    }
+
+    #[test]
+    fn later_evolutions_do_not_bring_the_hatch_back() {
+        let mut s = new_state();
+        s.step(STAGE_SECS);
+        s.ack_hatch();
+        s.step(STAGE_SECS * 3);
+        assert!(!s.hatching());
+    }
+
+    #[test]
+    fn saves_from_before_the_intro_existed_count_as_seen() {
+        let mut json = serde_json::to_value(new_state()).unwrap();
+        json.as_object_mut().unwrap().remove("intro_seen");
+        json.as_object_mut().unwrap().remove("hatch_shown");
+        let s = GameState::from_json(&json.to_string()).unwrap();
+        assert_eq!((s.intro_seen, s.hatch_shown), (true, true));
+        assert!(!s.hatching());
     }
 
     #[test]

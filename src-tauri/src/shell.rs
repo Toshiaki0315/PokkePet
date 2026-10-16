@@ -15,6 +15,8 @@ const LOOP_INTERVAL: Duration = Duration::from_secs(10);
 const STATE_EVENT: &str = "state-changed";
 const SETTINGS_EVENT: &str = "settings-changed";
 const SETTINGS_WINDOW: &str = "settings";
+/// ポップアップの表示/非表示（true=表示）。孵化の演出など「開いている間だけ」再生するものに使う。
+const POPUP_EVENT: &str = "popup-visibility";
 
 fn now_unix() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
@@ -29,6 +31,12 @@ pub fn get_state(svc: State<GameService>) -> StateView {
 pub fn perform_action(svc: State<GameService>, action: String) -> Result<StateView, String> {
     let action = action.parse()?;
     svc.perform(action, now_unix()).map_err(|e| e.to_string())
+}
+
+/// 孵化の演出を見せ終えたことを記録する。
+#[tauri::command]
+pub fn ack_hatch(svc: State<GameService>) -> Result<StateView, String> {
+    svc.ack_hatch().map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -78,12 +86,10 @@ fn setup_popup(app: &tauri::App) -> tauri::Result<()> {
     };
     let w = window.clone();
     window.on_window_event(move |event| match event {
-        WindowEvent::Focused(false) => {
-            let _ = w.hide();
-        }
+        WindowEvent::Focused(false) => hide_popup(&w),
         WindowEvent::CloseRequested { api, .. } => {
             api.prevent_close();
-            let _ = w.hide();
+            hide_popup(&w);
         }
         _ => {}
     });
@@ -142,9 +148,14 @@ fn open_settings(app: &AppHandle) {
     }
 }
 
+fn hide_popup(window: &WebviewWindow) {
+    let _ = window.hide();
+    let _ = window.emit(POPUP_EVENT, false);
+}
+
 fn toggle_popup(window: &WebviewWindow, anchor: PhysicalPosition<i32>, icon_height: u32) {
     if window.is_visible().unwrap_or(false) {
-        let _ = window.hide();
+        hide_popup(window);
         return;
     }
     let width = window.outer_size().map_or(0, |s| s.width) as i32;
@@ -153,6 +164,7 @@ fn toggle_popup(window: &WebviewWindow, anchor: PhysicalPosition<i32>, icon_heig
     let _ = window.set_position(PhysicalPosition::new(x.max(0), y));
     let _ = window.show();
     let _ = window.set_focus();
+    let _ = window.emit(POPUP_EVENT, true);
 }
 
 fn spawn_loop(handle: AppHandle) {

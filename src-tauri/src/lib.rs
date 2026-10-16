@@ -12,7 +12,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(shell::setup)
-        .invoke_handler(tauri::generate_handler![shell::get_state, shell::perform_action, shell::get_settings, shell::save_settings])
+        .invoke_handler(tauri::generate_handler![shell::get_state, shell::perform_action, shell::ack_hatch, shell::get_settings, shell::save_settings])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
-import { getSettings, getState, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
+import { ackHatch, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
 import type { ActionName, Settings, StateView } from "./api";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { Sprite } from "./SpriteView";
 import { BUBBLE_TEXT } from "./bubble";
 import { useHiddenCommand } from "./hiddenCommand";
+import { HatchSequence } from "./hatch";
 import { useListener } from "./useListener";
 import "./App.css";
 
@@ -32,6 +33,10 @@ export default function App() {
   const [view, setView] = useState<StateView | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
+  // ボタンを押したときのキャラの反応。id を変えて同じ演出でも再生し直す。
+  const [reaction, setReaction] = useState<{ name: "wobble" | "hop"; id: number } | null>(null);
+  // ポップアップが開いている間だけ孵化の演出を再生する（Rust が表示/非表示を通知する）。
+  const [popupOpen, setPopupOpen] = useState(false);
 
   useEffect(() => {
     getState().then(setView, (e) => setError(errorText(e)));
@@ -39,6 +44,7 @@ export default function App() {
   }, []);
   useListener(onStateChanged, setView);
   useListener(onSettingsChanged, setSettings);
+  useListener(onPopupVisibility, setPopupOpen);
 
   // 隠しコマンドは段階表示とゲージ表示をまとめて切り替える（どちらかがオンならオフにする）。
   useHiddenCommand(GAUGE_COMMAND, () => {
@@ -46,14 +52,19 @@ export default function App() {
     saveSettings({ ...settings, showStage: next, showGauges: next }).then(setSettings, (e) => setError(errorText(e)));
   });
 
-  const act = (action: ActionName) =>
+  const act = (action: ActionName, petting: boolean) =>
     performAction(action).then(
       (next) => {
         setError(null);
         setView(next);
+        setReaction((prev) => ({ name: petting ? "wobble" : "hop", id: (prev?.id ?? 0) + 1 }));
       },
       (e) => setError(errorText(e)),
     );
+
+  const finishHatch = () => {
+    ackHatch().then(setView, (e) => setError(errorText(e)));
+  };
 
   if (!view) {
     return (
@@ -69,6 +80,7 @@ export default function App() {
       data-mood={view.expression.mood}
       data-dirt={view.expression.dirtiness}
       data-hunger={view.expression.hunger}
+      data-intro={view.intro}
       style={{ "--body-color": settings.bodyColor, "--button-color": settings.buttonColor } as CSSProperties}
     >
       <div className="device">
@@ -80,7 +92,16 @@ export default function App() {
                 {BUBBLE_TEXT[view.expression.bubble]}
               </div>
             )}
-            <Sprite view={view} />
+            {view.hatching && popupOpen ? (
+              <HatchSequence view={view} onDone={finishHatch} />
+            ) : (
+              <Sprite
+                key={reaction?.id}
+                view={view}
+                extraClass={reaction?.name ?? (view.intro ? "appear" : undefined)}
+                onAnimationEnd={() => setReaction(null)}
+              />
+            )}
           </div>
           {settings.showGauges && (
             <div className="gauges">
@@ -96,7 +117,7 @@ export default function App() {
         <div className="controls" role="group" aria-label="ボタン">
           {actions(view).map(({ name, label, icon }) => (
             <div key={label} className="control">
-              <button type="button" aria-label={label} onClick={() => act(name)}>
+              <button type="button" aria-label={label} onClick={() => act(name, view.playAction === "pet" && name === "play")}>
                 <span aria-hidden="true">{icon}</span>
               </button>
               <span className="caption" aria-hidden="true">
