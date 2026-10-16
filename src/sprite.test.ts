@@ -1,3 +1,5 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { spritePath } from "./sprite";
 import type { Branch, Personality } from "./api";
@@ -30,5 +32,16 @@ describe("sprite assets", () => {
           if (!files.has(path)) missing.push(path);
         }
     expect(missing).toEqual([]);
+  });
+
+  it("uses 32x32 PNGs for every sprite", () => {
+    const dir = join(process.cwd(), "public", "sprites");
+    const names = readdirSync(dir).filter((n) => n.endsWith(".png"));
+    expect(names.length).toBe(109);
+    const wrong = names.filter((n) => {
+      const png = readFileSync(join(dir, n));
+      return png.readUInt32BE(16) !== 32 || png.readUInt32BE(20) !== 32; // IHDR width/height
+    });
+    expect(wrong).toEqual([]);
   });
 });

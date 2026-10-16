@@ -1,146 +1,343 @@
 #!/usr/bin/env python3
-"""仮のドット絵(16x16 PNG)を生成する。本番素材ができたら public/sprites/ を差し替えること。
+"""仮のドット絵(32x32 PNG)を生成する。本番素材ができたら public/sprites/ を同名で差し替えること。
 
 ファイル名は src/sprite.ts の spritePath と対応する:
   egg.png / {stage}-{branch}-{personality}.png  (stage 2..10)
 
-使い方: python3 tools/gen_sprites.py [出力ディレクトリ] [--sheet コンタクトシートのパス] [--catalog ラベル付き一覧画像のパス]
+性格ごとに「種族」が違う:
+  calm=ふわもち(青) / playful=きつね(橙) / gluttonous=ぽっちゃり(桃) / tidy=うさぎ(緑)
+
+使い方:
+  python3 tools/gen_sprites.py [出力ディレクトリ] [--sheet PATH] [--catalog PATH]
 """
 import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
 
-SIZE = 16
+SIZE = 32
 BRANCHES = ["poor", "normal", "good"]
-PERSONALITIES = {
-    "calm": (120, 170, 230),
-    "playful": (250, 170, 80),
-    "gluttonous": (240, 130, 160),
-    "tidy": (120, 210, 180),
+PERSONALITIES = ["calm", "playful", "gluttonous", "tidy"]
+
+PALETTE = {
+    #            body            belly            accent
+    "calm": ((110, 165, 235), (228, 241, 255), (255, 255, 255)),
+    "playful": ((248, 158, 66), (255, 236, 205), (255, 255, 255)),
+    "gluttonous": ((240, 134, 166), (255, 224, 232), (255, 96, 120)),
+    "tidy": ((108, 205, 174), (236, 251, 241), (255, 186, 202)),
 }
-DARK = (50, 45, 60)
+DARK = (46, 38, 56)
 WHITE = (255, 255, 255)
-GOLD = (255, 215, 80)
-BLUE_DROP = (110, 180, 255)
+GOLD = (255, 214, 72)
+TEAR = (120, 185, 255)
+PINK = (255, 150, 170)
+RED = (230, 70, 70)
+LEAF = (90, 190, 90)
+GRAY = (130, 130, 138)
 
 
 def mix(a, b, t):
     return tuple(round(x + (y - x) * t) for x, y in zip(a, b))
 
 
-def put(img, x, y, color):
-    if 0 <= x < SIZE and 0 <= y < SIZE:
-        img.putpixel((x, y), (*color, 255))
+class Canvas:
+    def __init__(self):
+        self.px = {}
+
+    def set(self, x, y, color):
+        x, y = int(x), int(y)
+        if 0 <= x < SIZE and 0 <= y < SIZE:
+            self.px[(x, y)] = color
+
+    def ellipse(self, cx, cy, rx, ry, color, shade=False):
+        """楕円を塗る。shade=True で左上ハイライト/右下シェードを付ける。"""
+        for y in range(SIZE):
+            for x in range(SIZE):
+                dx, dy = (x - cx) / rx, (y - cy) / ry
+                if dx * dx + dy * dy > 1:
+                    continue
+                c = color
+                if shade:
+                    light = -(dx + dy) * 0.5
+                    if light > 0.5:
+                        c = mix(color, WHITE, 0.28)
+                    elif light < -0.45:
+                        c = mix(color, DARK, 0.2)
+                self.set(x, y, c)
+
+    def polygon(self, points, color):
+        xs = [p[0] for p in points]
+        ys = [p[1] for p in points]
+        for y in range(int(min(ys)), int(max(ys)) + 1):
+            for x in range(int(min(xs)), int(max(xs)) + 1):
+                if inside(points, x + 0.5, y + 0.5):
+                    self.set(x, y, color)
+
+    def outline(self):
+        out = {}
+        for (x, y), c in self.px.items():
+            for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+                n = (x + dx, y + dy)
+                if n not in self.px and 0 <= n[0] < SIZE and 0 <= n[1] < SIZE:
+                    out[n] = mix(c, DARK, 0.62)
+        self.px.update(out)
+
+    def image(self):
+        img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
+        for (x, y), c in self.px.items():
+            img.putpixel((x, y), (*c, 255))
+        return img
 
 
-def blob(img, cx, cy, rx, ry, fill, outline):
-    inside = set()
-    for y in range(SIZE):
-        for x in range(SIZE):
-            if ((x - cx) / rx) ** 2 + ((y - cy) / ry) ** 2 <= 1:
-                inside.add((x, y))
-    for x, y in inside:
-        edge = any((x + dx, y + dy) not in inside for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)))
-        put(img, x, y, outline if edge else fill)
-    return inside
+def inside(points, x, y):
+    ok = False
+    j = len(points) - 1
+    for i in range(len(points)):
+        xi, yi = points[i]
+        xj, yj = points[j]
+        if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+            ok = not ok
+        j = i
+    return ok
 
 
 def egg():
-    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    blob(img, 7.5, 9.5, 4.2, 5.6, (250, 245, 230), (150, 140, 130))
-    for x, y in ((6, 8), (9, 11), (7, 12), (8, 6)):
-        put(img, x, y, (205, 190, 165))
-    put(img, 6, 5, WHITE)
-    return img
+    c = Canvas()
+    c.ellipse(15.5, 18.5, 8.2, 11, (250, 244, 228), shade=True)
+    for x, y, r in ((12, 14, 1.6), (19, 20, 2), (13, 23, 1.4), (17, 11, 1.1), (21, 15, 1.2)):
+        c.ellipse(x, y, r, r, (214, 196, 168))
+    c.outline()
+    for x, y in ((11, 9), (12, 8), (11, 10)):
+        c.set(x, y, WHITE)
+    return c.image()
 
 
 def creature(stage, branch, personality):
-    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    base = PERSONALITIES[personality]
-    fill = mix(base, (130, 130, 130), 0.4) if branch == "poor" else base
-    outline = mix(fill, DARK, 0.55)
+    body_c, belly_c, accent = PALETTE[personality]
+    if branch == "poor":
+        body_c = mix(body_c, GRAY, 0.45)
+        belly_c = mix(belly_c, GRAY, 0.3)
+    elif branch == "good":
+        body_c = mix(body_c, WHITE, 0.1)
 
-    rx = min(2.6 + (stage - 2) * 0.5, 6.2)
-    ry = rx * 0.92
+    rx = 4.2 + (stage - 2) * 0.72
+    ry = rx * 0.9
     if personality == "gluttonous":
-        rx, ry = min(rx * 1.1, 6.8), ry * 0.96
-    cx = 7.5
-    cy = 14.5 - ry
+        rx, ry = rx * 1.14, ry * 0.97
+    elif personality == "tidy":
+        rx, ry = rx * 0.92, ry * 1.02
+    cx = 15.5
+    cy = 29.2 - ry
+    top = cy - ry
+    c = Canvas()
 
-    # 耳 (stage 4~)
+    # --- 背面パーツ -------------------------------------------------------
+    if branch == "good" and stage >= 10:  # 小さな羽
+        for sx in (-1, 1):
+            c.polygon([(cx + sx * rx * 0.7, cy - ry * 0.2), (cx + sx * (rx + 5), cy - ry * 0.9),
+                       (cx + sx * (rx + 4), cy + ry * 0.2)], (250, 250, 255))
+    if stage >= 6:  # しっぽ
+        tail(c, personality, cx, cy, rx, ry, body_c, belly_c, accent, stage)
+
+    # --- 耳 ---------------------------------------------------------------
+    if stage >= 3:
+        ears(c, personality, branch, stage, cx, cy, rx, ry, top, body_c, accent)
+
+    # --- 体 ---------------------------------------------------------------
+    c.ellipse(cx, cy, rx, ry, body_c, shade=True)
+    c.ellipse(cx, cy + ry * 0.28, rx * 0.62, ry * 0.58, belly_c)  # おなか
+    if personality == "playful":  # ほおの白いふさ
+        for sx in (-1, 1):
+            c.polygon([(cx + sx * rx * 0.95, cy + ry * 0.1), (cx + sx * rx * 0.55, cy + ry * 0.25),
+                       (cx + sx * rx * 0.95, cy + ry * 0.45)], (255, 255, 255))
+    if personality == "calm" and stage >= 3:  # ぴょんと立つアホ毛
+        for i, (dx, dy) in enumerate(((0, 1), (1, 2), (2, 2))):
+            c.set(cx - 0.5 + dx, top - dy, mix(body_c, DARK, 0.1))
+        c.set(cx + 2, top - 3, mix(body_c, DARK, 0.1))
+
+    # --- 手足 -------------------------------------------------------------
     if stage >= 4:
         for sx in (-1, 1):
-            ex = round(cx + sx * rx * 0.6)
-            ey = round(cy - ry) - 1
-            put(img, ex, ey, outline)
-            put(img, ex, ey + 1, fill)
-    blob(img, cx, cy, rx, ry, fill, outline)
-    # 足 (stage 6~)
-    if stage >= 6:
+            c.ellipse(cx + sx * rx * 0.5, 29.5, max(1.8, rx * 0.26), 1.5, mix(body_c, DARK, 0.1))
+    if stage >= 5:
         for sx in (-1, 1):
-            put(img, round(cx + sx * rx * 0.45), 15, outline)
-    # ハイライト
-    put(img, round(cx - rx * 0.45), round(cy - ry * 0.45), mix(fill, WHITE, 0.6))
+            c.ellipse(cx + sx * (rx + 0.2), cy + ry * 0.25, max(1.4, rx * 0.2), max(1.8, ry * 0.26),
+                      mix(body_c, DARK, 0.05))
+    if stage == 2:  # 卵の殻をかぶっている
+        shell(c, cx, cy, rx, ry)
 
-    ex = max(1, round(rx * 0.42))
-    ey = round(cy - ry * 0.15)
-    for sx in (-1, 1):
-        x = round(cx + sx * ex)
-        if branch == "good":
-            put(img, x, ey, DARK)  # ^ 型
-            put(img, x - 1, ey + 1, DARK)
-            put(img, x + 1, ey + 1, DARK)
-        elif branch == "poor":
-            put(img, x, ey, DARK)
-            put(img, x + (1 if sx < 0 else -1), ey - 1, DARK)
-        else:
-            put(img, x, ey, DARK)
-            put(img, x, ey + 1, DARK)
-    my = round(cy + ry * 0.4)
-    mx = round(cx)
-    if branch == "good":
-        put(img, mx - 1, my, DARK)
-        put(img, mx, my + 1, DARK)
-        put(img, mx + 1, my, DARK)
-        for sx in (-1, 1):  # ほっぺ
-            put(img, round(cx + sx * ex * 1.8), my, mix((255, 150, 170), fill, 0.3))
-    elif branch == "poor":
-        put(img, mx - 1, my + 1, DARK)
-        put(img, mx, my, DARK)
-        put(img, mx + 1, my + 1, DARK)
-    else:
-        put(img, mx - 1, my, DARK)
-        put(img, mx, my, DARK)
+    # --- 小物・演出(輪郭を付ける前) ------------------------------------------
+    accessory(c, personality, stage, cx, cy, rx, ry, top)
+    if branch == "good" and stage >= 8:  # 天使の輪
+        halo_y = max(1, top - (7 if personality == "tidy" else 3))
+        hx = cx - 0.5
+        for dx in range(-2, 3):
+            c.set(hx + dx, halo_y, GOLD)
+            c.set(hx + dx, halo_y + 2, GOLD)
+        for dx in (-3, 3):
+            c.set(hx + dx, halo_y + 1, GOLD)
 
-    # 性格ごとの小物
-    top = round(cy - ry) - (2 if stage >= 4 else 0)
-    if personality == "playful":  # 星
-        px, py = min(14, round(cx + rx) + 1), max(1, top)
-        for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1)):
-            put(img, px + dx, py + dy, GOLD)
-    elif personality == "tidy":  # リボン
-        bx, by = round(cx), max(0, round(cy - ry) - 1)
-        for dx in (-1, 1):
-            put(img, bx + dx, by, WHITE)
-        put(img, bx, by, BLUE_DROP)
-    elif personality == "gluttonous":  # おなかの丸
-        put(img, round(cx), round(cy + ry * 0.7), mix(fill, WHITE, 0.45))
+    c.outline()
 
-    # 分岐の演出
-    if branch == "good" and stage >= 3:
-        for x, y in ((1, 2), (14, 4), (2, 8)):
-            put(img, x, y, GOLD)
-    if branch == "good" and stage >= 8:
-        cxr = round(cx)
-        for dx in (-2, 0, 2):
-            put(img, cxr + dx, max(0, round(cy - ry) - 3), GOLD)
-        for dx in (-2, -1, 0, 1, 2):
-            put(img, cxr + dx, max(0, round(cy - ry) - 2), GOLD)
+    # --- 表情 -------------------------------------------------------------
+    face(c, personality, branch, stage, cx, cy, rx, ry)
+
+    # --- 分岐の演出 -------------------------------------------------------
+    if branch == "good" and stage >= 5:
+        for x, y in ((3, 7), (28, 11), (4, 19)):
+            sparkle(c, x, y)
     if branch == "poor":
-        put(img, min(14, round(cx + rx * 0.7)), round(cy - ry * 0.4), BLUE_DROP)  # 汗
+        if stage >= 3:  # 汗
+            c.set(cx + rx * 0.7, cy - ry * 0.55, TEAR)
+            c.set(cx + rx * 0.7, cy - ry * 0.55 + 1, TEAR)
+        if stage >= 7:  # どよーん線
+            for dx in (-4, -1, 2, 5):
+                for dy in range(0, 3 + (dx % 2)):
+                    c.set(cx + dx, max(0, top - 2 - dy), mix(GRAY, DARK, 0.2))
+    return c.image()
 
-    return img
+
+def sparkle(c, x, y):
+    c.set(x, y, GOLD)
+    for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+        c.set(x + dx, y + dy, mix(GOLD, WHITE, 0.5))
+
+
+def shell(c, cx, cy, rx, ry):
+    """段階2: 卵の殻の下半分をかぶっている。"""
+    y0 = cy + ry * 0.1
+    for y in range(int(y0), SIZE):
+        for x in range(SIZE):
+            if (c.px.get((x, y)) is None):
+                continue
+            zig = 1 if int((x - cx) // 2) % 2 == 0 else 0
+            if y >= y0 + zig * 2:
+                c.set(x, y, (250, 244, 228) if (x + y) % 7 else (214, 196, 168))
+
+
+def tail(c, personality, cx, cy, rx, ry, body_c, belly_c, accent, stage):
+    s = 1 + (stage - 6) * 0.12
+    if personality == "playful":  # ふさふさの大きなしっぽ(先が白)
+        c.ellipse(cx + rx + 2.5, cy + ry * 0.35, 3.2 * s, 5.2 * s, body_c, shade=True)
+        c.ellipse(cx + rx + 3.4, cy - ry * 0.35, 1.8 * s, 2.2 * s, WHITE)
+    elif personality == "tidy":  # まるいぽんぽん
+        c.ellipse(cx - rx - 1.2, cy + ry * 0.55, 2.4 * s, 2.4 * s, (255, 255, 255))
+    elif personality == "gluttonous":  # くるん
+        for x, y in ((cx + rx + 1, cy + ry * 0.6), (cx + rx + 2, cy + ry * 0.5), (cx + rx + 3, cy + ry * 0.3),
+                     (cx + rx + 3, cy + ry * 0.1), (cx + rx + 2, cy)):
+            c.ellipse(x, y, 0.9, 0.9, mix(body_c, DARK, 0.1))
+    else:  # calm: 小さな雫型
+        c.ellipse(cx + rx + 1.5, cy + ry * 0.55, 2.3 * s, 1.9 * s, mix(body_c, WHITE, 0.2))
+
+
+def ears(c, personality, branch, stage, cx, cy, rx, ry, top, body_c, accent):
+    g = min(1.0, 0.5 + (stage - 3) * 0.1)
+    droop = branch == "poor"
+    for sx in (-1, 1):
+        if personality == "tidy":  # 長いうさ耳
+            h = (2.5 + rx * 0.45) * g * (0.7 if droop else 1)
+            ex = cx + sx * rx * (0.62 if droop else 0.5)
+            ey = top + 1 - h * (0.3 if droop else 0.62)
+            c.ellipse(ex + (sx * 2 if droop else 0), ey, rx * 0.2 + 0.7, h, body_c)
+            c.ellipse(ex + (sx * 2 if droop else 0), ey + 0.5, rx * 0.1 + 0.3, h * 0.7, accent)
+        elif personality == "playful":  # とがったきつね耳
+            h = (3 + rx * 0.7) * g * (0.7 if droop else 1)
+            ex = cx + sx * rx * 0.62
+            if droop:
+                c.polygon([(ex - 2.2, top + 2), (ex + sx * 3.5, top - h * 0.1 + 2), (ex + 2.2, top + 3)], body_c)
+            else:
+                c.polygon([(ex - 2.6, top + 2.5), (ex + sx * 0.4, top - h), (ex + 2.6, top + 2.5)], body_c)
+                c.polygon([(ex - 1, top + 2), (ex + sx * 0.3, top - h * 0.45), (ex + 1, top + 2)], (60, 40, 50))
+        elif personality == "gluttonous":  # ちいさな丸耳
+            r = 1.8 + rx * 0.14
+            c.ellipse(cx + sx * rx * 0.72, top + 1.5, r, r, body_c)
+            c.ellipse(cx + sx * rx * 0.72, top + 1.8, r * 0.55, r * 0.55, accent)
+        else:  # calm: 大きめのまるい耳(たれ気味)
+            r = 2 + rx * 0.2
+            c.ellipse(cx + sx * rx * 0.7, top + 2.2 + (1.5 if droop else 0), r, r * 1.1, body_c)
+
+
+def accessory(c, personality, stage, cx, cy, rx, ry, top):
+    if stage < 7:
+        return
+    if personality == "playful":  # 肩に星
+        sx, sy = cx + rx * 0.55, max(2, top - 1)
+        for dx, dy in ((0, 0), (1, 0), (-1, 0), (0, 1), (0, -1), (2, 0), (-2, 0), (0, 2), (0, -2)):
+            c.set(sx + dx, sy + dy, GOLD)
+    elif personality == "tidy":  # 耳の根元のリボン
+        bx, by = cx - rx * 0.5 + 0.5, top + 2
+        for dx, dy in ((-2, -1), (-2, 0), (-2, 1), (-1, 0), (2, -1), (2, 0), (2, 1), (1, 0)):
+            c.set(bx + dx, by + dy, (255, 110, 150))
+        c.set(bx, by, (255, 190, 210))
+    elif personality == "gluttonous":  # りんごを抱えている
+        ax, ay = cx + rx * 0.62, cy + ry * 0.55
+        c.ellipse(ax, ay, 3, 3, RED, shade=True)
+        c.set(ax, ay - 4, LEAF)
+        c.set(ax + 1, ay - 4, LEAF)
+        c.set(ax, ay - 3, (110, 70, 40))
+    else:  # calm: 頭の上のちいさな葉っぱ
+        lx, ly = cx + 3, top - 2
+        c.polygon([(lx, ly + 1), (lx + 2, ly - 2), (lx + 4, ly + 1)], LEAF)
+
+
+def face(c, personality, branch, stage, cx, cy, rx, ry):
+    ex = max(2.2, rx * 0.42)
+    ey = cy - ry * 0.12
+    big = stage >= 6
+    for sx in (-1, 1):
+        x = round(cx - 0.5 + sx * ex)
+        y = round(ey)
+        if branch == "good":  # にっこり ^ ^
+            for dx, dy in ((-2, 1), (-1, 0), (0, 0), (1, 0), (2, 1)):
+                c.set(x + dx, y + dy, DARK)
+            if big:
+                c.set(x - 2, y + 2, DARK)
+                c.set(x + 2, y + 2, DARK)
+        else:
+            w = 3 if big else 2
+            h = 4 if (big or personality == "playful") else 3
+            for dx in range(w):
+                for dy in range(h):
+                    c.set(x - w // 2 + dx, y - h // 2 + dy, DARK)
+            c.set(x - w // 2, y - h // 2, WHITE)  # ハイライト
+            if personality == "playful":
+                c.set(x - w // 2 + 1, y - h // 2 + 2, WHITE)
+            if personality == "tidy":  # まつげ
+                c.set(x + sx * (w // 2 + 1), y - h // 2, DARK)
+            if branch == "poor":
+                brow_y = y - h // 2 - 2  # 眉毛(ハの字: 内側が高い)
+                c.set(x - sx, brow_y - 1, DARK)
+                c.set(x, brow_y, DARK)
+                c.set(x + sx, brow_y + 1, DARK)
+                c.set(x, y + h // 2 + 1, TEAR)  # なみだ
+    mx, my = round(cx - 0.5), round(cy + ry * 0.42)
+    if branch == "good":  # 口をあけて笑う
+        for dx in range(-2, 3):
+            c.set(mx + dx, my, DARK)
+        for dx in range(-1, 2):
+            c.set(mx + dx, my + 1, (220, 80, 100))
+        if stage >= 5:
+            c.set(mx, my + 2, DARK)
+        for sx in (-1, 1):  # ほっぺ
+            c.set(cx - 0.5 + sx * (ex + 3), my - 1, PINK)
+            c.set(cx - 0.5 + sx * (ex + 3) + sx, my - 1, PINK)
+    elif branch == "poor":
+        c.set(mx - 2, my + 1, DARK)
+        for dx in range(-1, 2):
+            c.set(mx + dx, my, DARK)
+        c.set(mx + 2, my + 1, DARK)
+    else:
+        if personality == "gluttonous":  # もぐもぐ
+            for dx in range(-1, 2):
+                c.set(mx + dx, my, DARK)
+            c.set(mx, my + 1, (220, 80, 100))
+        else:
+            c.set(mx - 1, my, DARK)
+            c.set(mx, my + 1, DARK)
+            c.set(mx + 1, my, DARK)
+    if personality == "gluttonous":  # ふっくらほお
+        for sx in (-1, 1):
+            c.ellipse(cx - 0.5 + sx * (ex + 2.8), my - 0.5, 1.9, 1.5, (255, 120, 140) if branch != "poor" else GRAY)
 
 
 def all_sprites():
@@ -151,21 +348,21 @@ def all_sprites():
                 yield f"{stage}-{branch}-{personality}.png", creature(stage, branch, personality)
 
 
-def contact_sheet(sprites, path, scale=4):
+def contact_sheet(sprites, path, scale=3):
     names = dict(sprites)
-    cols = 12  # 3 branches x 4 personalities
-    rows = 9
-    sheet = Image.new("RGBA", (cols * SIZE * scale + 4, (rows + 1) * SIZE * scale + 4), (235, 235, 240, 255))
-    sheet.paste(names["egg.png"].resize((SIZE * scale, SIZE * scale), Image.NEAREST), (0, 0))
+    cell = SIZE * scale
+    cols = len(BRANCHES) * len(PERSONALITIES)
+    sheet = Image.new("RGBA", (cols * cell, 10 * cell), (235, 235, 240, 255))
+    sheet.paste(names["egg.png"].resize((cell, cell), Image.NEAREST), (0, 0))
     for stage in range(2, 11):
         for bi, branch in enumerate(BRANCHES):
             for pi, personality in enumerate(PERSONALITIES):
-                im = names[f"{stage}-{branch}-{personality}.png"].resize((SIZE * scale, SIZE * scale), Image.NEAREST)
-                sheet.alpha_composite(im, ((bi * 4 + pi) * SIZE * scale, (stage - 1) * SIZE * scale))
+                im = names[f"{stage}-{branch}-{personality}.png"].resize((cell, cell), Image.NEAREST)
+                sheet.alpha_composite(im, ((bi * 4 + pi) * cell, (stage - 1) * cell))
     sheet.save(path)
 
 
-def labeled_catalog(sprites, path, scale=5):
+def labeled_catalog(sprites, path, scale=3):
     """ラベル付き一覧画像（docs 用）。行=成長段階、列=分岐×性格。"""
     names = dict(sprites)
     cell = SIZE * scale
@@ -179,7 +376,7 @@ def labeled_catalog(sprites, path, scale=5):
         draw.rectangle([x0, 0, x0 + len(PERSONALITIES) * cell - 2, 18], fill=(225, 228, 238, 255))
         draw.text((x0 + 6, 4), f"branch: {branch}", fill=DARK, font=font)
         for pi, personality in enumerate(PERSONALITIES):
-            draw.text((x0 + pi * cell + 4, 30), personality, fill=DARK, font=font)
+            draw.text((x0 + pi * cell + 4, 32), personality, fill=DARK, font=font)
     for stage in range(1, 11):
         y = top + (stage - 1) * cell
         draw.text((8, y + cell // 2 - 5), f"stage {stage}", fill=DARK, font=font)
@@ -196,7 +393,7 @@ def labeled_catalog(sprites, path, scale=5):
 
 
 def main(argv):
-    args = [a for a in argv if not a.startswith("--")]
+    args = [a for i, a in enumerate(argv) if not a.startswith("--") and (i == 0 or not argv[i - 1].startswith("--"))]
     out = Path(args[0]) if args else Path(__file__).resolve().parent.parent / "public" / "sprites"
     out.mkdir(parents=True, exist_ok=True)
     sprites = list(all_sprites())
