@@ -18,6 +18,8 @@ const FEED_AFFINITY: u8 = 2;
 const PLAY_MOOD: u8 = 15;
 const PLAY_AFFINITY: u8 = 5;
 const PLAY_HUNGER_COST: u8 = 10;
+/// 汚れ度がこの値以上だと、ティックごとのご機嫌低下が大きくなる。
+pub const DIRTY_THRESHOLD: u8 = 70;
 
 impl Status {
     pub fn new(mood: u8, affinity: u8, hunger: u8, dirtiness: u8) -> Self {
@@ -43,6 +45,14 @@ impl Status {
 
     pub fn clean(&mut self) {
         self.dirtiness = 0;
+    }
+
+    /// 1ティック分の時間経過。空腹度↓、汚れ度↑、ご機嫌↓（汚れ放置時は減少が大きい）。
+    pub fn tick(&mut self) {
+        let mood_loss = if self.dirtiness >= DIRTY_THRESHOLD { 2 } else { 1 };
+        self.mood = self.mood.saturating_sub(mood_loss);
+        self.hunger = self.hunger.saturating_sub(1);
+        self.dirtiness = raise(self.dirtiness, 1);
     }
 }
 
@@ -97,6 +107,34 @@ mod tests {
         let mut s = Status::new(95, 98, 5, 0);
         s.play();
         assert_eq!((s.mood, s.affinity, s.hunger), (100, 100, 0));
+    }
+
+    #[test]
+    fn tick_lowers_hunger_and_mood_and_raises_dirtiness() {
+        let mut s = base();
+        s.tick();
+        assert_eq!((s.hunger, s.dirtiness, s.mood, s.affinity), (49, 51, 49, 50));
+    }
+
+    #[test]
+    fn tick_lowers_mood_faster_when_room_is_dirty() {
+        let mut s = Status::new(50, 50, 50, DIRTY_THRESHOLD);
+        s.tick();
+        assert_eq!(s.mood, 48);
+    }
+
+    #[test]
+    fn tick_is_gentle_just_below_dirty_threshold() {
+        let mut s = Status::new(50, 50, 50, DIRTY_THRESHOLD - 2);
+        s.tick();
+        assert_eq!(s.mood, 49);
+    }
+
+    #[test]
+    fn tick_saturates_at_bounds() {
+        let mut s = Status::new(0, 50, 0, 100);
+        s.tick();
+        assert_eq!((s.mood, s.hunger, s.dirtiness), (0, 0, 100));
     }
 
     #[test]
