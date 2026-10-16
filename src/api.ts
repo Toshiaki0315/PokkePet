@@ -61,6 +61,8 @@ export function onStateChanged(handler: (view: StateView) => void): Promise<() =
 export interface Settings {
   showStage: boolean;
   showGauges: boolean;
+  /** お世話の呼びかけ（空腹・汚れ・つまらない）をmacOSの通知で知らせる */
+  notifyCalls: boolean;
   bodyColor: string;
   buttonColor: string;
 }

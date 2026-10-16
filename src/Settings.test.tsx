@@ -13,7 +13,7 @@ vi.mock("./api", () => api);
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showStage: true, showGauges: false, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showStage: true, showGauges: false, notifyCalls: true, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 const unlisten = vi.fn();
 
@@ -42,6 +42,7 @@ describe("Settings dialog", () => {
     api.getSettings.mockReturnValue(new Promise(() => {}));
     render(<Settings />);
     expect(screen.getByRole("checkbox", { name: "段階を表示" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "お世話の呼びかけを通知" })).toBeChecked(); // 既定はオン
     expect(colorInput("本体の色").value).toBe(DEFAULT_SETTINGS.bodyColor);
   });
 
@@ -55,6 +56,14 @@ describe("Settings dialog", () => {
     render(<Settings />);
     await userEvent.click(await screen.findByRole("checkbox", { name: "ゲージを表示" }));
     expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, showGauges: true });
+  });
+
+  it("shows and saves the call-notification switch", async () => {
+    render(<Settings />);
+    const box = await screen.findByRole("checkbox", { name: "お世話の呼びかけを通知" });
+    expect(box).toBeChecked();
+    await userEvent.click(box);
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, notifyCalls: false });
   });
 
   it("saves a new body colour and a new button colour", async () => {

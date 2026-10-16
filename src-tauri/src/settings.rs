@@ -15,6 +15,8 @@ pub const DEFAULT_BUTTON_COLOR: &str = "#f280a8";
 pub struct Settings {
     pub show_stage: bool,
     pub show_gauges: bool,
+    /// お世話の呼びかけ（空腹・汚れ・つまらない）をmacOSの通知で知らせる。
+    pub notify_calls: bool,
     pub body_color: String,
     pub button_color: String,
 }
@@ -24,6 +26,7 @@ impl Default for Settings {
         Self {
             show_stage: false,
             show_gauges: false,
+            notify_calls: true,
             body_color: DEFAULT_BODY_COLOR.to_string(),
             button_color: DEFAULT_BUTTON_COLOR.to_string(),
         }
@@ -141,10 +144,27 @@ mod tests {
     }
 
     #[test]
+    fn call_notifications_are_on_by_default_and_can_be_turned_off() {
+        assert!(Settings::default().notify_calls);
+        let p = tmp("notify");
+        let off = Settings { notify_calls: false, ..Settings::default() };
+        off.save(&p).unwrap();
+        assert!(!Settings::load(&p).unwrap().notify_calls);
+    }
+
+    #[test]
+    fn older_settings_files_get_call_notifications_on() {
+        let p = tmp("older");
+        fs::write(&p, r##"{"showStage": true, "bodyColor": "#010203"}"##).unwrap();
+        assert!(Settings::load(&p).unwrap().notify_calls);
+    }
+
+    #[test]
     fn serializes_with_camel_case_keys() {
         let json = serde_json::to_value(Settings::default()).unwrap();
         assert_eq!(json["showStage"], false);
         assert_eq!(json["showGauges"], false);
+        assert_eq!(json["notifyCalls"], true);
         assert_eq!(json["bodyColor"], "#4b5fb8");
         assert_eq!(json["buttonColor"], "#f280a8");
     }

@@ -1,6 +1,7 @@
 //! Tauri との接着層（トレイ常駐・ポップアップ制御・IPC コマンド・バックグラウンドループ）。
 //! ロジックは持たず、`service` に委譲する。
 
+use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::menu::{Menu, MenuItem};
@@ -8,8 +9,9 @@ use tauri_plugin_notification::NotificationExt;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
+use crate::calls::{Call, CallGate};
 use crate::game::GameState;
-use crate::service::{should_notify_hatch, GameService, StateView};
+use crate::service::{should_notify_hatch, tray_title, GameService, StateView};
 use crate::settings::{Settings, SettingsService};
 
 const LOOP_INTERVAL: Duration = Duration::from_secs(10);
@@ -18,6 +20,10 @@ const SETTINGS_EVENT: &str = "settings-changed";
 const SETTINGS_WINDOW: &str = "settings";
 /// ポップアップの表示/非表示（true=表示）。孵化の演出など「開いている間だけ」再生するものに使う。
 const POPUP_EVENT: &str = "popup-visibility";
+const TRAY_ID: &str = "pokkepet";
+
+/// いま表示しているメニューバーの目印（変わったときだけ更新する）。
+struct TrayMark(Mutex<Option<&'static str>>);
 
 fn now_unix() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())
@@ -29,9 +35,12 @@ pub fn get_state(svc: State<GameService>) -> StateView {
 }
 
 #[tauri::command]
-pub fn perform_action(svc: State<GameService>, action: String) -> Result<StateView, String> {
+pub fn perform_action(app: AppHandle, svc: State<GameService>, gate: State<Mutex<CallGate>>, action: String) -> Result<StateView, String> {
     let action = action.parse()?;
-    svc.perform(action, now_unix()).map_err(|e| e.to_string())
+    let view = svc.perform(action, now_unix()).map_err(|e| e.to_string())?;
+    gate.lock().unwrap_or_else(|e| e.into_inner()).answered(); // 世話をしたので、次の困りごとはすぐ呼べる
+    update_tray_title(&app, &view);
+    Ok(view)
 }
 
 /// 孵化の演出を見せ終えたことを記録する。
@@ -67,6 +76,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     // 動作確認用: POKKEPET_TIME_SCALE=60 で時間経過が60倍になる。
     let scale = std::env::var("POKKEPET_TIME_SCALE").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
     app.manage(GameService::new(state, path).with_time_scale(scale));
+    app.manage(Mutex::new(CallGate::new()));
+    app.manage(TrayMark(Mutex::new(None)));
 
     let settings_path = dir.join("settings.json");
     let settings = Settings::load(&settings_path).unwrap_or_else(|e| {
@@ -77,6 +88,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
 
     setup_popup(app)?;
     setup_tray(app)?;
+    let view = app.state::<GameService>().snapshot();
+    update_tray_title(app.handle(), &view);
     spawn_loop(app.handle().clone());
     Ok(())
 }
@@ -101,7 +114,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "終了", true, None::<&str>)?;
     let settings = MenuItem::with_id(app, "settings", "設定…", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&settings, &quit])?;
-    let mut builder = TrayIconBuilder::new()
+    let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| {
@@ -168,6 +181,37 @@ fn toggle_popup(window: &WebviewWindow, anchor: PhysicalPosition<i32>, icon_heig
     let _ = window.emit(POPUP_EVENT, true);
 }
 
+/// メニューバーのアイコン横の目印（空腹なら🍙など）を、変わったときだけ更新する。
+fn update_tray_title(app: &AppHandle, view: &StateView) {
+    let title = tray_title(view);
+    let mark = app.state::<TrayMark>();
+    let mut shown = mark.0.lock().unwrap_or_else(|e| e.into_inner());
+    if *shown == title {
+        return;
+    }
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        if tray.set_title(title).is_ok() {
+            *shown = title;
+        }
+    }
+}
+
+/// 困りごとの呼びかけ通知。おやすみ中・ポップアップを開いている間・通知オフのときは鳴らさない。
+fn notify_call_if_needed(app: &AppHandle, view: &StateView, popup_open: bool) {
+    let notify_calls = app.state::<SettingsService>().get().notify_calls;
+    let quiet = view.sleeping || popup_open || !notify_calls;
+    let call = app.state::<Mutex<CallGate>>().lock().unwrap_or_else(|e| e.into_inner()).decide(now_unix(), view.expression.bubble, quiet);
+    if let Some(call) = call {
+        notify_call(app, call);
+    }
+}
+
+fn notify_call(app: &AppHandle, call: Call) {
+    if let Err(e) = app.notification().builder().title("PokkePet").body(call.message()).show() {
+        eprintln!("failed to show notification: {e}");
+    }
+}
+
 fn popup_is_open(app: &AppHandle) -> bool {
     app.get_webview_window("main").and_then(|w| w.is_visible().ok()).unwrap_or(false)
 }
@@ -187,9 +231,12 @@ fn spawn_loop(handle: AppHandle) {
         match svc.tick(now_unix()) {
             Ok(tick) => {
                 let _ = handle.emit(STATE_EVENT, tick.view);
-                if should_notify_hatch(tick.hatched, popup_is_open(&handle)) {
+                update_tray_title(&handle, &tick.view);
+                let popup_open = popup_is_open(&handle);
+                if should_notify_hatch(tick.hatched, popup_open) {
                     notify_hatch(&handle);
                 }
+                notify_call_if_needed(&handle, &tick.view, popup_open);
             }
             Err(e) => eprintln!("tick failed: {e}"),
         }

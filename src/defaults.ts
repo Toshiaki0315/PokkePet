@@ -4,6 +4,7 @@ import type { Settings } from "./api";
 export const DEFAULT_SETTINGS: Settings = {
   showStage: false,
   showGauges: false,
+  notifyCalls: true,
   bodyColor: "#4b5fb8",
   buttonColor: "#f280a8",
 };

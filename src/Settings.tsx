@@ -44,6 +44,14 @@ export default function Settings() {
       </fieldset>
 
       <fieldset>
+        <legend>通知</legend>
+        <label className="row">
+          <input type="checkbox" checked={settings.notifyCalls} onChange={(e) => patch({ notifyCalls: e.target.checked })} />
+          お世話の呼びかけを通知
+        </label>
+      </fieldset>
+
+      <fieldset>
         <legend>配色</legend>
         <div className="presets">
           {PRESETS.map(({ name, bodyColor, buttonColor }) => (

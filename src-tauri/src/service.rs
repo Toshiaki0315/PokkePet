@@ -64,6 +64,21 @@ pub struct Tick {
     pub hatched: bool,
 }
 
+/// メニューバーのアイコン横に出す目印。ポップアップを開かなくても状態がわかるようにする。
+pub fn tray_title(view: &StateView) -> Option<&'static str> {
+    if view.hatching {
+        return Some("🐣");
+    }
+    match view.expression.bubble? {
+        Bubble::Hungry => Some("🍙"),
+        Bubble::Dirty => Some("🧹"),
+        Bubble::Gloomy => Some("💧"),
+        Bubble::Sleeping => Some("💤"),
+        Bubble::Welcome => Some("🥚"),
+        Bubble::Happy => None,
+    }
+}
+
 /// 孵化の通知を出すか。ポップアップが開いていれば演出で伝わるので出さない。
 pub fn should_notify_hatch(hatched: bool, popup_open: bool) -> bool {
     hatched && !popup_open
@@ -416,6 +431,31 @@ mod tests {
     fn tick_does_not_report_a_hatch_while_the_egg_is_still_an_egg() {
         let t = svc("no-hatch").tick(u64::from(EGG_SECS) - 1).unwrap();
         assert!(!t.hatched);
+    }
+
+    fn view_with(bubble: Option<Bubble>) -> StateView {
+        let mut v = svc("tray").snapshot();
+        v.intro = false;
+        v.expression.bubble = bubble;
+        v
+    }
+
+    #[test]
+    fn the_menu_bar_mark_follows_the_bubble() {
+        assert_eq!(tray_title(&view_with(None)), None);
+        assert_eq!(tray_title(&view_with(Some(Bubble::Happy))), None);
+        assert_eq!(tray_title(&view_with(Some(Bubble::Hungry))), Some("🍙"));
+        assert_eq!(tray_title(&view_with(Some(Bubble::Dirty))), Some("🧹"));
+        assert_eq!(tray_title(&view_with(Some(Bubble::Gloomy))), Some("💧"));
+        assert_eq!(tray_title(&view_with(Some(Bubble::Sleeping))), Some("💤"));
+        assert_eq!(tray_title(&view_with(Some(Bubble::Welcome))), Some("🥚"));
+    }
+
+    #[test]
+    fn an_unseen_hatch_beats_every_other_mark() {
+        let mut v = view_with(Some(Bubble::Hungry));
+        v.hatching = true;
+        assert_eq!(tray_title(&v), Some("🐣"));
     }
 
     #[test]
