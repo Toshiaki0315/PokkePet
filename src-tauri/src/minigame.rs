@@ -47,6 +47,14 @@ impl Rng {
         z ^ (z >> 31)
     }
 
+    /// 0 以上 `n` 未満の整数（`n` が 0 なら 0）。
+    pub fn next_below(&mut self, n: u64) -> u64 {
+        if n == 0 {
+            return 0;
+        }
+        self.next_u64() % n
+    }
+
     /// コイン投げ（true か false を半々で）。
     pub fn next_bool(&mut self) -> bool {
         self.next_u64() >> 63 == 0
@@ -64,6 +72,14 @@ impl Rng {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn numbers_below_a_limit_stay_below_it() {
+        let mut rng = Rng::new(3);
+        assert!((0..500).all(|_| rng.next_below(7) < 7));
+        assert_eq!(rng.next_below(0), 0);
+        assert_eq!(rng.next_below(1), 0);
+    }
 
     #[test]
     fn coin_flips_are_reproducible_and_land_both_ways() {

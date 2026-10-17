@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   ackHatch,
+  ackGift,
   buryPet,
   graduate,
   playMinigame,
@@ -28,6 +29,7 @@ import { DEFAULT_SETTINGS } from "./defaults";
 import { Sprite } from "./SpriteView";
 import { bubbleMessage } from "./bubble";
 import { Farewell } from "./Farewell";
+import { Gift } from "./Gift";
 import { Grave } from "./Grave";
 import { ResetConfirm } from "./ResetConfirm";
 import { MiniGame } from "./MiniGame";
@@ -264,6 +266,17 @@ export default function App() {
     );
   };
 
+  // おでかけのおみやげを見せたあと。
+  const thanks = () => {
+    ackGift().then(
+      (next) => {
+        setError(null);
+        setView(next);
+      },
+      (e) => setError(errorText(e)),
+    );
+  };
+
   const bury = () => {
     buryPet().then(
       (next) => {
@@ -348,6 +361,7 @@ export default function App() {
               onStay={() => setStayedGeneration(view.generation)}
             />
           )}
+          {view.gift.length > 0 && !view.hatching && !view.needsName && !view.dead && <Gift items={view.gift} onThanks={thanks} />}
           {view.dead && <Grave name={view.name} onBury={bury} />}
           {gameOpen && (
             <MiniGame onPlay={playGame} onClose={() => setGameOpen(false)} />
@@ -355,6 +369,13 @@ export default function App() {
           {view.needsName && <NamePrompt onSubmit={submitName} />}
           {resetOpen && <ResetConfirm name={view.name} onConfirm={restart} onCancel={() => setResetOpen(false)} />}
           <div className="stage-area">
+            {view.displayed.length > 0 && (
+              <div className="shelf" role="img" aria-label="かざり">
+                {view.displayed.map((emoji, i) => (
+                  <span key={`${emoji}-${i}`}>{emoji}</span>
+                ))}
+              </div>
+            )}
             {view.poops > 0 && (
               <div
                 className="poops"

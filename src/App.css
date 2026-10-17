@@ -230,3 +230,10 @@ body { overflow: hidden; user-select: none; }
 
 /* Mac がダークモードのときは、画面も少し夜らしく */
 .container[data-dark="true"] .screen { filter: brightness(0.82) saturate(0.95); }
+
+/* おみやげの飾り(足もとの左側)と、おみやげを見せる画面 */
+.shelf { position: absolute; left: 6px; bottom: 4px; z-index: 1; display: flex; gap: 2px; font-size: 20px; line-height: 1; pointer-events: none; }
+.gift-items { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.gift-items li { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; }
+.gift-items .emoji { font-size: 34px; line-height: 1; }
+.gift-items .rarity-2 .emoji { filter: drop-shadow(0 0 6px #f0b429); }

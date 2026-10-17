@@ -17,6 +17,7 @@ use crate::game::GameState;
 use crate::minigame::Side;
 use crate::paths::data_dir;
 use crate::system::{parse_battery, parse_dark_mode, parse_hid_idle_secs, SystemInfo};
+use crate::souvenirs::SouvenirView;
 use crate::service::{should_notify_graduation, should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
 use crate::settings::{Settings, SettingsService, POPUP_WIDTH};
 
@@ -28,6 +29,7 @@ const SETTINGS_EVENT: &str = "settings-changed";
 const SETTINGS_WINDOW: &str = "settings";
 const DEX_WINDOW: &str = "dex";
 const DIARY_WINDOW: &str = "diary";
+const SOUVENIRS_WINDOW: &str = "souvenirs";
 /// ポップアップの表示/非表示（true=表示）。孵化の演出など「開いている間だけ」再生するものに使う。
 const POPUP_EVENT: &str = "popup-visibility";
 const TRAY_ID: &str = "pokkepet";
@@ -128,6 +130,28 @@ pub fn get_dex(svc: State<GameService>) -> DexView {
 #[tauri::command]
 pub fn get_diary(svc: State<GameService>) -> DiaryView {
     svc.diary()
+}
+
+/// おみやげのコレクション。
+#[tauri::command]
+pub fn get_souvenirs(svc: State<GameService>) -> SouvenirView {
+    svc.souvenirs()
+}
+
+/// おみやげを飾る／しまう。
+#[tauri::command]
+pub fn toggle_souvenir(app: AppHandle, svc: State<GameService>, id: String) -> Result<SouvenirView, String> {
+    let view = svc.toggle_souvenir_display(&id)?;
+    let _ = app.emit(STATE_EVENT, svc.snapshot()); // 画面の飾りが変わる
+    Ok(view)
+}
+
+/// 持ち帰ったおみやげを見せた。
+#[tauri::command]
+pub fn ack_gift(app: AppHandle, svc: State<GameService>) -> Result<StateView, String> {
+    let view = svc.ack_gift().map_err(|e| e.to_string())?;
+    update_tray_title(&app, &view);
+    Ok(view)
 }
 
 #[tauri::command]
@@ -236,7 +260,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let settings = MenuItem::with_id(app, "settings", "設定…", true, None::<&str>)?;
     let dex = MenuItem::with_id(app, "dex", "図鑑…", true, None::<&str>)?;
     let diary = MenuItem::with_id(app, "diary", "思い出…", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&dex, &diary, &settings, &quit])?;
+    let souvenirs = MenuItem::with_id(app, "souvenirs", "おみやげ…", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&dex, &diary, &souvenirs, &settings, &quit])?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -244,6 +269,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             match event.id.as_ref() {
                 "dex" => open_window(app, DEX_WINDOW, "PokkePet 図鑑", (640.0, 580.0)),
                 "diary" => open_window(app, DIARY_WINDOW, "PokkePet 思い出", (460.0, 560.0)),
+                "souvenirs" => open_window(app, SOUVENIRS_WINDOW, "PokkePet おみやげ", (460.0, 520.0)),
                 "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 760.0)),
                 "quit" => app.exit(0),
                 _ => {}
@@ -276,7 +302,7 @@ fn open_window(app: &AppHandle, label: &str, title: &str, (width, height): (f64,
     let built = WebviewWindowBuilder::new(app, label, WebviewUrl::App("index.html".into()))
         .title(title)
         .inner_size(width, height)
-        .resizable(label == DEX_WINDOW || label == DIARY_WINDOW)
+        .resizable(label == DEX_WINDOW || label == DIARY_WINDOW || label == SOUVENIRS_WINDOW)
         .center()
         .build();
     match built {

@@ -9,6 +9,13 @@ export type Chronotype = "morning" | "night" | "neutral";
 export type PlayAction = "play" | "pet";
 export type ActionName = "feed" | "snack" | "play" | "clean" | "scold" | "cure";
 
+/** 持ち帰ったおみやげ 1 つ。rarity は 0=よくある 1=めずらしい 2=とてもめずらしい */
+export interface GiftItem {
+  emoji: string;
+  name: string;
+  rarity: number;
+}
+
 export interface StateView {
   mood: number;
   affinity: number;
@@ -40,6 +47,10 @@ export interface StateView {
   sleeping: boolean;
   /** 電源ボタンで寝かされている（おやすみ時間とは関係なく）。もう一度押すと起こせる */
   forcedSleep: boolean;
+  /** 持ち帰ったばかりで、まだ見せていないおみやげ */
+  gift: GiftItem[];
+  /** 画面に飾っているおみやげ（絵文字） */
+  displayed: string[];
   /** Mac の電池が少ない（電源につながっていないとき） */
   batteryLow: boolean;
   /** Mac が充電中 */
@@ -188,6 +199,7 @@ export type DiaryEvent =
   | { kind: "named"; name: string }
   | { kind: "careMilestone"; count: number }
   | { kind: "anniversary"; days: number }
+  | { kind: "souvenir"; name: string; emoji: string }
   | { kind: "restarted"; name: string | null; personality: Personality }
   | { kind: "died"; name: string | null; personality: Personality }
   | { kind: "graduated"; name: string | null; personality: Personality };
@@ -225,4 +237,35 @@ export interface MiniGameReport {
 /** ミニゲーム「どっちの手？」。勝敗の判定と効果は Rust 側。 */
 export function playMinigame(guess: Side): Promise<MiniGameReport> {
   return invoke<MiniGameReport>("play_minigame", { guess });
+}
+
+export interface SouvenirEntry {
+  id: string;
+  name: string;
+  emoji: string;
+  rarity: number;
+  count: number;
+  displayed: boolean;
+}
+
+export interface SouvenirView {
+  total: number;
+  found: number;
+  maxDisplayed: number;
+  entries: SouvenirEntry[];
+}
+
+/** おみやげのコレクション。 */
+export function getSouvenirs(): Promise<SouvenirView> {
+  return invoke<SouvenirView>("get_souvenirs");
+}
+
+/** おみやげを飾る／しまう（飾れるのは `maxDisplayed` 個まで）。 */
+export function toggleSouvenir(id: string): Promise<SouvenirView> {
+  return invoke<SouvenirView>("toggle_souvenir", { id });
+}
+
+/** 持ち帰ったおみやげを見せた。 */
+export function ackGift(): Promise<StateView> {
+  return invoke<StateView>("ack_gift");
 }

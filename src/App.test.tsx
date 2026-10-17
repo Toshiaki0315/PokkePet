@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   ackHatch: vi.fn(),
   graduate: vi.fn(),
   buryPet: vi.fn(),
+  ackGift: vi.fn(),
   restartGame: vi.fn(),
   togglePower: vi.fn(),
   playMinigame: vi.fn(),
@@ -55,6 +56,8 @@ const base: StateView = {
   hatching: false,
   sleeping: false,
   forcedSleep: false,
+  gift: [],
+  displayed: [],
   batteryLow: false,
   charging: false,
   offline: false,
@@ -1572,5 +1575,55 @@ describe("Mac state and seasonal events", () => {
     render(<App />);
     await screen.findByRole("img", { name: /stage/ });
     expect(screen.getByRole("main")).toHaveAttribute("data-dark", "true");
+  });
+});
+
+describe("souvenirs", () => {
+  const gift = [
+    { emoji: "🐚", name: "かいがら", rarity: 0 },
+    { emoji: "💎", name: "ほうせき", rarity: 2 },
+  ];
+
+  it("shows what the pet brought back from its outing until the player says thanks", async () => {
+    api.getState.mockResolvedValue({ ...base, gift });
+    api.ackGift.mockResolvedValue(base);
+    render(<App />);
+    const dialog = await screen.findByRole("dialog", { name: "おみやげ" });
+    expect(dialog).toHaveTextContent("おでかけから もどったよ！");
+    expect(dialog).toHaveTextContent("かいがら");
+    expect(dialog).toHaveTextContent("ほうせき");
+    await userEvent.click(screen.getByRole("button", { name: "ありがとう！" }));
+    expect(api.ackGift).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "おみやげ" })).toBeNull());
+  });
+
+  it("waits for the naming and the hatching to finish, and for the grave", async () => {
+    for (const view of [{ ...base, gift, needsName: true }, { ...base, gift, hatching: true }, { ...base, gift, dead: true }]) {
+      api.getState.mockResolvedValue(view);
+      const { unmount } = render(<App />);
+      await screen.findByRole("main");
+      await waitFor(() => expect(screen.queryByRole("dialog", { name: "おみやげ" })).toBeNull());
+      unmount();
+    }
+  });
+
+  it("shows the error when acknowledging fails", async () => {
+    api.getState.mockResolvedValue({ ...base, gift });
+    api.ackGift.mockRejectedValue(new Error("save failed"));
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "ありがとう！" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("save failed");
+  });
+
+  it("puts the displayed souvenirs at the pet's feet", async () => {
+    api.getState.mockResolvedValue({ ...base, displayed: ["🐚", "🍀"] });
+    render(<App />);
+    expect(await screen.findByRole("img", { name: "かざり" })).toHaveTextContent("🐚🍀");
+  });
+
+  it("shows no shelf when nothing is displayed", async () => {
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    expect(screen.queryByRole("img", { name: "かざり" })).toBeNull();
   });
 });

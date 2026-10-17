@@ -5,7 +5,7 @@ const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
-import { ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
+import { ackGift, getSouvenirs, toggleSouvenir, ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
 
 const view = { mood: 1, affinity: 2, hunger: 3, dirtiness: 4, stage: 1, branch: "normal", personality: "calm" };
 
@@ -120,6 +120,17 @@ describe("api", () => {
     invoke.mockResolvedValue(view);
     await expect(togglePower()).resolves.toEqual(view);
     expect(invoke).toHaveBeenCalledWith("toggle_power");
+  });
+
+  it("souvenir commands invoke the matching Tauri commands", async () => {
+    invoke.mockResolvedValue({ total: 24, found: 0, maxDisplayed: 3, entries: [] });
+    await getSouvenirs();
+    expect(invoke).toHaveBeenCalledWith("get_souvenirs");
+    await toggleSouvenir("shell");
+    expect(invoke).toHaveBeenCalledWith("toggle_souvenir", { id: "shell" });
+    invoke.mockResolvedValue(view);
+    await expect(ackGift()).resolves.toEqual(view);
+    expect(invoke).toHaveBeenCalledWith("ack_gift");
   });
 
   it("restartGame invokes restart_game", async () => {
