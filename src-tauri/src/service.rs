@@ -3,16 +3,19 @@
 use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use serde::Serialize;
 
 use crate::evolution::{Branch, Personality};
 use crate::expression::{express, greeting, Bubble, Expression};
+use crate::companion::Observation;
 use crate::dex::{build_view, DexView};
 use crate::diary::{self, DiaryView};
 use crate::game::{Action, GameState};
 use crate::minigame::{is_win, Rng, Side};
+use crate::rhythm::{chronotype, learned_sleep_window};
 use crate::sleep::{is_sleeping, local_hour, local_utc_offset, SleepWindow};
 
 impl FromStr for Action {
@@ -123,8 +126,9 @@ pub fn tray_title(view: &StateView) -> Option<&'static str> {
         // あいさつはメニューバーには出さない（落ち着いて見えるように）。
         Bubble::Sick => Some("🤒"),
         Bubble::Dying => Some("🆘"),
+        Bubble::Rest => Some("☕"),
         Bubble::Selfish => Some("💬"),
-        Bubble::Happy | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy => None,
+        Bubble::Happy | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy | Bubble::WelcomeBack => None,
     }
 }
 
@@ -146,13 +150,17 @@ pub struct GameService {
     utc_offset: Option<i32>,
     /// おやすみ時間（設定ダイアログで変えられる）。
     sleep: Mutex<SleepWindow>,
+    /// 生活リズムから学んだおやすみ時間（まだ学べていなければ None）。
+    learned_sleep: Mutex<Option<SleepWindow>>,
+    /// 学んだおやすみ時間を使うか（設定）。
+    auto_sleep: AtomicBool,
     /// ミニゲームの乱数。
     rng: Mutex<Rng>,
 }
 
 impl GameService {
     pub fn new(state: GameState, path: PathBuf) -> Self {
-        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()), rng: Mutex::new(Rng::new(time_seed())) }
+        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()), learned_sleep: Mutex::new(None), auto_sleep: AtomicBool::new(false), rng: Mutex::new(Rng::new(time_seed())) }
     }
 
     /// 経過時間の倍率（動作確認用）。
@@ -188,7 +196,10 @@ impl GameService {
     /// 思い出（新しい順）といっしょの日数。
     pub fn diary(&self) -> DiaryView {
         let state = self.lock();
-        diary::build_view(&state.diary, state.born_unix, state.last_unix)
+        let mut view = diary::build_view(&state.diary, state.born_unix, state.last_unix);
+        view.together_minutes = state.companion.total_secs / 60;
+        view.chronotype = chronotype(&state.companion.rhythm);
+        view
     }
 
     /// ローカル時刻の UTC オフセットを固定する（テスト用）。
@@ -202,8 +213,29 @@ impl GameService {
         *self.sleep.lock().unwrap_or_else(|e| e.into_inner()) = window;
     }
 
+    /// 学んだおやすみ時間を使うかどうか（設定）。
+    pub fn set_auto_sleep(&self, on: bool) {
+        self.auto_sleep.store(on, Ordering::Relaxed);
+    }
+
+    /// いま使うおやすみ時間: 自動で合わせる設定で、学べていれば学んだもの。そうでなければ設定のもの。
     fn sleep_window(&self) -> SleepWindow {
+        if self.auto_sleep.load(Ordering::Relaxed)
+            && let Some(learned) = *self.learned_sleep.lock().unwrap_or_else(|e| e.into_inner())
+        {
+            return learned;
+        }
         *self.sleep.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// Mac の操作を観測する（10 秒ごとに呼ぶ）。いっしょにいた時間・生活リズムを数え、休憩の声かけ・おかえりの材料を返す。
+    /// 保存は、そのあとの `tick` がまとめて行う。
+    pub fn observe_activity(&self, now_unix: u64, idle_secs: u64) -> Observation {
+        let mut state = self.lock();
+        let hour = local_hour(now_unix, self.offset_at(now_unix));
+        let obs = state.observe_activity(now_unix, idle_secs, hour);
+        *self.learned_sleep.lock().unwrap_or_else(|e| e.into_inner()) = learned_sleep_window(&state.companion.rhythm);
+        obs
     }
 
     fn offset_at(&self, unix_secs: u64) -> i32 {
@@ -353,6 +385,14 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
     }
     if !sleeping && s.form.stage >= 2 && s.care.is_selfish() && matches!(expression.bubble, None | Some(Bubble::Happy)) {
         expression.bubble = Some(Bubble::Selfish);
+    }
+    // 飼い主を気づかう一言（世話が必要なときは言わない）。休憩 > おかえり。
+    if !sleeping && s.form.stage >= 2 && matches!(expression.bubble, None | Some(Bubble::Happy)) {
+        if s.companion.needs_a_break() {
+            expression.bubble = Some(Bubble::Rest);
+        } else if s.companion.is_welcoming_back(s.last_unix) {
+            expression.bubble = Some(Bubble::WelcomeBack);
+        }
     }
     if !sleeping && s.form.stage >= 2 && expression.bubble.is_none() {
         expression.bubble = greeting(local_hour(s.last_unix, utc_offset), window);
@@ -581,6 +621,101 @@ mod tests {
         let s = GameService::new(state, bad).with_utc_offset(NOON_AT_ZERO);
         assert!(s.toggle_power(700).is_err());
         assert!(!s.snapshot().forced_sleep, "the pet stays as it was");
+    }
+
+    /// 昼間（UTC+15 の 15 時）に、`secs` 秒ぶん操作し続ける。
+    fn work_for(s: &GameService, start: u64, secs: u64) -> u64 {
+        let mut now = start;
+        s.observe_activity(now, 0);
+        for _ in 0..secs / 10 {
+            now += 10;
+            s.observe_activity(now, 0);
+        }
+        now
+    }
+
+    #[test]
+    fn after_working_a_long_time_the_pet_asks_the_owner_to_rest() {
+        let s = grown_pet("rest");
+        assert_ne!(s.snapshot().expression.bubble, Some(Bubble::Rest));
+        work_for(&s, 1_000, crate::companion::BREAK_AFTER_SECS + 60);
+        assert_eq!(s.snapshot().expression.bubble, Some(Bubble::Rest));
+    }
+
+    #[test]
+    fn a_need_comes_before_the_rest_suggestion() {
+        let s = grown_pet("rest-hungry");
+        s.lock().status = crate::status::Status::new(50, 50, 0, 0);
+        work_for(&s, 1_000, crate::companion::BREAK_AFTER_SECS + 60);
+        assert_eq!(s.snapshot().expression.bubble, Some(Bubble::Hungry));
+    }
+
+    #[test]
+    fn the_pet_welcomes_the_owner_back_after_a_long_absence() {
+        let s = grown_pet("welcome-back");
+        s.observe_activity(1_000, 0);
+        s.observe_activity(1_010, crate::companion::AWAY_AFTER_SECS);
+        let back = 1_000 + 2 * 3600;
+        let obs = s.observe_activity(back, 0);
+        assert!(obs.returned_after.is_some());
+        let v = s.tick(back).unwrap().view;
+        assert_eq!(v.expression.bubble, Some(Bubble::WelcomeBack));
+        let later = s.tick(back + crate::companion::WELCOME_BACK_SECS + 10).unwrap().view;
+        assert_ne!(later.expression.bubble, Some(Bubble::WelcomeBack));
+    }
+
+    #[test]
+    fn a_sleeping_pet_does_not_say_either() {
+        let s = grown_pet("rest-asleep");
+        work_for(&s, 1_000, crate::companion::BREAK_AFTER_SECS + 60);
+        s.toggle_power(1_000 + crate::companion::BREAK_AFTER_SECS + 70).unwrap();
+        assert_eq!(s.snapshot().expression.bubble, Some(Bubble::Sleeping));
+    }
+
+    /// 毎日 9〜18 時だけ操作しているヒストグラムを、オフセットなしの UTC として覚えさせる。
+    fn learn_an_office_rhythm(s: &GameService) {
+        let mut now = 0u64;
+        for day in 0..3u64 {
+            for hour in 9..18u64 {
+                let start = day * 86_400 + hour * 3600 + 5;
+                now = work_for(s, start, 600).max(now);
+            }
+        }
+    }
+
+    #[test]
+    fn the_learned_sleep_window_is_used_when_auto_sleep_is_on() {
+        let s = GameService::new(GameState::new(0), tmp("auto-sleep")).with_utc_offset(0);
+        s.set_sleep_window(SleepWindow { start_hour: 1, end_hour: 2 }); // 設定は 1〜2 時だけ
+        learn_an_office_rhythm(&s);
+        s.set_auto_sleep(true);
+        // 学んだ窓は 23〜7 時ごろ。設定（1〜2 時）とは別なので、3 日目の 0 時台に眠っているかで見分けられる
+        let window = s.sleep_window();
+        assert_ne!(window, SleepWindow { start_hour: 1, end_hour: 2 });
+        assert_eq!(window.end_hour, (window.start_hour + 8) % 24);
+        s.set_auto_sleep(false);
+        assert_eq!(s.sleep_window(), SleepWindow { start_hour: 1, end_hour: 2 }, "the setting is back in charge");
+    }
+
+    #[test]
+    fn until_enough_has_been_seen_the_setting_is_used_even_with_auto_sleep_on() {
+        let s = GameService::new(GameState::new(0), tmp("auto-sleep-early")).with_utc_offset(0);
+        s.set_sleep_window(SleepWindow { start_hour: 1, end_hour: 2 });
+        s.set_auto_sleep(true);
+        work_for(&s, 100, 120);
+        assert_eq!(s.sleep_window(), SleepWindow { start_hour: 1, end_hour: 2 });
+    }
+
+    #[test]
+    fn the_diary_reports_the_time_spent_together_and_the_learned_chronotype() {
+        let s = GameService::new(GameState::new(0), tmp("diary-together")).with_utc_offset(0);
+        assert_eq!((s.diary().together_minutes, s.diary().chronotype), (0, None));
+        learn_an_office_rhythm(&s);
+        let d = s.diary();
+        assert_eq!(d.together_minutes, 3 * 9 * 10);
+        assert!(d.chronotype.is_some());
+        let json = serde_json::to_value(&d).unwrap();
+        assert_eq!(json["togetherMinutes"], 270);
     }
 
     #[test]
@@ -1246,7 +1381,8 @@ mod tests {
         assert_eq!(tray_title(&view_with(Some(Bubble::Selfish))), Some("💬"));
         assert_eq!(tray_title(&view_with(Some(Bubble::Sick))), Some("🤒"));
         assert_eq!(tray_title(&view_with(Some(Bubble::Dying))), Some("🆘"));
-        for quiet in [Bubble::Happy, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy] {
+        assert_eq!(tray_title(&view_with(Some(Bubble::Rest))), Some("☕"));
+        for quiet in [Bubble::Happy, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy, Bubble::WelcomeBack] {
             assert_eq!(tray_title(&view_with(Some(quiet))), None);
         }
         assert_eq!(tray_title(&view_with(Some(Bubble::Hungry))), Some("🍙"));

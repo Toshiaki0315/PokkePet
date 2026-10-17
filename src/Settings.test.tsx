@@ -21,7 +21,7 @@ vi.mock("./sound", () => ({
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 const unlisten = vi.fn();
 
@@ -97,6 +97,26 @@ describe("Settings dialog", () => {
     await waitFor(() => expect(screen.getByRole("slider", { name: "鳴き声の大きさ" })).toBeDisabled());
     expect(screen.getByRole("slider", { name: "鳴き声の高さ" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "ためしに鳴かせる" })).toBeDisabled();
+  });
+
+  it.each([
+    ["作業に寄り添う", "companionEnabled"],
+    ["休憩の声かけ", "breakReminder"],
+    ["おやすみ時間を自動で合わせる", "autoSleep"],
+  ] as const)("shows and saves the %s switch", async (name, key) => {
+    render(<Settings />);
+    const box = await screen.findByRole("checkbox", { name });
+    expect(box).toBeChecked();
+    await userEvent.click(box);
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, [key]: false });
+  });
+
+  it("disables the companion sub-options while the companion is off", async () => {
+    api.getSettings.mockResolvedValue({ ...custom, companionEnabled: false });
+    render(<Settings />);
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "作業に寄り添う" })).not.toBeChecked());
+    expect(screen.getByRole("checkbox", { name: "休憩の声かけ" })).toBeDisabled();
+    expect(screen.getByRole("checkbox", { name: "おやすみ時間を自動で合わせる" })).toBeDisabled();
   });
 
   it("shows and saves the strict-mode switch", async () => {

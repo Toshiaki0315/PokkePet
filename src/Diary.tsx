@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { getDiary, onStateChanged } from "./api";
 import type { DiaryEvent, DiaryView } from "./api";
-import { BRANCH_NAMES, SPECIES_NAMES } from "./names";
+import { BRANCH_NAMES, CHRONOTYPE_NAMES, SPECIES_NAMES } from "./names";
 import { useListener } from "./useListener";
 import "./Diary.css";
 
@@ -13,6 +13,9 @@ const formatTime = (unix: number) => {
   const d = new Date(unix * 1000);
   return `${d.getMonth() + 1}/${d.getDate()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 };
+
+/** 「2時間30分」「45分」。 */
+const formatDuration = (minutes: number) => (minutes >= 60 ? `${Math.floor(minutes / 60)}時間${minutes % 60 === 0 ? "" : `${minutes % 60}分`}` : `${minutes}分`);
 
 const describe = (event: DiaryEvent): string => {
   switch (event.kind) {
@@ -63,6 +66,12 @@ export default function Diary() {
       {diary && (
         <>
           <p className="days">いっしょに {diary.daysTogether} 日目</p>
+          {diary.togetherMinutes > 0 && (
+            <p className="together">
+              いっしょに作業した時間 {formatDuration(diary.togetherMinutes)}
+              {diary.chronotype && `（${CHRONOTYPE_NAMES[diary.chronotype]}）`}
+            </p>
+          )}
           {diary.entries.length === 0 ? (
             <p className="empty">まだ思い出がありません</p>
           ) : (

@@ -14,7 +14,7 @@ import Diary from "./Diary";
 const at = (month: number, day: number, hour: number, minute: number) => new Date(2026, month - 1, day, hour, minute).getTime() / 1000;
 
 const sample: DiaryView = {
-  daysTogether: 3,
+  daysTogether: 3, togetherMinutes: 0, chronotype: null,
   // 新しい順
   entries: [
     { atUnix: at(10, 19, 21, 30), event: { kind: "careMilestone", count: 50 } },
@@ -37,10 +37,37 @@ beforeEach(() => {
   });
 });
 
+describe("Diary window (together)", () => {
+  const withTime = (togetherMinutes: number, chronotype: DiaryView["chronotype"]): DiaryView => ({ daysTogether: 2, togetherMinutes, chronotype, entries: [] });
+
+  it("shows the working time together, in hours and minutes, with the learned type", async () => {
+    api.getDiary.mockResolvedValue(withTime(150, "night"));
+    render(<Diary />);
+    expect(await screen.findByText("いっしょに作業した時間 2時間30分（夜型）")).toBeInTheDocument();
+  });
+
+  it("formats whole hours and short times", async () => {
+    api.getDiary.mockResolvedValue(withTime(120, null));
+    const { unmount } = render(<Diary />);
+    expect(await screen.findByText("いっしょに作業した時間 2時間")).toBeInTheDocument();
+    unmount();
+    api.getDiary.mockResolvedValue(withTime(45, "morning"));
+    render(<Diary />);
+    expect(await screen.findByText("いっしょに作業した時間 45分（朝型）")).toBeInTheDocument();
+  });
+
+  it("says nothing about working together before any time has been counted", async () => {
+    api.getDiary.mockResolvedValue(withTime(0, null));
+    render(<Diary />);
+    await screen.findByText("いっしょに 2 日目");
+    expect(screen.queryByText(/いっしょに作業した時間/)).toBeNull();
+  });
+});
+
 describe("Diary window (restart)", () => {
   it("describes starting over, with and without a name", async () => {
     api.getDiary.mockResolvedValue({
-      daysTogether: 1,
+      daysTogether: 1, togetherMinutes: 0, chronotype: null,
       entries: [
         { atUnix: at(10, 18, 7, 5), event: { kind: "restarted", name: "ごま", personality: "calm" } },
         { atUnix: at(10, 17, 7, 5), event: { kind: "restarted", name: null, personality: "tidy" } },
@@ -55,7 +82,7 @@ describe("Diary window (restart)", () => {
 describe("Diary window (death)", () => {
   it("describes a death, with and without a name", async () => {
     api.getDiary.mockResolvedValue({
-      daysTogether: 3,
+      daysTogether: 3, togetherMinutes: 0, chronotype: null,
       entries: [
         { atUnix: at(10, 18, 7, 5), event: { kind: "died", name: "ごま", personality: "calm" } },
         { atUnix: at(10, 17, 7, 5), event: { kind: "died", name: null, personality: "tidy" } },
@@ -69,7 +96,7 @@ describe("Diary window (death)", () => {
 
 describe("Diary window (anniversaries)", () => {
   it("describes an anniversary", async () => {
-    api.getDiary.mockResolvedValue({ daysTogether: 2, entries: [{ atUnix: at(10, 18, 7, 5), event: { kind: "anniversary", days: 1 } }] });
+    api.getDiary.mockResolvedValue({ daysTogether: 2, togetherMinutes: 0, chronotype: null, entries: [{ atUnix: at(10, 18, 7, 5), event: { kind: "anniversary", days: 1 } }] });
     render(<Diary />);
     expect(await screen.findByText("いっしょに 1 日が経った")).toBeInTheDocument();
   });
@@ -101,7 +128,7 @@ describe("Diary window", () => {
 
   it("remembers farewells, with or without a name", async () => {
     api.getDiary.mockResolvedValue({
-      daysTogether: 1,
+      daysTogether: 1, togetherMinutes: 0, chronotype: null,
       entries: [
         { atUnix: at(10, 17, 12, 0), event: { kind: "graduated", name: "ごま", personality: "playful" } },
         { atUnix: at(10, 17, 11, 0), event: { kind: "graduated", name: null, personality: "calm" } },
@@ -114,7 +141,7 @@ describe("Diary window", () => {
 
   it("names the branch and species of every evolution", async () => {
     api.getDiary.mockResolvedValue({
-      daysTogether: 1,
+      daysTogether: 1, togetherMinutes: 0, chronotype: null,
       entries: [
         { atUnix: at(10, 17, 12, 0), event: { kind: "evolved", stage: 4, branch: "poor", personality: "gluttonous" } },
         { atUnix: at(10, 17, 11, 0), event: { kind: "evolved", stage: 5, branch: "normal", personality: "tidy" } },
@@ -135,7 +162,7 @@ describe("Diary window", () => {
   });
 
   it("says so when there are no memories yet", async () => {
-    api.getDiary.mockResolvedValue({ daysTogether: 1, entries: [] });
+    api.getDiary.mockResolvedValue({ daysTogether: 1, togetherMinutes: 0, chronotype: null, entries: [] });
     render(<Diary />);
     expect(await screen.findByText("まだ思い出がありません")).toBeInTheDocument();
   });

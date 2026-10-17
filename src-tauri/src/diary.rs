@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::evolution::{Branch, Personality};
+use crate::rhythm::Chronotype;
 
 /// 記録の上限。超えたら古いものから捨てる。
 pub const DIARY_MAX: usize = 200;
@@ -62,12 +63,18 @@ pub struct DiaryView {
     pub days_together: u64,
     /// 新しい順。
     pub entries: Vec<DiaryEntry>,
+    /// いっしょに作業した時間の合計（分）。
+    pub together_minutes: u64,
+    /// 生活リズムから学んだ、朝型・夜型（まだ学べていなければ null）。
+    pub chronotype: Option<Chronotype>,
 }
 
 pub fn build_view(entries: &[DiaryEntry], born_unix: u64, now_unix: u64) -> DiaryView {
     DiaryView {
         days_together: now_unix.saturating_sub(born_unix) / DAY_SECS + 1,
         entries: entries.iter().rev().cloned().collect(),
+        together_minutes: 0,
+        chronotype: None,
     }
 }
 

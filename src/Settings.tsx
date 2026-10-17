@@ -98,6 +98,25 @@ export default function Settings() {
       </fieldset>
 
       <fieldset>
+        <legend>いっしょに</legend>
+        <label className="row">
+          <input type="checkbox" checked={settings.companionEnabled} onChange={(e) => patch({ companionEnabled: e.target.checked })} />
+          作業に寄り添う
+        </label>
+        <p className="hint">Mac を操作している時間を、いっしょにいた時間として数えます（30 分ごとに親密度が少し上がり、席を離れて戻ると「おかえり」と言います）。見るのは「操作しているか」だけで、何を打ったか・どのアプリかは見ません。</p>
+        <label className="row">
+          <input type="checkbox" checked={settings.breakReminder} disabled={!settings.companionEnabled} onChange={(e) => patch({ breakReminder: e.target.checked })} />
+          休憩の声かけ
+        </label>
+        <p className="hint">1 時間半、休まずに作業していると、「ちょっと休もうよ」と言います。</p>
+        <label className="row">
+          <input type="checkbox" checked={settings.autoSleep} disabled={!settings.companionEnabled} onChange={(e) => patch({ autoSleep: e.target.checked })} />
+          おやすみ時間を自動で合わせる
+        </label>
+        <p className="hint">操作する時間帯から生活リズムを学んで、いちばん操作しない 8 時間を、おやすみ時間にします（学べるまでは、上の設定を使います）。</p>
+      </fieldset>
+
+      <fieldset>
         <legend>ゲーム</legend>
         <label className="row">
           <input type="checkbox" checked={settings.strictMode} onChange={(e) => patch({ strictMode: e.target.checked })} />

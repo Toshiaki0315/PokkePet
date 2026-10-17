@@ -1,0 +1,243 @@
+//! 作業に寄り添う: Mac を触っている時間（操作の有無だけ。何を打ったか・どのアプリかは見ない）を
+//! 「いっしょにいた時間」として数え、親密度・休憩の声かけ・おかえりに使う。
+
+use serde::{Deserialize, Serialize};
+
+/// 最後の操作からこの秒数より短ければ「操作している」とみなす。
+pub const ACTIVE_IDLE_MAX_SECS: u64 = 120;
+/// この秒数以上、操作がなければ「席を離れた」（おでかけ・おかえりの対象）。
+pub const AWAY_AFTER_SECS: u64 = 30 * 60;
+/// 休憩なしで操作し続けて、この秒数が経ったら「ちょっと休もうよ」。
+pub const BREAK_AFTER_SECS: u64 = 90 * 60;
+/// この秒数以上、操作がなければ休憩したことになり、連続作業の数え直しになる。
+pub const BREAK_RESET_IDLE_SECS: u64 = 5 * 60;
+/// 操作している時間がこの秒数たまるごとに、親密度が 1 上がる。
+pub const AFFINITY_EVERY_SECS: u64 = 30 * 60;
+/// 戻ってきたあと、「おかえり」を言う長さ。
+pub const WELCOME_BACK_SECS: u64 = 10 * 60;
+/// 前回の観測からこれ以上空いたら、その間は数えない（スリープ明けなどで、長い空白をまるごと数えないため）。
+const MAX_STEP_SECS: u64 = 60;
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Companion {
+    /// いっしょに作業した時間の合計（秒）。
+    #[serde(default)]
+    pub total_secs: u64,
+    /// 休憩なしで続けている作業の長さ（秒）。
+    #[serde(default)]
+    pub session_secs: u64,
+    #[serde(default)]
+    last_observed: Option<u64>,
+    #[serde(default)]
+    affinity_acc: u64,
+    /// 席を離れた時刻（戻ってくるまで）。
+    #[serde(default)]
+    away_since: Option<u64>,
+    /// 「おかえり」を言う期限（UNIX秒）。
+    #[serde(default)]
+    pub back_until: u64,
+    #[serde(default)]
+    break_notified: bool,
+    /// 時刻（0〜23 時）ごとの、操作していた時間（秒）。生活リズムを学ぶ材料。
+    #[serde(default)]
+    pub rhythm: [u32; 24],
+}
+
+/// 1 回の観測で起きたこと。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Observation {
+    /// 増えた親密度。
+    pub affinity_gain: u8,
+    /// いま初めて「休憩の時間」になった（通知を出すのは一度だけ）。
+    pub break_due: bool,
+    /// 席を離れていたあと戻ってきた。離れていた秒数。
+    pub returned_after: Option<u64>,
+}
+
+impl Companion {
+    /// 観測する。`now_unix` は現在、`idle_secs` は最後の操作からの秒数、`local_hour` はローカル時刻の「時」。
+    pub fn observe(&mut self, now_unix: u64, idle_secs: u64, local_hour: u8) -> Observation {
+        let step = self.step_since_last(now_unix);
+        let mut obs = Observation::default();
+        if idle_secs < ACTIVE_IDLE_MAX_SECS {
+            self.work(step, local_hour, &mut obs);
+            if let Some(since) = self.away_since.take() {
+                obs.returned_after = Some(now_unix.saturating_sub(since));
+                self.back_until = now_unix + WELCOME_BACK_SECS;
+            }
+            return obs;
+        }
+        if idle_secs >= BREAK_RESET_IDLE_SECS {
+            self.session_secs = 0;
+            self.break_notified = false;
+        }
+        if idle_secs >= AWAY_AFTER_SECS && self.away_since.is_none() {
+            self.away_since = Some(now_unix.saturating_sub(idle_secs));
+        }
+        obs
+    }
+
+    /// 前回の観測からの経過（上限つき）を返し、観測時刻を更新する。
+    /// 前回からとても長く空いていたら（スリープなど）、その間は席を離れていたことにする。
+    fn step_since_last(&mut self, now_unix: u64) -> u64 {
+        let previous = self.last_observed.replace(now_unix);
+        let Some(prev) = previous.filter(|&p| now_unix > p) else {
+            return 0;
+        };
+        let gap = now_unix - prev;
+        if gap >= AWAY_AFTER_SECS && self.away_since.is_none() {
+            self.away_since = Some(prev);
+        }
+        if gap <= MAX_STEP_SECS { gap } else { 0 }
+    }
+
+    fn work(&mut self, step: u64, local_hour: u8, obs: &mut Observation) {
+        self.total_secs += step;
+        self.session_secs += step;
+        let slot = &mut self.rhythm[usize::from(local_hour.min(23))];
+        *slot = slot.saturating_add(u32::try_from(step).unwrap_or(u32::MAX));
+        self.affinity_acc += step;
+        while self.affinity_acc >= AFFINITY_EVERY_SECS {
+            self.affinity_acc -= AFFINITY_EVERY_SECS;
+            obs.affinity_gain = obs.affinity_gain.saturating_add(1);
+        }
+        if self.session_secs >= BREAK_AFTER_SECS && !self.break_notified {
+            self.break_notified = true;
+            obs.break_due = true;
+        }
+    }
+
+    /// 休憩なしで長く作業しているか（吹き出し「ちょっと休もうよ」）。
+    pub fn needs_a_break(&self) -> bool {
+        self.session_secs >= BREAK_AFTER_SECS
+    }
+
+    /// 戻ってきたばかりか（吹き出し「おかえり」）。
+    pub fn is_welcoming_back(&self, now_unix: u64) -> bool {
+        now_unix < self.back_until
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const T0: u64 = 1_000_000;
+
+    /// 10 秒おきに、操作している状態で `secs` 秒ぶん観測する。
+    fn work_for(c: &mut Companion, start: u64, secs: u64, hour: u8) -> Vec<Observation> {
+        (1..=secs / 10).map(|i| c.observe(start + i * 10, 0, hour)).collect()
+    }
+
+    #[test]
+    fn working_time_is_counted_while_the_user_is_active() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 10); // 最初の観測は起点（数えない）
+        work_for(&mut c, T0, 300, 10);
+        assert_eq!((c.total_secs, c.session_secs), (300, 300));
+        assert_eq!(c.rhythm[10], 300);
+    }
+
+    #[test]
+    fn idle_time_is_not_counted() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 10);
+        for i in 1..=30 {
+            c.observe(T0 + i * 10, ACTIVE_IDLE_MAX_SECS, 10);
+        }
+        assert_eq!(c.total_secs, 0);
+        assert_eq!(c.rhythm, [0; 24]);
+    }
+
+    #[test]
+    fn half_an_hour_of_work_raises_the_affinity_by_one() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 9);
+        let gains: u32 = work_for(&mut c, T0, AFFINITY_EVERY_SECS - 10, 9).iter().map(|o| u32::from(o.affinity_gain)).sum();
+        assert_eq!(gains, 0);
+        let gains: u32 = work_for(&mut c, T0 + AFFINITY_EVERY_SECS - 10, 20, 9).iter().map(|o| u32::from(o.affinity_gain)).sum();
+        assert_eq!(gains, 1);
+    }
+
+    #[test]
+    fn a_long_gap_between_observations_is_not_counted_as_work() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 9);
+        c.observe(T0 + 3 * 3600, 0, 9); // Mac がスリープしていた
+        assert_eq!(c.total_secs, 0);
+    }
+
+    #[test]
+    fn a_break_is_suggested_once_after_long_continuous_work() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 14);
+        let obs = work_for(&mut c, T0, BREAK_AFTER_SECS + 600, 14);
+        assert_eq!(obs.iter().filter(|o| o.break_due).count(), 1);
+        assert!(c.needs_a_break());
+    }
+
+    #[test]
+    fn resting_for_a_while_resets_the_session_and_allows_another_suggestion() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 14);
+        work_for(&mut c, T0, BREAK_AFTER_SECS, 14);
+        assert!(c.needs_a_break());
+        let t = T0 + BREAK_AFTER_SECS;
+        c.observe(t + 10, BREAK_RESET_IDLE_SECS, 14);
+        assert!(!c.needs_a_break());
+        let again = work_for(&mut c, t + 10, BREAK_AFTER_SECS + 20, 14);
+        assert_eq!(again.iter().filter(|o| o.break_due).count(), 1);
+    }
+
+    #[test]
+    fn a_short_pause_does_not_count_as_a_break() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 14);
+        work_for(&mut c, T0, 1000, 14);
+        c.observe(T0 + 1010, BREAK_RESET_IDLE_SECS - 1, 14);
+        assert_eq!(c.session_secs, 1000);
+    }
+
+    #[test]
+    fn coming_back_after_being_away_is_noticed_and_welcomed_for_a_while() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 9);
+        c.observe(T0 + 10, AWAY_AFTER_SECS, 9); // 離席（最後の操作は 30 分前）
+        let back = T0 + 3600;
+        let obs = c.observe(back, 0, 9);
+        assert_eq!(obs.returned_after, Some(back - (T0 + 10 - AWAY_AFTER_SECS)));
+        assert!(c.is_welcoming_back(back + WELCOME_BACK_SECS - 1));
+        assert!(!c.is_welcoming_back(back + WELCOME_BACK_SECS));
+        assert_eq!(c.observe(back + 10, 0, 9).returned_after, None, "only once");
+    }
+
+    #[test]
+    fn sleeping_the_mac_counts_as_being_away() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 9);
+        let obs = c.observe(T0 + 2 * 3600, 5, 9);
+        assert_eq!(obs.returned_after, Some(2 * 3600));
+    }
+
+    #[test]
+    fn a_short_absence_is_not_an_outing() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 9);
+        c.observe(T0 + 10, ACTIVE_IDLE_MAX_SECS + 5, 9);
+        assert_eq!(c.observe(T0 + 20, 0, 9).returned_after, None);
+    }
+
+    #[test]
+    fn the_hour_is_kept_in_range() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 99);
+        c.observe(T0 + 10, 0, 99);
+        assert_eq!(c.rhythm[23], 10);
+    }
+
+    #[test]
+    fn old_saves_load_with_nothing_counted() {
+        let c: Companion = serde_json::from_str("{}").unwrap();
+        assert_eq!(c, Companion::default());
+    }
+}

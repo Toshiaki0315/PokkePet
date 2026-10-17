@@ -16,6 +16,7 @@ use crate::diary::DiaryView;
 use crate::game::GameState;
 use crate::minigame::Side;
 use crate::paths::data_dir;
+use crate::system::parse_hid_idle_secs;
 use crate::service::{should_notify_graduation, should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
 use crate::settings::{Settings, SettingsService, POPUP_WIDTH};
 
@@ -139,6 +140,7 @@ pub fn save_settings(app: AppHandle, svc: State<SettingsService>, game: State<Ga
     apply_launch_at_login(&app, saved.launch_at_login);
     game.set_sleep_window(saved.sleep_window()); // おやすみ時間の変更をすぐ反映する
     game.set_strict(saved.strict_mode);
+    game.set_auto_sleep(saved.auto_sleep);
     apply_popup_size(&app, &saved);
     let _ = app.emit(SETTINGS_EVENT, saved.clone());
     let _ = app.emit(STATE_EVENT, game.snapshot());
@@ -196,6 +198,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     });
     app.state::<GameService>().set_sleep_window(settings.sleep_window());
     app.state::<GameService>().set_strict(settings.strict_mode);
+    app.state::<GameService>().set_auto_sleep(settings.auto_sleep);
     let launch_at_login = settings.launch_at_login;
     apply_popup_size(app.handle(), &settings);
     app.manage(SettingsService::new(settings, settings_path));
@@ -352,9 +355,39 @@ fn notify_hatch(app: &AppHandle) {
     }
 }
 
+/// 最後のキーボード・マウス操作からの秒数（`ioreg` で読む。権限は要らない）。読めなければ None。
+fn read_idle_secs() -> Option<u64> {
+    let output = std::process::Command::new("ioreg").args(["-c", "IOHIDSystem"]).output().ok()?;
+    parse_hid_idle_secs(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn notify_break(app: &AppHandle, name: Option<&str>) {
+    let title = name.unwrap_or("PokkePet");
+    if let Err(e) = app.notification().builder().title(title).body("ずっと作業してるね。ちょっと休もうよ").show() {
+        eprintln!("failed to show notification: {e}");
+    }
+}
+
+/// Mac の操作を観測する（作業に寄り添う）。休憩の声かけの通知もここで出す。
+fn observe_companionship(handle: &AppHandle, popup_open: bool) {
+    let settings = handle.state::<SettingsService>().get();
+    if !settings.companion_enabled {
+        return;
+    }
+    let Some(idle) = read_idle_secs() else {
+        return;
+    };
+    let svc = handle.state::<GameService>();
+    let obs = svc.observe_activity(now_unix(), idle);
+    if obs.break_due && settings.break_reminder && !popup_open {
+        notify_break(handle, svc.snapshot().name.as_deref());
+    }
+}
+
 fn spawn_loop(handle: AppHandle) {
     std::thread::spawn(move || loop {
         std::thread::sleep(LOOP_INTERVAL);
+        observe_companionship(&handle, popup_is_open(&handle));
         let svc = handle.state::<GameService>();
         match svc.tick(now_unix()) {
             Ok(tick) => {

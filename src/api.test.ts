@@ -47,7 +47,7 @@ describe("api", () => {
   });
 
   it("saveSettings invokes save_settings with the settings", async () => {
-    const settings = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, sleepStartHour: 23, sleepEndHour: 7, bodyColor: "#112233", buttonColor: "#445566" };
+    const settings = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, breakReminder: true, autoSleep: true, sleepStartHour: 23, sleepEndHour: 7, bodyColor: "#112233", buttonColor: "#445566" };
     invoke.mockResolvedValue(settings);
     await expect(saveSettings(settings)).resolves.toEqual(settings);
     expect(invoke).toHaveBeenCalledWith("save_settings", { settings });
@@ -104,8 +104,8 @@ describe("api", () => {
   });
 
   it("getDiary invokes get_diary", async () => {
-    invoke.mockResolvedValue({ daysTogether: 1, entries: [] });
-    await expect(getDiary()).resolves.toEqual({ daysTogether: 1, entries: [] });
+    invoke.mockResolvedValue({ daysTogether: 1, togetherMinutes: 0, chronotype: null, entries: [] });
+    await expect(getDiary()).resolves.toEqual({ daysTogether: 1, togetherMinutes: 0, chronotype: null, entries: [] });
     expect(invoke).toHaveBeenCalledWith("get_diary");
   });
 
