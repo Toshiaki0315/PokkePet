@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::evolution::{Branch, Personality};
+use crate::genome::Ancestor;
 use crate::rhythm::Chronotype;
 
 /// 記録の上限。超えたら古いものから捨てる。
@@ -29,6 +30,8 @@ pub enum DiaryEvent {
     Anniversary { days: u32 },
     /// おでかけで、とてもめずらしいおみやげを持ち帰った。
     Souvenir { name: String, emoji: String },
+    /// 友だちからたまごコードでたまごをもらい、いまのペットとお別れした。
+    EggReceived { name: Option<String>, personality: Personality },
     /// 最初からやり直した（隠しコマンド）。
     Restarted { name: Option<String>, personality: Personality },
     /// 病気や衰弱で亡くなった（きびしいモード）。
@@ -69,6 +72,36 @@ pub struct DiaryView {
     pub together_minutes: u64,
     /// 生活リズムから学んだ、朝型・夜型（まだ学べていなければ null）。
     pub chronotype: Option<Chronotype>,
+    /// 家系図（旅立った先祖。古い順）。
+    pub lineage: Vec<AncestorView>,
+}
+
+/// 家系図の 1 人（表示用）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AncestorView {
+    pub generation: u32,
+    pub name: Option<String>,
+    pub personality: Personality,
+    pub branch: Branch,
+    /// 色あい（色相を回す角度）。
+    pub tint_degrees: u16,
+    pub charm: Option<&'static str>,
+    pub from_friend: bool,
+}
+
+impl From<&Ancestor> for AncestorView {
+    fn from(a: &Ancestor) -> Self {
+        Self {
+            generation: a.generation,
+            name: a.name.clone(),
+            personality: a.personality,
+            branch: a.branch,
+            tint_degrees: a.genome.tint_degrees(),
+            charm: a.genome.charm_emoji(),
+            from_friend: a.from_friend,
+        }
+    }
 }
 
 pub fn build_view(entries: &[DiaryEntry], born_unix: u64, now_unix: u64) -> DiaryView {
@@ -77,6 +110,7 @@ pub fn build_view(entries: &[DiaryEntry], born_unix: u64, now_unix: u64) -> Diar
         entries: entries.iter().rev().cloned().collect(),
         together_minutes: 0,
         chronotype: None,
+        lineage: Vec::new(),
     }
 }
 

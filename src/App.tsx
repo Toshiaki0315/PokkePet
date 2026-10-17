@@ -332,6 +332,11 @@ export default function App() {
         >
           <div className="titlebar">
             {view.name && <p className="name">{view.name}</p>}
+            {view.charm && (
+              <span className="trait" role="img" aria-label="かざり">
+                {view.charm}
+              </span>
+            )}
             {view.event && (
               <span className="charm" role="img" aria-label="きょうのできごと">
                 {view.event.emoji}

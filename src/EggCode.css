@@ -1,0 +1,19 @@
+.eggcode { box-sizing: border-box; padding: 18px 22px 28px; background: #f6f6f9; color: #222; min-height: 100%; user-select: none; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; }
+.eggcode h1 { margin: 0 0 4px; font-size: 18px; }
+.eggcode h2 { margin: 14px 0 6px; font-size: 13px; }
+.eggcode .lead { margin: 0 0 6px; font-size: 12px; color: #666; }
+.eggcode .code-row { display: flex; gap: 8px; align-items: center; }
+.eggcode .code { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid #0003; background: #fff; font: 700 18px ui-monospace, Menlo, monospace; letter-spacing: 0.08em; user-select: text; }
+.eggcode input { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid #0003; font: 700 16px ui-monospace, Menlo, monospace; letter-spacing: 0.08em; text-transform: uppercase; user-select: text; }
+.eggcode button { padding: 6px 12px; border-radius: 8px; border: 1px solid #0003; background: #fff; color: inherit; cursor: pointer; font-size: 12px; }
+.eggcode button:disabled { opacity: 0.45; cursor: default; }
+.eggcode .confirm { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: #fff7e0; border: 1px solid #f0b42966; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.eggcode .confirm p { margin: 0 0 4px; width: 100%; font-size: 12px; }
+.eggcode .done { margin: 10px 0 0; font-size: 12px; color: #2e7d32; }
+.eggcode [role="alert"] { color: #c22; font-size: 12px; margin: 8px 0; }
+@media (prefers-color-scheme: dark) {
+  .eggcode { background: #26262b; color: #eee; }
+  .eggcode .lead { color: #aaa; }
+  .eggcode .code, .eggcode input, .eggcode button { background: #34343b; border-color: #fff3; color: #eee; }
+  .eggcode .confirm { background: #3a3425; }
+}

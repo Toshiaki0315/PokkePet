@@ -14,3 +14,9 @@
 }
 
 .diary .together { margin: 0 0 10px; font-size: 13px; opacity: 0.8; }
+.diary .lineage { margin: 0 0 14px; padding: 8px 12px; border-radius: 10px; background: #fff; border: 1px solid #0001; }
+.diary .lineage h2 { margin: 0 0 4px; font-size: 13px; }
+.diary .lineage ol { list-style: none; margin: 0; padding: 0; font-size: 12px; }
+.diary .lineage li { padding: 2px 0; }
+.diary .lineage .gen { font-weight: 700; margin-right: 4px; }
+.diary .lineage em { margin-left: 6px; font-style: normal; font-size: 11px; color: #888; }

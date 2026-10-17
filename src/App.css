@@ -237,3 +237,6 @@ body { overflow: hidden; user-select: none; }
 .gift-items li { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 11px; }
 .gift-items .emoji { font-size: 34px; line-height: 1; }
 .gift-items .rarity-2 .emoji { filter: drop-shadow(0 0 6px #f0b429); }
+
+/* 親から受け継いだ飾り(名前の帯。名前の左どなり) */
+.titlebar .trait { margin-right: 6px; font-size: 18px; line-height: 1; order: -1; }

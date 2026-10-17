@@ -47,6 +47,9 @@ export interface StateView {
   sleeping: boolean;
   /** 電源ボタンで寝かされている（おやすみ時間とは関係なく）。もう一度押すと起こせる */
   forcedSleep: boolean;
+  /** 親から受け継いだ色あい（色相を回す角度。0 ならもとの色）と、飾り（絵文字。なければ null） */
+  tintDegrees: number;
+  charm: string | null;
   /** 持ち帰ったばかりで、まだ見せていないおみやげ */
   gift: GiftItem[];
   /** 画面に飾っているおみやげ（絵文字） */
@@ -199,6 +202,7 @@ export type DiaryEvent =
   | { kind: "named"; name: string }
   | { kind: "careMilestone"; count: number }
   | { kind: "anniversary"; days: number }
+  | { kind: "eggReceived"; name: string | null; personality: Personality }
   | { kind: "souvenir"; name: string; emoji: string }
   | { kind: "restarted"; name: string | null; personality: Personality }
   | { kind: "died"; name: string | null; personality: Personality }
@@ -209,6 +213,18 @@ export interface DiaryEntry {
   event: DiaryEvent;
 }
 
+/** 家系図の 1 人。 */
+export interface Ancestor {
+  generation: number;
+  name: string | null;
+  personality: Personality;
+  branch: Branch;
+  tintDegrees: number;
+  charm: string | null;
+  /** 友だちのたまごコードの血筋か */
+  fromFriend: boolean;
+}
+
 export interface DiaryView {
   /** いっしょに過ごした日数（生まれた日が 1 日目） */
   daysTogether: number;
@@ -216,6 +232,8 @@ export interface DiaryView {
   togetherMinutes: number;
   /** 生活リズムから学んだ朝型・夜型（まだ学べていなければ null） */
   chronotype: Chronotype | null;
+  /** 家系図（旅立った先祖。古い順） */
+  lineage: Ancestor[];
   /** 新しい順 */
   entries: DiaryEntry[];
 }
@@ -268,4 +286,14 @@ export function toggleSouvenir(id: string): Promise<SouvenirView> {
 /** 持ち帰ったおみやげを見せた。 */
 export function ackGift(): Promise<StateView> {
   return invoke<StateView>("ack_gift");
+}
+
+/** いまのペットの血筋の「たまごコード」（友だちに送れる）。 */
+export function getEggCode(): Promise<string> {
+  return invoke<string>("get_egg_code");
+}
+
+/** 友だちのたまごコードのたまごを迎える（いまのペットとはお別れ）。 */
+export function receiveEgg(code: string): Promise<StateView> {
+  return invoke<StateView>("receive_egg", { code });
 }

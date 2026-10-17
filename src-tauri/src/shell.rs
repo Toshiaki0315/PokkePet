@@ -30,6 +30,7 @@ const SETTINGS_WINDOW: &str = "settings";
 const DEX_WINDOW: &str = "dex";
 const DIARY_WINDOW: &str = "diary";
 const SOUVENIRS_WINDOW: &str = "souvenirs";
+const EGG_CODE_WINDOW: &str = "eggcode";
 /// ポップアップの表示/非表示（true=表示）。孵化の演出など「開いている間だけ」再生するものに使う。
 const POPUP_EVENT: &str = "popup-visibility";
 const TRAY_ID: &str = "pokkepet";
@@ -143,6 +144,21 @@ pub fn get_souvenirs(svc: State<GameService>) -> SouvenirView {
 pub fn toggle_souvenir(app: AppHandle, svc: State<GameService>, id: String) -> Result<SouvenirView, String> {
     let view = svc.toggle_souvenir_display(&id)?;
     let _ = app.emit(STATE_EVENT, svc.snapshot()); // 画面の飾りが変わる
+    Ok(view)
+}
+
+/// いまのペットの血筋の「たまごコード」（友だちに送れる）。
+#[tauri::command]
+pub fn get_egg_code(svc: State<GameService>) -> String {
+    svc.egg_code()
+}
+
+/// 友だちのたまごコードのたまごを迎える（いまのペットとはお別れ）。
+#[tauri::command]
+pub fn receive_egg(app: AppHandle, svc: State<GameService>, gate: State<Mutex<CallGate>>, code: String) -> Result<StateView, String> {
+    let view = svc.receive_egg(&code)?;
+    gate.lock().unwrap_or_else(|e| e.into_inner()).answered();
+    update_tray_title(&app, &view);
     Ok(view)
 }
 
@@ -261,7 +277,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let dex = MenuItem::with_id(app, "dex", "図鑑…", true, None::<&str>)?;
     let diary = MenuItem::with_id(app, "diary", "思い出…", true, None::<&str>)?;
     let souvenirs = MenuItem::with_id(app, "souvenirs", "おみやげ…", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&dex, &diary, &souvenirs, &settings, &quit])?;
+    let egg_code = MenuItem::with_id(app, "eggcode", "たまごコード…", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&dex, &diary, &souvenirs, &egg_code, &settings, &quit])?;
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -270,6 +287,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
                 "dex" => open_window(app, DEX_WINDOW, "PokkePet 図鑑", (640.0, 580.0)),
                 "diary" => open_window(app, DIARY_WINDOW, "PokkePet 思い出", (460.0, 560.0)),
                 "souvenirs" => open_window(app, SOUVENIRS_WINDOW, "PokkePet おみやげ", (460.0, 520.0)),
+                "eggcode" => open_window(app, EGG_CODE_WINDOW, "PokkePet たまごコード", (460.0, 440.0)),
                 "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 760.0)),
                 "quit" => app.exit(0),
                 _ => {}

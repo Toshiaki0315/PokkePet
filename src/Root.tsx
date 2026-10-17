@@ -1,6 +1,7 @@
 import App from "./App";
 import Dex from "./Dex";
 import Diary from "./Diary";
+import EggCode from "./EggCode";
 import Settings from "./Settings";
 import Souvenirs from "./Souvenirs";
 
@@ -10,5 +11,6 @@ export default function Root({ label }: { label: string }) {
   if (label === "dex") return <Dex />;
   if (label === "diary") return <Diary />;
   if (label === "souvenirs") return <Souvenirs />;
+  if (label === "eggcode") return <EggCode />;
   return <App />;
 }
