@@ -10,6 +10,7 @@ export const BUBBLE_TEXT: Record<BubbleKind, string> = {
   noon: "おひるだね",
   evening: "こんばんは",
   drowsy: "ねむくなってきた…",
+  selfish: "ねえねえ、かまって！",
   welcome: "卵が届いたよ！撫でてあげてね",
 };
 

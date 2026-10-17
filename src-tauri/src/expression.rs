@@ -29,6 +29,8 @@ pub enum Bubble {
     Happy,
     Welcome,
     Sleeping,
+    /// わがまま（おなかもご機嫌も満たされているのに呼んでいる）。叱ってしつける。
+    Selfish,
     /// 時間帯のあいさつ（ほかに伝えることがないときだけ）。
     Morning,
     Noon,
