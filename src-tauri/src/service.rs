@@ -387,7 +387,7 @@ mod tests {
     #[test]
     fn stroking_returns_an_error_when_saving_fails() {
         let bad = tmp("stroke-bad").parent().unwrap().join("no/such/dir/save.json");
-        let s = GameService::new(GameState::new(0), bad);
+        let s = GameService::new(GameState::new(0), bad).with_utc_offset(NOON_AT_ZERO); // 昼でないと、おやすみ中で保存されない
         assert!(s.stroke(0).is_err());
     }
 
