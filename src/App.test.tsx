@@ -39,6 +39,8 @@ const base: StateView = {
   dirtiness: 5,
   weight: 50,
   discipline: 0,
+  poops: 0,
+  sick: false,
   stage: 2,
   branch: "normal",
   personality: "calm",
@@ -301,6 +303,7 @@ describe("App", () => {
       ["evening", "こんばんは"],
       ["drowsy", "ねむくなってきた…"],
       ["selfish", "ねえねえ、かまって！"],
+      ["sick", "きもちわるい…"],
     ] as const)("shows a speech bubble for %s", async (bubble, text) => {
       api.getState.mockResolvedValue(withExpression({ bubble }));
       render(<App />);
@@ -1300,6 +1303,31 @@ describe("care quality", () => {
   it("scolding makes the pet cry sadly", async () => {
     render(<App />);
     await userEvent.click(await screen.findByRole("button", { name: "しつけ" }));
+    await waitFor(() => expect(sound.play).toHaveBeenCalledWith("sad", { personality: "calm", stage: 2 }));
+  });
+});
+
+describe("poop and sickness", () => {
+  it("shows no poop and no sickness mark for a clean, healthy pet", async () => {
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    expect(screen.queryByRole("img", { name: /うんち/ })).toBeNull();
+    expect(screen.queryByRole("img", { name: "病気" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "治療" })).toBeNull();
+  });
+
+  it("shows as many poops as the view says", async () => {
+    api.getState.mockResolvedValue({ ...base, poops: 3 });
+    render(<App />);
+    expect(await screen.findByRole("img", { name: "うんち 3個" })).toHaveTextContent("💩💩💩");
+  });
+
+  it("a sick pet shows the mark and a treatment button that sends the cure action", async () => {
+    api.getState.mockResolvedValue({ ...base, sick: true });
+    render(<App />);
+    expect(await screen.findByRole("img", { name: "病気" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "治療" }));
+    expect(api.performAction).toHaveBeenCalledWith("cure");
     await waitFor(() => expect(sound.play).toHaveBeenCalledWith("sad", { personality: "calm", stage: 2 }));
   });
 });

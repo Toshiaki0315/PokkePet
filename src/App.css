@@ -70,7 +70,7 @@ body { overflow: hidden; user-select: none; }
 .screen > * { position: relative; z-index: 1; }
 
 
-.stage-area { flex: 1 1 auto; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 6px; }
+.stage-area { position: relative; flex: 1 1 auto; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 6px; }
 .sprite { width: 128px; height: 128px; flex: none; image-rendering: pixelated; }
 .screen.compact .sprite { width: 96px; height: 96px; }
 .placeholder { display: flex; align-items: center; justify-content: center; font-size: 64px; }
@@ -89,10 +89,10 @@ body { overflow: hidden; user-select: none; }
 @media (prefers-reduced-motion: reduce) { .sprite.hungry { animation: none; } }
 
 /* --- ボタン部分(画面とは別) --- */
-.controls { margin-top: 16px; display: flex; gap: 10px; align-items: flex-start; }
+.controls { margin-top: 16px; display: flex; gap: 6px; align-items: flex-start; }
 .control { display: flex; flex-direction: column; align-items: center; gap: 3px; }
 .control button {
-  width: 40px; height: 40px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--body-color, #4b5fb8) 45%, black); cursor: pointer; font-size: 20px; line-height: 1;
+  width: 36px; height: 36px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--body-color, #4b5fb8) 45%, black); cursor: pointer; font-size: 18px; line-height: 1;
   background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--button-color, #f280a8) 60%, white), var(--button-color, #f280a8) 70%);
   box-shadow: 0 3px 0 color-mix(in srgb, var(--body-color, #4b5fb8) 45%, black), inset 0 -3px 5px color-mix(in srgb, var(--button-color, #f280a8) 60%, black);
   transition: transform 0.05s, box-shadow 0.05s;
@@ -200,3 +200,9 @@ body { overflow: hidden; user-select: none; }
 .sprite.flop { animation: flop 1s ease-in-out; transform-origin: 50% 100%; }
 @keyframes flop { 0%, 100% { transform: rotate(0) scale(1, 1); } 30%, 70% { transform: rotate(-12deg) scale(1.12, 0.88); } }
 @media (prefers-reduced-motion: reduce) { .sprite.flop { animation: none; } }
+
+/* うんち(画面の隅にたまる)と病気のしるし */
+.poops { position: absolute; right: 6px; bottom: 4px; z-index: 1; font-size: 16px; line-height: 1; letter-spacing: -2px; pointer-events: none; }
+.sick-mark { position: absolute; left: 6px; top: 4px; z-index: 1; font-size: 22px; line-height: 1; animation: sick-wiggle 1.6s ease-in-out infinite; pointer-events: none; }
+@keyframes sick-wiggle { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
+@media (prefers-reduced-motion: reduce) { .sick-mark { animation: none; } }

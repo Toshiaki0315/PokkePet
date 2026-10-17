@@ -65,6 +65,7 @@ const actions = (
     : { name: "play", label: "遊ぶ", icon: "🎾" },
   { name: "clean", label: "掃除", icon: "🧹" },
   { name: "scold", label: "しつけ", icon: "😠" },
+  ...(view.sick ? [{ name: "cure" as const, label: "治療", icon: "💉" }] : []),
 ];
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -113,7 +114,10 @@ export default function App() {
   );
 
   // 鳴き声（設定でオフにできる）。声は、そのときのペットの性格と段階で決まる。
-  const play = useSound(settings.soundEnabled, { volume: settings.soundVolume, pitch: settings.soundPitch });
+  const play = useSound(settings.soundEnabled, {
+    volume: settings.soundVolume,
+    pitch: settings.soundPitch,
+  });
   const cry = (kind: CryKind, who: StateView) =>
     play(kind, { personality: who.personality, stage: who.stage });
   const latest = useRef({ view, cry });
@@ -157,10 +161,22 @@ export default function App() {
         setError(null);
         setView(next);
         setReaction((prev) => ({
-          name: petting || action === "scold" ? "wobble" : "hop",
+          name:
+            petting || action === "scold" || action === "cure"
+              ? "wobble"
+              : "hop",
           id: (prev?.id ?? 0) + 1,
         }));
-        cry(petting ? "tap" : action === "scold" ? "sad" : action === "clean" ? "neutral" : "eat", next);
+        cry(
+          petting
+            ? "tap"
+            : action === "scold" || action === "cure"
+              ? "sad"
+              : action === "clean"
+                ? "neutral"
+                : "eat",
+          next,
+        );
       },
       (e) => setError(errorText(e)),
     );
@@ -190,7 +206,10 @@ export default function App() {
         setView(next);
         if (next.sleeping) return;
         setHearts((prev) => (prev ?? 0) + 1);
-        setReaction((prev) => ({ name: strokeReaction(next.personality, next.stage), id: (prev?.id ?? 0) + 1 }));
+        setReaction((prev) => ({
+          name: strokeReaction(next.personality, next.stage),
+          id: (prev?.id ?? 0) + 1,
+        }));
         cry("happy", next);
       },
       (e) => setError(errorText(e)),
@@ -267,6 +286,20 @@ export default function App() {
             />
           )}
           <div className="stage-area">
+            {view.poops > 0 && (
+              <div
+                className="poops"
+                role="img"
+                aria-label={`うんち ${view.poops}個`}
+              >
+                {"💩".repeat(view.poops)}
+              </div>
+            )}
+            {view.sick && (
+              <div className="sick-mark" role="img" aria-label="病気">
+                🤒
+              </div>
+            )}
             {view.expression.bubble && (
               <div className="bubble" role="status">
                 {bubbleText(view.expression.bubble, view.name)}

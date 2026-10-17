@@ -7,7 +7,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::care::Care;
+use crate::care::{Care, SICK_MOOD_LOSS};
 use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
 use crate::dex::form_key;
 use crate::diary::{self, DiaryEntry, DiaryEvent, DAY_SECS};
@@ -34,6 +34,8 @@ pub enum Action {
     Clean,
     /// しつけ（叱る）。わがままを言っているときだけ効果がある。
     Scold,
+    /// 治療（注射）。病気のときだけ効果がある。
+    Cure,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -269,9 +271,12 @@ impl GameState {
             Action::Scold if self.form.stage >= 2 => {
                 self.care.scold(&mut self.status);
             }
-            Action::Scold => {}
+            Action::Cure if self.form.stage >= 2 => {
+                self.care.cure(&mut self.status);
+            }
+            Action::Scold | Action::Cure => {}
         }
-        let was_petting = matches!(action, Action::Scold) || (action == Action::Play && self.form.stage <= 1);
+        let was_petting = matches!(action, Action::Scold | Action::Cure) || (action == Action::Play && self.form.stage <= 1);
         let total = self.care_total();
         if !was_petting && diary::is_care_milestone(total) {
             self.remember(DiaryEvent::CareMilestone { count: total });
@@ -305,6 +310,9 @@ impl GameState {
             if self.tick_count.is_multiple_of(decay_divisor(timeline, k, carried)) {
                 self.status.tick();
                 self.care.tick(&self.status, self.tick_count, self.form.stage >= 2);
+                if self.care.sick {
+                    self.status.mood = self.status.mood.saturating_sub(SICK_MOOD_LOSS);
+                }
                 // ほったらかしにすると、少しずつ親密度が下がる（世話を続けていれば下がらない）。
                 if self.tick_count.is_multiple_of(AFFINITY_DECAY_TICKS) && self.status.is_neglected() {
                     self.status.lose_affinity();
@@ -920,6 +928,39 @@ mod tests {
     }
 
     #[test]
+    fn a_shot_cures_a_sick_pet_and_does_nothing_to_an_egg() {
+        let mut s = hatched_state();
+        s.care.sick = true;
+        s.apply(Action::Cure);
+        assert!(!s.care.sick);
+        assert_eq!(s.care_total(), 0, "treatment is not routine care");
+        let mut egg = new_state();
+        egg.care.sick = true;
+        let status = egg.status;
+        egg.apply(Action::Cure);
+        assert_eq!((egg.care.sick, egg.status), (true, status));
+    }
+
+    #[test]
+    fn being_sick_drags_the_mood_down_faster() {
+        let mut well = hatched_state();
+        well.status = Status::new(80, 50, 80, 0);
+        let mut ill = well.clone();
+        ill.care.sick = true;
+        well.step(TICK_SECS * 5);
+        ill.step(TICK_SECS * 5);
+        assert_eq!(well.status.mood - ill.status.mood, 5);
+    }
+
+    #[test]
+    fn a_long_neglect_ends_in_sickness() {
+        let mut s = hatched_state();
+        s.status = Status::new(80, 50, 20, 0);
+        s.step(TICK_SECS * crate::care::MISS_TICKS * 3);
+        assert!(s.care.sick);
+    }
+
+    #[test]
     fn a_neglected_pet_racks_up_care_misses() {
         let mut s = hatched_state();
         s.status = Status::new(80, 50, 20, 0);
@@ -1441,6 +1482,9 @@ mod tests {
             s.apply(Action::Feed);
             s.apply(Action::Play);
             s.apply(Action::Clean);
+            if s.care.sick {
+                s.apply(Action::Cure);
+            }
         }
     }
 
