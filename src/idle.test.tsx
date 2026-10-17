@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { IDLE_GESTURE_MS, IDLE_MAX_MS, IDLE_MIN_MS, useIdleGesture } from "./idle";
+import type { StateView } from "./api";
+import { gesturesFor, IDLE_GESTURE_MS, IDLE_MAX_MS, IDLE_MIN_MS, useIdleGesture } from "./idle";
 
 const KINDS = ["bounce", "walk", "look"] as const;
 
@@ -107,5 +108,51 @@ describe("useIdleGesture", () => {
     tick(IDLE_MIN_MS);
     unmount();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+type Look = Pick<StateView, "stage" | "expression">;
+const look = (stage: number, mood: "low" | "mid" | "high"): Look => ({
+  stage,
+  expression: { mood, hunger: "mid", dirtiness: "low", bubble: null },
+});
+
+describe("gesturesFor", () => {
+  it("lets an egg only rock, whatever its mood", () => {
+    for (const mood of ["low", "mid", "high"] as const) expect(gesturesFor(look(1, mood))).toEqual(["rock"]);
+  });
+
+  it("gives a cheerful pet the liveliest moves", () => {
+    const kinds = gesturesFor(look(5, "high"));
+    expect(kinds).toEqual(expect.arrayContaining(["dance", "bounce", "walk", "spin"]));
+    expect(kinds).not.toContain("sigh");
+  });
+
+  it("gives an ordinary pet a calm mix", () => {
+    const kinds = gesturesFor(look(5, "mid"));
+    expect(kinds).toEqual(expect.arrayContaining(["bounce", "walk", "look", "stretch", "nod"]));
+    expect(kinds).not.toContain("dance");
+  });
+
+  it("keeps a gloomy pet subdued", () => {
+    const kinds = gesturesFor(look(5, "low"));
+    expect(kinds).toEqual(expect.arrayContaining(["sigh", "look"]));
+    expect(kinds).not.toContain("dance");
+    expect(kinds).not.toContain("bounce");
+  });
+
+  it("never lists a move twice and always has something to do", () => {
+    for (const stage of [1, 2, 10]) {
+      for (const mood of ["low", "mid", "high"] as const) {
+        const kinds = gesturesFor(look(stage, mood));
+        expect(kinds.length).toBeGreaterThan(0);
+        expect(new Set(kinds).size).toBe(kinds.length);
+      }
+    }
+  });
+
+  it("moves more often than before", () => {
+    expect(IDLE_MIN_MS).toBeLessThanOrEqual(3000);
+    expect(IDLE_MAX_MS).toBeLessThanOrEqual(6500);
   });
 });

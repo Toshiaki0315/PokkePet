@@ -1,9 +1,18 @@
 import { useEffect, useState } from "react";
+import type { StateView } from "./api";
 
 /** しぐさの間隔（最短〜最長）と、1回のしぐさの長さ。 */
-export const IDLE_MIN_MS = 4000;
-export const IDLE_MAX_MS = 9000;
+export const IDLE_MIN_MS = 2500;
+export const IDLE_MAX_MS = 6000;
 export const IDLE_GESTURE_MS = 1400;
+
+/** 見た目に合わせたしぐさの種類。卵は揺れるだけ。機嫌が良いほど活発に、悪いと控えめに動く。 */
+export function gesturesFor({ stage, expression }: Pick<StateView, "stage" | "expression">): readonly string[] {
+  if (stage <= 1) return ["rock"];
+  if (expression.mood === "high") return ["dance", "bounce", "walk", "spin", "stretch"];
+  if (expression.mood === "low") return ["sigh", "look", "nod"];
+  return ["bounce", "walk", "look", "stretch", "nod"];
+}
 
 /**
  * 待機中のしぐさ。`enabled` の間、ランダムな間隔で `kinds` のどれかを 1 回ずつ返す（null は静止）。

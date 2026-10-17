@@ -716,6 +716,23 @@ describe("App", () => {
       expect(screen.getByRole("img")).toHaveClass("bounce");
     });
 
+    it("lets a cheerful pet dance", async () => {
+      api.getState.mockResolvedValue(withExpression({ mood: "high", bubble: "happy" }));
+      render(<App />);
+      await openPopup();
+      await wait(IDLE_MIN_MS + 10);
+      expect(screen.getByRole("img")).toHaveClass("dance");
+    });
+
+    it("lets a gloomy pet only sigh and nod", async () => {
+      api.getState.mockResolvedValue(withExpression({ mood: "low", bubble: "gloomy" }));
+      render(<App />);
+      await openPopup();
+      await wait(IDLE_MIN_MS + 10);
+      expect(screen.getByRole("img")).toHaveClass("sigh");
+      expect(screen.getByRole("img")).not.toHaveClass("bounce");
+    });
+
     it("lets an egg only rock gently", async () => {
       api.getState.mockResolvedValue({ ...base, stage: 1, playAction: "pet" });
       render(<App />);
@@ -967,6 +984,40 @@ describe("App", () => {
       render(<App />);
       await screen.findByRole("img");
       expect(screen.queryByText(/代目/)).toBeNull();
+    });
+  });
+
+  describe("breathing", () => {
+    it("breathes slowly all the time while awake", async () => {
+      render(<App />);
+      const sprite = await screen.findByRole("img");
+      expect(sprite.parentElement).toHaveClass("breathing");
+    });
+
+    it("keeps breathing even when the popup is closed or the pet is hungry", async () => {
+      api.getState.mockResolvedValue(withExpression({ hunger: "low", bubble: "hungry" }));
+      render(<App />);
+      expect((await screen.findByRole("img")).parentElement).toHaveClass("breathing");
+    });
+
+    it("does not breathe like that while asleep (it has its own slow motion)", async () => {
+      api.getState.mockResolvedValue({ ...base, sleeping: true, expression: { ...base.expression, bubble: "sleeping" } });
+      render(<App />);
+      const sprite = await screen.findByRole("img");
+      expect(sprite.parentElement).not.toHaveClass("breathing");
+      expect(sprite).toHaveClass("sleeping");
+    });
+
+    it("does not breathe during the hatching show", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      api.getState.mockResolvedValue({ ...base, hatching: true });
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      act(() => emitVisible(true));
+      expect(screen.getByRole("img")).toHaveClass("shake");
+      expect(screen.getByRole("img").parentElement).not.toHaveClass("breathing");
+      vi.useRealTimers();
     });
   });
 });
