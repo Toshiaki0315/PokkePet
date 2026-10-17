@@ -29,6 +29,8 @@ pub struct Settings {
     pub sound_pitch: i8,
     /// ログイン時にアプリを自動で起動する。
     pub launch_at_login: bool,
+    /// きびしいモード: 病気や衰弱を放っておくと、お別れ（死）がある。
+    pub strict_mode: bool,
     /// おやすみ時間の開始・終了（0〜23時）。同じ値ならおやすみなし。
     pub sleep_start_hour: u8,
     pub sleep_end_hour: u8,
@@ -45,6 +47,7 @@ impl Default for Settings {
             sound_volume: DEFAULT_SOUND_VOLUME,
             sound_pitch: 0,
             launch_at_login: false,
+            strict_mode: false,
             sleep_start_hour: DEFAULT_SLEEP_START_HOUR,
             sleep_end_hour: DEFAULT_SLEEP_END_HOUR,
             body_color: DEFAULT_BODY_COLOR.to_string(),
@@ -279,6 +282,15 @@ mod tests {
         Settings { sound_volume: 80, sound_pitch: -1, launch_at_login: true, ..d }.save(&p).unwrap();
         let back = Settings::load(&p).unwrap();
         assert_eq!((back.sound_volume, back.sound_pitch, back.launch_at_login), (80, -1, true));
+    }
+
+    #[test]
+    fn strict_mode_is_off_by_default_and_is_saved() {
+        assert!(!Settings::default().strict_mode);
+        let p = tmp("strict");
+        Settings { strict_mode: true, ..Settings::default() }.save(&p).unwrap();
+        assert!(Settings::load(&p).unwrap().strict_mode);
+        assert_eq!(serde_json::to_value(Settings::default()).unwrap()["strictMode"], false);
     }
 
     #[test]

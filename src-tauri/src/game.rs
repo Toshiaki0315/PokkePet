@@ -75,6 +75,12 @@ pub struct GameState {
     /// お世話の質（体重・しつけ度・お世話ミス・わがまま）。
     #[serde(default)]
     pub care: Care,
+    /// 亡くなっている（きびしいモードで、病気や衰弱を放置した）。新しい卵を迎えるまで、時間は止まる。
+    #[serde(default)]
+    pub dead: bool,
+    /// きびしいモードか。設定から与えられる実行時の値で、セーブには含めない。
+    #[serde(skip)]
+    pub strict: bool,
     /// 何代目か（最初のペットが 1）。
     #[serde(default = "first_generation")]
     pub generation: u32,
@@ -157,6 +163,8 @@ impl GameState {
             born_unix: now_unix,
             anniversaries: 0,
             care: Care::default(),
+            dead: false,
+            strict: false,
             generation: 1,
             legacy: None,
         };
@@ -167,7 +175,7 @@ impl GameState {
 
     /// 旅立ちの時か（最終段階になって 1 時間が経った）。見送るまで、そのまま一緒にいられる。
     pub fn graduating(&self) -> bool {
-        self.growth.ready_to_graduate()
+        !self.dead && self.growth.ready_to_graduate()
     }
 
     /// 旅立ちを見送り、次の世代の卵を迎える。図鑑と思い出は引き継ぎ、性格が少し受け継がれる。
@@ -177,7 +185,30 @@ impl GameState {
         }
         let farewell = DiaryEvent::Graduated { name: self.name.take(), personality: self.form.personality };
         self.remember(farewell);
-        self.legacy = Some(self.form.personality);
+        self.start_next_generation(Some(self.form.personality));
+        Ok(())
+    }
+
+    /// 亡くなった。時間が止まり、思い出に記録される。
+    fn die(&mut self) {
+        self.dead = true;
+        let farewell = DiaryEvent::Died { name: self.name.clone(), personality: self.form.personality };
+        self.remember(farewell);
+    }
+
+    /// 亡くなったペットを見送り、新しい卵を迎える。性格は受け継がない。
+    pub fn bury(&mut self) -> Result<(), String> {
+        if !self.dead {
+            return Err("the pet is still alive".to_string());
+        }
+        self.name = None;
+        self.start_next_generation(None);
+        Ok(())
+    }
+
+    fn start_next_generation(&mut self, legacy: Option<Personality>) {
+        self.dead = false;
+        self.legacy = legacy;
         self.generation += 1;
         self.status = Status::new(50, 0, 80, 0);
         self.growth = Growth::egg();
@@ -191,7 +222,6 @@ impl GameState {
         self.care = Care::default();
         self.record_form();
         self.remember(DiaryEvent::Born);
-        Ok(())
     }
 
     /// いっしょに丸 1 日・2 日…が経っていたら、記念日として思い出に残す（まとめて経ったときは最新の 1 件）。
@@ -215,6 +245,9 @@ impl GameState {
 
     /// ミニゲームの結果を反映する。普通に遊んだ効果に加えて、勝てばボーナス。卵は遊べない。
     pub fn play_minigame(&mut self, win: bool) -> Result<(), String> {
+        if self.dead {
+            return Err("the pet has passed away".to_string());
+        }
         if self.form.stage <= 1 {
             return Err("an egg cannot play games".to_string());
         }
@@ -246,6 +279,9 @@ impl GameState {
     }
 
     pub fn apply(&mut self, action: Action) {
+        if self.dead {
+            return;
+        }
         self.intro_seen = true;
         match action {
             Action::Feed => {
@@ -285,6 +321,9 @@ impl GameState {
 
     /// マウスでなでられた。お世話の回数には数えず、オープニングも終わらせない。
     pub fn stroke(&mut self) {
+        if self.dead {
+            return;
+        }
         self.status.stroke();
     }
 
@@ -302,6 +341,9 @@ impl GameState {
 
     /// `step` に、おやすみ・留守番の文脈を与えたもの。成長（進化）の時間は文脈に関係なく進む。
     pub fn step_in(&mut self, secs: u32, timeline: Option<Timeline>) -> u8 {
+        if self.dead {
+            return 0;
+        }
         let carried = self.tick_acc;
         let acc = carried.saturating_add(secs);
         self.tick_acc = acc % TICK_SECS;
@@ -312,6 +354,10 @@ impl GameState {
                 self.care.tick(&self.status, self.tick_count, self.form.stage >= 2);
                 if self.care.sick {
                     self.status.mood = self.status.mood.saturating_sub(SICK_MOOD_LOSS);
+                }
+                if self.strict && self.care.is_fatal() {
+                    self.die();
+                    return 0;
                 }
                 // ほったらかしにすると、少しずつ親密度が下がる（世話を続けていれば下がらない）。
                 if self.tick_count.is_multiple_of(AFFINITY_DECAY_TICKS) && self.status.is_neglected() {
@@ -1015,6 +1061,109 @@ mod tests {
         s.care.discipline = 10;
         s.evolve_for(stage_secs(crate::evolution::MAX_STAGE - 1));
         assert_eq!(s.form.branch, Branch::Good);
+    }
+
+    /// 2 分ずつ `n` ティック進める（1 回の `step` で進められるティックには上限があるため）。
+    fn run_ticks(s: &mut GameState, n: u32) {
+        for _ in 0..n {
+            s.step(TICK_SECS);
+        }
+    }
+
+    fn doomed_state() -> GameState {
+        let mut s = hatched_state();
+        s.strict = true;
+        s.care.sick = true;
+        s
+    }
+
+    #[test]
+    fn in_strict_mode_a_sick_pet_left_untreated_eventually_dies() {
+        let mut s = doomed_state();
+        run_ticks(&mut s, crate::care::FATAL_TICKS - 1);
+        assert!(!s.dead);
+        run_ticks(&mut s, 1);
+        assert!(s.dead);
+        assert_eq!(kinds(&s).last().map(String::as_str), Some("died"));
+        assert!(!s.graduating());
+    }
+
+    #[test]
+    fn without_strict_mode_the_pet_never_dies() {
+        let mut s = doomed_state();
+        s.strict = false;
+        run_ticks(&mut s, crate::care::FATAL_TICKS * 2);
+        assert!(!s.dead);
+    }
+
+    #[test]
+    fn a_dead_pet_is_frozen_in_time_and_ignores_everything() {
+        let mut s = doomed_state();
+        run_ticks(&mut s, crate::care::FATAL_TICKS);
+        let frozen = s.clone();
+        assert_eq!(s.step(secs_until_graduation()), 0);
+        s.apply(Action::Feed);
+        s.stroke();
+        assert!(s.play_minigame(true).is_err());
+        assert_eq!(s, frozen);
+    }
+
+    #[test]
+    fn dying_with_an_unnamed_pet_still_leaves_a_memory() {
+        let mut s = doomed_state();
+        s.name = Some("ごま".to_string());
+        run_ticks(&mut s, crate::care::FATAL_TICKS);
+        let died = s.diary.iter().rev().find_map(|e| if let DiaryEvent::Died { name, .. } = &e.event { Some(name.clone()) } else { None });
+        assert_eq!(died, Some(Some("ごま".to_string())));
+    }
+
+    #[test]
+    fn burying_starts_a_new_egg_without_inheriting_the_personality() {
+        let mut s = doomed_state();
+        s.form.personality = Personality::Tidy;
+        s.name = Some("ごま".to_string());
+        run_ticks(&mut s, crate::care::FATAL_TICKS);
+        s.bury().unwrap();
+        assert!(!s.dead);
+        assert_eq!((s.generation, s.form.stage, s.name.clone(), s.legacy), (2, 1, None, None));
+        assert_eq!(s.care, Care::default());
+        assert_eq!(kinds(&s).last().map(String::as_str), Some("born"));
+        assert!(s.strict, "the mode itself carries over");
+    }
+
+    #[test]
+    fn only_a_dead_pet_can_be_buried() {
+        let mut s = hatched_state();
+        let before = s.clone();
+        assert!(s.bury().is_err());
+        assert_eq!(s, before);
+    }
+
+    #[test]
+    fn the_strict_flag_is_not_saved_and_old_saves_are_alive() {
+        let mut s = new_state();
+        s.strict = true;
+        let mut json: serde_json::Value = serde_json::from_str(&s.to_json()).unwrap();
+        assert!(json.get("strict").is_none());
+        json.as_object_mut().unwrap().remove("dead");
+        let back: GameState = serde_json::from_value(json).unwrap();
+        assert!(!back.dead && !back.strict);
+    }
+
+    #[test]
+    fn balance_a_fully_neglected_pet_dies_in_strict_mode_but_careful_players_survive() {
+        let strict_sim = |mut policy: Box<dyn FnMut(u32, &mut GameState)>| {
+            let mut s = new_state();
+            s.strict = true;
+            for minute in 0..(secs_until_graduation() / 60) {
+                s.step(60);
+                policy(minute, &mut s);
+            }
+            s
+        };
+        assert!(strict_sim(Box::new(|_, _| {})).dead);
+        assert!(!strict_sim(Box::new(care_every(60))).dead);
+        assert!(!strict_sim(Box::new(care_every(240))).dead);
     }
 
     #[test]

@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 export type Branch = "poor" | "normal" | "good" | "legend";
 export type Personality = "calm" | "playful" | "gluttonous" | "tidy";
 export type Level = "low" | "mid" | "high";
-export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping" | "morning" | "noon" | "evening" | "drowsy" | "selfish" | "sick";
+export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping" | "morning" | "noon" | "evening" | "drowsy" | "selfish" | "sick" | "dying";
 export type PlayAction = "play" | "pet";
 export type ActionName = "feed" | "snack" | "play" | "clean" | "scold" | "cure";
 
@@ -21,6 +21,10 @@ export interface StateView {
   poops: number;
   /** 病気か（治療のボタンが出る） */
   sick: boolean;
+  /** 命が危ない（きびしいモード） */
+  danger: boolean;
+  /** 亡くなっている（きびしいモード）。新しい卵を迎えるまで操作できない */
+  dead: boolean;
   stage: number;
   branch: Branch;
   personality: Personality;
@@ -76,6 +80,11 @@ export function setName(name: string): Promise<StateView> {
 }
 
 /** 旅立ちを見送り、次の世代の卵を迎える。 */
+/** 亡くなったペットを見送り、新しい卵を迎える。 */
+export function buryPet(): Promise<StateView> {
+  return invoke<StateView>("bury_pet");
+}
+
 export function graduate(): Promise<StateView> {
   return invoke<StateView>("graduate");
 }
@@ -101,6 +110,8 @@ export interface Settings {
   soundPitch: number;
   /** ログイン時にアプリを自動で起動する */
   launchAtLogin: boolean;
+  /** きびしいモード: 病気や衰弱を放っておくと、お別れがある */
+  strictMode: boolean;
   /** おやすみ時間の開始・終了（0〜23時）。同じ値ならおやすみなし */
   sleepStartHour: number;
   sleepEndHour: number;
@@ -146,6 +157,7 @@ export type DiaryEvent =
   | { kind: "named"; name: string }
   | { kind: "careMilestone"; count: number }
   | { kind: "anniversary"; days: number }
+  | { kind: "died"; name: string | null; personality: Personality }
   | { kind: "graduated"; name: string | null; personality: Personality };
 
 export interface DiaryEntry {

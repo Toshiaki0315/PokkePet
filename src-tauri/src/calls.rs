@@ -15,6 +15,7 @@ pub enum Call {
     Gloomy,
     Selfish,
     Sick,
+    Dying,
 }
 
 impl Call {
@@ -25,6 +26,7 @@ impl Call {
             Bubble::Gloomy => Some(Call::Gloomy),
             Bubble::Selfish => Some(Call::Selfish),
             Bubble::Sick => Some(Call::Sick),
+            Bubble::Dying => Some(Call::Dying),
             Bubble::Happy | Bubble::Welcome | Bubble::Sleeping | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy => None,
         }
     }
@@ -37,6 +39,7 @@ impl Call {
             Call::Gloomy => "つまんないな…",
             Call::Selfish => "ねえねえ、ちょっと来て！",
             Call::Sick => "具合がわるいよ…",
+            Call::Dying => "たすけて…もう、げんかい…",
         }
     }
 
@@ -47,7 +50,7 @@ impl Call {
 
 #[derive(Debug, Default)]
 pub struct CallGate {
-    last: [Option<u64>; 5],
+    last: [Option<u64>; 6],
     unanswered: u8,
 }
 
@@ -95,6 +98,7 @@ mod tests {
         assert_eq!(Call::from_bubble(Some(Bubble::Gloomy)), Some(Call::Gloomy));
         assert_eq!(Call::from_bubble(Some(Bubble::Selfish)), Some(Call::Selfish));
         assert_eq!(Call::from_bubble(Some(Bubble::Sick)), Some(Call::Sick));
+        assert_eq!(Call::from_bubble(Some(Bubble::Dying)), Some(Call::Dying));
         for other in [Bubble::Happy, Bubble::Welcome, Bubble::Sleeping, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy] {
             assert_eq!(Call::from_bubble(Some(other)), None);
         }
@@ -103,7 +107,7 @@ mod tests {
 
     #[test]
     fn every_call_has_a_message() {
-        for call in [Call::Hungry, Call::Dirty, Call::Gloomy, Call::Selfish, Call::Sick] {
+        for call in [Call::Hungry, Call::Dirty, Call::Gloomy, Call::Selfish, Call::Sick, Call::Dying] {
             assert!(!call.message().is_empty());
         }
         assert_ne!(Call::Hungry.message(), Call::Dirty.message());

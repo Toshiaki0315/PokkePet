@@ -37,6 +37,21 @@ beforeEach(() => {
   });
 });
 
+describe("Diary window (death)", () => {
+  it("describes a death, with and without a name", async () => {
+    api.getDiary.mockResolvedValue({
+      daysTogether: 3,
+      entries: [
+        { atUnix: at(10, 18, 7, 5), event: { kind: "died", name: "ごま", personality: "calm" } },
+        { atUnix: at(10, 17, 7, 5), event: { kind: "died", name: null, personality: "tidy" } },
+      ],
+    });
+    render(<Diary />);
+    expect(await screen.findByText("「ごま」が天国へ旅立った（ふわもち）")).toBeInTheDocument();
+    expect(screen.getByText("天国へ旅立った（うさぎ）")).toBeInTheDocument();
+  });
+});
+
 describe("Diary window (anniversaries)", () => {
   it("describes an anniversary", async () => {
     api.getDiary.mockResolvedValue({ daysTogether: 2, entries: [{ atUnix: at(10, 18, 7, 5), event: { kind: "anniversary", days: 1 } }] });

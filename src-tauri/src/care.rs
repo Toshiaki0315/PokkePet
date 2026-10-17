@@ -36,6 +36,11 @@ pub const LEGEND_MAX_MISSES: u32 = 2;
 /// 同じく、しつけ度がこの値以上。
 pub const LEGEND_MIN_DISCIPLINE: u8 = 60;
 
+/// 病気、またはおなかもご機嫌もゼロの状態がこのティック数（減りのティック。約 12 時間）続くと、きびしいモードではお別れになる。
+pub const FATAL_TICKS: u32 = 360;
+/// そのうちこのティック数に達したら「もう限界」と知らせる。
+pub const DANGER_TICKS: u32 = 240;
+
 pub const DISCIPLINE_MAX: u8 = 100;
 const SCOLD_GAIN: u8 = 15;
 /// しつけ度 10 ごとに、進化の評価が 1 上がる（最大 +10）。
@@ -78,6 +83,9 @@ pub struct Care {
     /// 病気を放っているティック数。
     #[serde(default)]
     sick_ticks: u32,
+    /// 命にかかわる状態（病気、またはおなかもご機嫌もゼロ）が続いているティック数。
+    #[serde(default)]
+    pub fatal_ticks: u32,
     /// わがままを言っている間の、残りのティック数（0 なら言っていない）。
     #[serde(default)]
     selfish_left: u32,
@@ -85,7 +93,7 @@ pub struct Care {
 
 impl Default for Care {
     fn default() -> Self {
-        Self { weight: WEIGHT_START, discipline: 0, misses: 0, recent_misses: 0, need_ticks: 0, episode_misses: 0, sick: false, sick_ticks: 0, selfish_left: 0 }
+        Self { weight: WEIGHT_START, discipline: 0, misses: 0, recent_misses: 0, need_ticks: 0, episode_misses: 0, sick: false, sick_ticks: 0, fatal_ticks: 0, selfish_left: 0 }
     }
 }
 
@@ -110,6 +118,7 @@ impl Care {
         }
         self.count_misses(status);
         self.count_sickness();
+        self.count_fatal(status);
         if tick_count.is_multiple_of(WEIGHT_DRIFT_TICKS) {
             self.weight = match self.weight.cmp(&WEIGHT_START) {
                 std::cmp::Ordering::Less => self.weight + 1,
@@ -149,6 +158,24 @@ impl Care {
             self.sick_ticks = 0;
             self.weight = self.weight.saturating_sub(SICK_WEIGHT_LOSS).max(WEIGHT_MIN);
         }
+    }
+
+    fn count_fatal(&mut self, status: &Status) {
+        if self.sick || (status.hunger == 0 && status.mood == 0) {
+            self.fatal_ticks += 1;
+        } else {
+            self.fatal_ticks = 0;
+        }
+    }
+
+    /// 命にかかわる状態が長く続いたか。
+    pub fn is_fatal(&self) -> bool {
+        self.fatal_ticks >= FATAL_TICKS
+    }
+
+    /// そろそろ限界か（知らせる段階）。
+    pub fn in_danger(&self) -> bool {
+        self.fatal_ticks >= DANGER_TICKS
     }
 
     /// 病気を放っておくと、その間もお世話ミスが増える。
@@ -393,6 +420,42 @@ mod tests {
         assert!(!Care { misses: 3, ..ok.clone() }.is_legendary());
         assert!(!Care { discipline: 59, ..ok.clone() }.is_legendary());
         assert!(!Care { weight: 70, ..ok }.is_legendary());
+    }
+
+    #[test]
+    fn a_sick_pet_left_alone_reaches_the_danger_zone_and_then_the_end() {
+        let mut c = Care { sick: true, ..Care::default() };
+        neglect(&mut c, &content(), DANGER_TICKS - 1);
+        assert!(!c.in_danger());
+        neglect(&mut c, &content(), 1);
+        assert!(c.in_danger() && !c.is_fatal());
+        let mut c = Care { sick: true, ..Care::default() };
+        c.fatal_ticks = FATAL_TICKS - 1;
+        c.tick(&content(), 1, true);
+        assert!(c.is_fatal());
+    }
+
+    #[test]
+    fn being_starved_of_food_and_mood_is_also_fatal_but_recovery_resets_it() {
+        let mut c = Care::default();
+        let starving = Status::new(0, 50, 0, 0);
+        neglect(&mut c, &starving, 100);
+        assert_eq!(c.fatal_ticks, 100);
+        assert!(c.sick, "starving also makes the pet ill");
+        c.cure(&mut content());
+        c.tick(&content(), 101, true); // 治療して、世話もした
+        assert_eq!(c.fatal_ticks, 0);
+        let mut only_hungry = Care::default();
+        neglect(&mut only_hungry, &Status::new(50, 50, 0, 0), 50);
+        assert_eq!(only_hungry.fatal_ticks, 0, "hunger alone is not fatal");
+    }
+
+    #[test]
+    fn a_cure_stops_the_countdown() {
+        let mut c = Care { sick: true, fatal_ticks: 300, ..Care::default() };
+        c.cure(&mut content());
+        c.tick(&content(), 1, true);
+        assert_eq!(c.fatal_ticks, 0);
     }
 
     #[test]

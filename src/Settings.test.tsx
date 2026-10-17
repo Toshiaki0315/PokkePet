@@ -24,7 +24,7 @@ vi.mock("./sound", () => ({
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 let emitState: (v: { name: string | null }) => void;
 const unlisten = vi.fn();
@@ -107,6 +107,14 @@ describe("Settings dialog", () => {
     await waitFor(() => expect(screen.getByRole("slider", { name: "鳴き声の大きさ" })).toBeDisabled());
     expect(screen.getByRole("slider", { name: "鳴き声の高さ" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "ためしに鳴かせる" })).toBeDisabled();
+  });
+
+  it("shows and saves the strict-mode switch", async () => {
+    render(<Settings />);
+    const box = await screen.findByRole("checkbox", { name: "きびしいモード" });
+    expect(box).not.toBeChecked();
+    await userEvent.click(box);
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, strictMode: true });
   });
 
   it("shows and saves the launch-at-login switch", async () => {

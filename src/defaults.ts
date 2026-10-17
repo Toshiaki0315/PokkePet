@@ -8,6 +8,7 @@ export const DEFAULT_SETTINGS: Settings = {
   soundVolume: 50,
   soundPitch: 0,
   launchAtLogin: false,
+  strictMode: false,
   sleepStartHour: 23,
   sleepEndHour: 7,
   bodyColor: "#4b5fb8",

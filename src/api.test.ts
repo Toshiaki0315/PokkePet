@@ -5,7 +5,7 @@ const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
-import { ackHatch, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
+import { ackHatch, buryPet, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
 
 const view = { mood: 1, affinity: 2, hunger: 3, dirtiness: 4, stage: 1, branch: "normal", personality: "calm" };
 
@@ -47,7 +47,7 @@ describe("api", () => {
   });
 
   it("saveSettings invokes save_settings with the settings", async () => {
-    const settings = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, sleepStartHour: 23, sleepEndHour: 7, bodyColor: "#112233", buttonColor: "#445566" };
+    const settings = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, sleepStartHour: 23, sleepEndHour: 7, bodyColor: "#112233", buttonColor: "#445566" };
     invoke.mockResolvedValue(settings);
     await expect(saveSettings(settings)).resolves.toEqual(settings);
     expect(invoke).toHaveBeenCalledWith("save_settings", { settings });
@@ -114,6 +114,12 @@ describe("api", () => {
     invoke.mockResolvedValue(report);
     await expect(playMinigame("left")).resolves.toEqual(report);
     expect(invoke).toHaveBeenCalledWith("play_minigame", { guess: "left" });
+  });
+
+  it("buryPet invokes bury_pet", async () => {
+    invoke.mockResolvedValue(view);
+    await expect(buryPet()).resolves.toEqual(view);
+    expect(invoke).toHaveBeenCalledWith("bury_pet");
   });
 
   it("graduate invokes graduate", async () => {
