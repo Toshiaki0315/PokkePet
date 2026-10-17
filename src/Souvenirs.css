@@ -1,0 +1,20 @@
+.souvenirs { box-sizing: border-box; padding: 18px 22px 28px; background: #f6f6f9; color: #222; min-height: 100%; user-select: none; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", sans-serif; }
+.souvenirs h1 { margin: 0 0 4px; font-size: 18px; }
+.souvenirs .lead, .souvenirs .hint { margin: 0 0 10px; font-size: 12px; color: #666; }
+.souvenirs .summary { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 13px; }
+.souvenirs .summary progress { flex: 1; height: 10px; }
+.souvenirs .grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.souvenirs .item { position: relative; width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 12px; border: 2px solid #0002; background: #fff; cursor: pointer; font-size: 30px; line-height: 1; padding: 0; }
+.souvenirs .item:disabled { cursor: default; background: #ececf1; color: #aaa; font-size: 22px; }
+.souvenirs .item.rarity-1:not(:disabled) { border-color: #6aa7ff; }
+.souvenirs .item.rarity-2:not(:disabled) { border-color: #f0b429; background: #fffaf0; }
+.souvenirs .item.displayed { box-shadow: 0 0 0 3px #4caf50; }
+.souvenirs .count { position: absolute; right: 3px; bottom: 1px; font-size: 11px; color: #555; font-weight: 700; }
+.souvenirs [role="alert"] { color: #c22; font-size: 12px; margin: 0 0 8px; }
+@media (prefers-color-scheme: dark) {
+  .souvenirs { background: #26262b; color: #eee; }
+  .souvenirs .lead, .souvenirs .hint { color: #aaa; }
+  .souvenirs .item { background: #34343b; border-color: #fff3; }
+  .souvenirs .item:disabled { background: #2d2d33; color: #666; }
+  .souvenirs .count { color: #ccc; }
+}

@@ -17,6 +17,7 @@ use crate::game::{Action, GameState};
 use crate::minigame::{is_win, Rng, Side};
 use crate::events::{event_for, Event};
 use crate::rhythm::{chronotype, learned_sleep_window};
+use crate::souvenirs::{self, SouvenirView};
 use crate::system::SystemInfo;
 use crate::sleep::{is_sleeping, local_hour, local_month_day, local_utc_offset, SleepWindow};
 
@@ -76,6 +77,10 @@ pub struct StateView {
     pub sleeping: bool,
     /// 電源ボタンで寝かされている（おやすみ時間とは関係なく）。もう一度押すと起こせる。
     pub forced_sleep: bool,
+    /// 持ち帰ったばかりで、まだ見せていないおみやげ。
+    pub gift: Vec<GiftItem>,
+    /// 画面に飾っているおみやげ（絵文字）。
+    pub displayed: Vec<&'static str>,
     /// Mac の電池が少ない（電源につながっていないとき）。
     pub battery_low: bool,
     /// Mac が充電中。
@@ -104,6 +109,15 @@ pub struct MiniGameReport {
     pub win: bool,
     /// ペットがおやつを隠していた手。
     pub answer: Side,
+}
+
+/// 持ち帰ったおみやげ 1 つ。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GiftItem {
+    pub emoji: &'static str,
+    pub name: &'static str,
+    pub rarity: u8,
 }
 
 /// `tick` の結果。
@@ -266,6 +280,13 @@ impl GameService {
         let mut state = self.lock();
         let hour = local_hour(now_unix, self.offset_at(now_unix));
         let obs = state.observe_activity(now_unix, idle_secs, hour);
+        if let Some(away) = obs.returned_after {
+            // 出かけたとき（離席の始まり）にペットが眠っていたら、おでかけはしていない。
+            let left_at = now_unix.saturating_sub(away);
+            if !is_sleeping(left_at, self.offset_at(left_at), self.sleep_window()) {
+                state.bring_back(away, now_unix);
+            }
+        }
         *self.learned_sleep.lock().unwrap_or_else(|e| e.into_inner()) = learned_sleep_window(&state.companion.rhythm);
         obs
     }
@@ -362,6 +383,29 @@ impl GameService {
         next.save(&self.path).map_err(|e| e.to_string())?;
         *state = next;
         Ok(self.view(&state))
+    }
+
+    /// 持ち帰ったおみやげを見せたことを記録して保存する。
+    pub fn ack_gift(&self) -> io::Result<StateView> {
+        let mut state = self.lock();
+        state.ack_gift();
+        state.save(&self.path)?;
+        Ok(self.view(&state))
+    }
+
+    /// おみやげのコレクション。
+    pub fn souvenirs(&self) -> SouvenirView {
+        souvenirs::build_view(&self.lock().souvenirs)
+    }
+
+    /// おみやげを飾る／しまう。
+    pub fn toggle_souvenir_display(&self, id: &str) -> Result<SouvenirView, String> {
+        let mut state = self.lock();
+        let mut next = state.clone();
+        next.souvenirs.toggle_display(id)?;
+        next.save(&self.path).map_err(|e| e.to_string())?;
+        *state = next;
+        Ok(souvenirs::build_view(&state.souvenirs))
     }
 
     /// 孵化の演出を見せたことを記録して保存する。
@@ -465,6 +509,8 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow, system: SystemIn
         hatching: s.hatching(),
         sleeping,
         forced_sleep,
+        gift: s.gift.iter().filter_map(|id| souvenirs::find(id)).map(|x| GiftItem { emoji: x.emoji, name: x.name, rarity: x.rarity }).collect(),
+        displayed: s.souvenirs.displayed.iter().filter_map(|id| souvenirs::find(id)).map(|x| x.emoji).collect(),
         battery_low: system.battery_low(),
         charging: system.charging(),
         offline: !system.online,
@@ -546,6 +592,8 @@ mod tests {
                 hatching: false,
                 sleeping: false,
                 forced_sleep: false,
+                gift: Vec::new(),
+                displayed: Vec::new(),
                 battery_low: false,
                 charging: false,
                 offline: false,
@@ -851,6 +899,69 @@ mod tests {
         s.set_events(true);
         s.lock().last_unix = 100 * 86_400; // 1970-04-11
         assert!(s.snapshot().event.is_none());
+    }
+
+    /// 飼い主が `secs` 秒ぶん席を離れて戻る（昼間に出かける）。
+    fn go_out_and_come_back(s: &GameService, secs: u64) {
+        let start = 1_000;
+        s.observe_activity(start, 0);
+        s.observe_activity(start + 10, crate::companion::AWAY_AFTER_SECS);
+        s.observe_activity(start + secs, 0);
+    }
+
+    #[test]
+    fn the_pet_brings_back_souvenirs_when_the_owner_returns_and_they_can_be_acknowledged() {
+        let s = grown_pet("gift");
+        go_out_and_come_back(&s, 3 * 3600);
+        let v = s.snapshot();
+        assert_eq!(v.gift.len(), 2);
+        let json = serde_json::to_value(&v).unwrap();
+        assert!(json["gift"][0]["emoji"].is_string() && json["gift"][0]["name"].is_string());
+        let v = s.ack_gift().unwrap();
+        assert!(v.gift.is_empty());
+        assert_eq!(s.souvenirs().entries.iter().map(|e| e.count).sum::<u32>(), 2);
+    }
+
+    #[test]
+    fn a_pet_that_was_asleep_when_the_owner_left_goes_nowhere() {
+        let s = GameService::new(GameState::new(0), tmp("gift-asleep")).with_utc_offset(0); // 0 時台はおやすみ中
+        {
+            let mut state = s.lock();
+            state.step(crate::evolution::EGG_SECS);
+            state.ack_hatch();
+        }
+        go_out_and_come_back(&s, 3 * 3600);
+        assert!(s.snapshot().gift.is_empty());
+    }
+
+    #[test]
+    fn souvenirs_can_be_displayed_and_the_pet_shows_them_on_screen() {
+        let s = grown_pet("display");
+        go_out_and_come_back(&s, 3 * 3600);
+        let first = s.souvenirs().entries.into_iter().find(|e| e.count > 0).unwrap();
+        let v = s.toggle_souvenir_display(first.id).unwrap();
+        assert!(v.entries.iter().any(|e| e.id == first.id && e.displayed));
+        assert_eq!(s.snapshot().displayed, [first.emoji]);
+        s.toggle_souvenir_display(first.id).unwrap();
+        assert!(s.snapshot().displayed.is_empty());
+        assert!(s.toggle_souvenir_display("nothing").is_err());
+    }
+
+    #[test]
+    fn displaying_returns_an_error_when_saving_fails() {
+        let bad = tmp("display-bad").parent().unwrap().join("no/such/dir/save.json");
+        let mut state = GameState::new(0);
+        state.souvenirs.add("shell");
+        let s = GameService::new(state, bad);
+        assert!(s.toggle_souvenir_display("shell").is_err());
+        assert!(s.souvenirs().entries[0].count == 1 && !s.souvenirs().entries[0].displayed);
+    }
+
+    #[test]
+    fn acknowledging_the_gift_returns_an_error_when_saving_fails() {
+        let bad = tmp("gift-bad").parent().unwrap().join("no/such/dir/save.json");
+        let s = GameService::new(GameState::new(0), bad);
+        assert!(s.ack_gift().is_err());
     }
 
     #[test]

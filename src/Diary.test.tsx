@@ -37,6 +37,14 @@ beforeEach(() => {
   });
 });
 
+describe("Diary window (souvenir)", () => {
+  it("describes a rare find", async () => {
+    api.getDiary.mockResolvedValue({ daysTogether: 1, togetherMinutes: 0, chronotype: null, entries: [{ atUnix: at(10, 18, 7, 5), event: { kind: "souvenir", name: "ほうせき", emoji: "💎" } }] });
+    render(<Diary />);
+    expect(await screen.findByText("おでかけで 💎ほうせき を見つけた！")).toBeInTheDocument();
+  });
+});
+
 describe("Diary window (together)", () => {
   const withTime = (togetherMinutes: number, chronotype: DiaryView["chronotype"]): DiaryView => ({ daysTogether: 2, togetherMinutes, chronotype, entries: [] });
 

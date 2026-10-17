@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::care::{Care, SICK_MOOD_LOSS};
 use crate::companion::{Companion, Observation};
+use crate::souvenirs::{self, SouvenirBook, OUTING_MIN_SECS};
+use crate::minigame::Rng;
 use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
 use crate::dex::form_key;
 use crate::diary::{self, DiaryEntry, DiaryEvent, DAY_SECS};
@@ -82,6 +84,12 @@ pub struct GameState {
     #[serde(default)]
     pub companion: Companion,
     /// 亡くなっている（きびしいモードで、病気や衰弱を放置した）。新しい卵を迎えるまで、時間は止まる。
+    /// 集めたおみやげと、飾っているもの。世代をこえて引き継ぐ。
+    #[serde(default)]
+    pub souvenirs: SouvenirBook,
+    /// 持ち帰ったばかりで、まだ見せていないおみやげ（`Souvenir::id`）。
+    #[serde(default)]
+    pub gift: Vec<String>,
     #[serde(default)]
     pub dead: bool,
     /// 電源ボタンで寝かされている間の終わり（UNIX秒）。おやすみ時間とは関係なく眠っている。
@@ -175,6 +183,8 @@ impl GameState {
             anniversaries: 0,
             care: Care::default(),
             companion: Companion::default(),
+            souvenirs: SouvenirBook::default(),
+            gift: Vec::new(),
             dead: false,
             forced_sleep_until: None,
             strict: false,
@@ -213,6 +223,29 @@ impl GameState {
             self.status.affinity = self.status.affinity.saturating_add(obs.affinity_gain).min(100);
         }
         obs
+    }
+
+    /// 飼い主が席を離れていた間のおでかけから戻った。離れていた時間に応じて、おみやげを持ち帰る
+    /// （孵化したペットだけ。短い離席では何も持ち帰らない）。
+    pub fn bring_back(&mut self, away_secs: u64, now_unix: u64) {
+        if self.dead || self.form.stage < 2 || away_secs < OUTING_MIN_SECS {
+            return;
+        }
+        let collected = u64::from(self.souvenirs.counts.values().sum::<u32>());
+        let mut rng = Rng::new(now_unix ^ collected.rotate_left(32) ^ away_secs);
+        for _ in 0..souvenirs::count_for(away_secs) {
+            let found = souvenirs::pick(&mut rng, away_secs);
+            self.souvenirs.add(found.id);
+            self.gift.push(found.id.to_string());
+            if found.rarity >= 2 {
+                self.remember(DiaryEvent::Souvenir { name: found.name.to_string(), emoji: found.emoji.to_string() });
+            }
+        }
+    }
+
+    /// 持ち帰ったおみやげを見せた。
+    pub fn ack_gift(&mut self) {
+        self.gift.clear();
     }
 
     /// 電源ボタンで寝かされている最中か。
@@ -1387,6 +1420,55 @@ mod tests {
             s.observe_activity(1_000 + i * 10, 0, 9);
         }
         assert_eq!(s.status.affinity, 100);
+    }
+
+    #[test]
+    fn an_outing_of_a_few_hours_brings_back_souvenirs_to_show_and_keep() {
+        let mut s = hatched_state();
+        s.bring_back(3 * 3600, 5_000);
+        assert_eq!(s.gift.len(), 2);
+        assert_eq!(s.souvenirs.counts.values().sum::<u32>(), 2);
+        s.ack_gift();
+        assert!(s.gift.is_empty());
+        assert_eq!(s.souvenirs.counts.values().sum::<u32>(), 2, "the collection stays");
+    }
+
+    #[test]
+    fn short_outings_eggs_and_dead_pets_bring_nothing_back() {
+        let mut s = hatched_state();
+        s.bring_back(crate::souvenirs::OUTING_MIN_SECS - 1, 5_000);
+        assert!(s.gift.is_empty());
+        let mut egg = new_state();
+        egg.bring_back(10 * 3600, 5_000);
+        assert!(egg.gift.is_empty());
+        let mut dead = doomed_state();
+        run_ticks(&mut dead, crate::care::FATAL_TICKS);
+        dead.bring_back(10 * 3600, 5_000);
+        assert!(dead.gift.is_empty());
+    }
+
+    #[test]
+    fn a_very_rare_find_is_written_in_the_diary_and_ordinary_ones_are_not() {
+        let mut s = hatched_state();
+        for i in 0..200 {
+            s.bring_back(20 * 3600, 1_000 + i);
+        }
+        let rare_entries = s.diary.iter().filter(|e| matches!(e.event, DiaryEvent::Souvenir { .. })).count();
+        let rare_found: u32 = s.souvenirs.counts.iter().filter(|(id, _)| crate::souvenirs::find(id).is_some_and(|x| x.rarity == 2)).map(|(_, n)| n).sum();
+        assert!(rare_entries > 0);
+        assert_eq!(rare_entries as u32, rare_found.min(diary::DIARY_MAX as u32).min(rare_entries as u32));
+        assert!(s.souvenirs.found() > 8, "plenty of different things");
+    }
+
+    #[test]
+    fn the_souvenir_collection_is_kept_when_the_pet_leaves_or_the_game_is_restarted() {
+        let mut s = elder_state();
+        s.bring_back(3 * 3600, 5_000);
+        let owned = s.souvenirs.clone();
+        s.graduate().unwrap();
+        assert_eq!(s.souvenirs, owned);
+        s.restart();
+        assert_eq!(s.souvenirs, owned);
     }
 
     #[test]
