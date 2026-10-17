@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { getDiary, onStateChanged } from "./api";
+import { getDiary, getState, onStateChanged, saveCard } from "./api";
 import type { DiaryEvent, DiaryView } from "./api";
+import { CARD_HEIGHT, CARD_WIDTH, drawCard, loadImage } from "./card";
 import { BRANCH_NAMES, CHRONOTYPE_NAMES, SPECIES_NAMES } from "./names";
+import { diaryLine, formatDuration } from "./pictureDiary";
+import { spritePath } from "./sprite";
 import { useListener } from "./useListener";
 import "./Diary.css";
 
@@ -13,9 +16,6 @@ const formatTime = (unix: number) => {
   const d = new Date(unix * 1000);
   return `${d.getMonth() + 1}/${d.getDate()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 };
-
-/** 「2時間30分」「45分」。 */
-const formatDuration = (minutes: number) => (minutes >= 60 ? `${Math.floor(minutes / 60)}時間${minutes % 60 === 0 ? "" : `${minutes % 60}分`}` : `${minutes}分`);
 
 const describe = (event: DiaryEvent): string => {
   switch (event.kind) {
@@ -33,6 +33,8 @@ const describe = (event: DiaryEvent): string => {
       return `いっしょに ${event.days} 日が経った`;
     case "eggReceived":
       return event.name ? `「${event.name}」とお別れして、友だちのたまごを迎えた` : "友だちのたまごを迎えた";
+    case "dayLog":
+      return `${event.month}/${event.day} きょうは… ${diaryLine(event) ?? ""}`;
     case "souvenir":
       return `おでかけで ${event.emoji}${event.name} を見つけた！`;
     case "restarted":
@@ -48,6 +50,7 @@ const describe = (event: DiaryEvent): string => {
 export default function Diary() {
   const [diary, setDiary] = useState<DiaryView | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
 
   const load = useCallback(() => {
     getDiary().then(
@@ -63,6 +66,42 @@ export default function Diary() {
   // 進化や名づけで思い出が増えるので、状態が変わるたびに読み直す。
   useListener(onStateChanged, load);
 
+  /** いまのペットの成長カードを、画像にして保存する。 */
+  const saveGrowthCard = async () => {
+    try {
+      if (!diary) return;
+      const pet = await getState();
+      const sprite = await loadImage(spritePath(pet));
+      const canvas = document.createElement("canvas");
+      canvas.width = CARD_WIDTH;
+      canvas.height = CARD_HEIGHT;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("画像をつくれませんでした");
+      drawCard(
+        ctx,
+        {
+          name: pet.name,
+          look: `${SPECIES_NAMES[pet.personality]}・${BRANCH_NAMES[pet.branch]}`,
+          generation: pet.generation,
+          daysTogether: diary.daysTogether,
+          together: diary.togetherMinutes > 0 ? formatDuration(diary.togetherMinutes) : null,
+          type: diary.chronotype ? CHRONOTYPE_NAMES[diary.chronotype] : null,
+          charm: pet.charm,
+          tintDegrees: pet.tintDegrees,
+        },
+        sprite,
+      );
+      const path = await saveCard(canvas.toDataURL("image/png"));
+      setError(null);
+      setSaved(path);
+    } catch (e) {
+      setSaved(null);
+      setError(errorText(e));
+    }
+  };
+
+  const todayLine = diary ? diaryLine({ ...diary.today, togetherMinutes: Math.floor(diary.today.togetherSecs / 60) }) : null;
+
   return (
     <main className="diary">
       <h1>思い出</h1>
@@ -76,6 +115,16 @@ export default function Diary() {
               {diary.chronotype && `（${CHRONOTYPE_NAMES[diary.chronotype]}）`}
             </p>
           )}
+          <section className="today" aria-label="きょうのページ">
+            <h2>きょうのページ</h2>
+            <p>{todayLine ?? "まだ、なにも ないよ。"}</p>
+          </section>
+          <div className="card-row">
+            <button type="button" onClick={saveGrowthCard}>
+              成長カードを保存
+            </button>
+            {saved && <span className="saved">ピクチャフォルダに保存しました: {saved}</span>}
+          </div>
           {diary.lineage.length > 0 && (
             <section className="lineage" aria-label="家系図">
               <h2>家系図</h2>

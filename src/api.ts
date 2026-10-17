@@ -203,6 +203,7 @@ export type DiaryEvent =
   | { kind: "careMilestone"; count: number }
   | { kind: "anniversary"; days: number }
   | { kind: "eggReceived"; name: string | null; personality: Personality }
+  | { kind: "dayLog"; month: number; day: number; feeds: number; snacks: number; plays: number; cleans: number; strokes: number; togetherMinutes: number; souvenirs: number }
   | { kind: "souvenir"; name: string; emoji: string }
   | { kind: "restarted"; name: string | null; personality: Personality }
   | { kind: "died"; name: string | null; personality: Personality }
@@ -225,6 +226,18 @@ export interface Ancestor {
   fromFriend: boolean;
 }
 
+/** その日の出来事の数（きょうのページ）。 */
+export interface DayStats {
+  feeds: number;
+  snacks: number;
+  plays: number;
+  cleans: number;
+  strokes: number;
+  /** いっしょに作業した時間（秒） */
+  togetherSecs: number;
+  souvenirs: number;
+}
+
 export interface DiaryView {
   /** いっしょに過ごした日数（生まれた日が 1 日目） */
   daysTogether: number;
@@ -234,6 +247,8 @@ export interface DiaryView {
   chronotype: Chronotype | null;
   /** 家系図（旅立った先祖。古い順） */
   lineage: Ancestor[];
+  /** きょうの、ここまでの出来事 */
+  today: DayStats;
   /** 新しい順 */
   entries: DiaryEntry[];
 }
@@ -296,4 +311,9 @@ export function getEggCode(): Promise<string> {
 /** 友だちのたまごコードのたまごを迎える（いまのペットとはお別れ）。 */
 export function receiveEgg(code: string): Promise<StateView> {
   return invoke<StateView>("receive_egg", { code });
+}
+
+/** 成長カード（PNG の data URL）をピクチャフォルダに保存する。保存した場所を返す。 */
+export function saveCard(dataUrl: string): Promise<string> {
+  return invoke<string>("save_card", { dataUrl });
 }

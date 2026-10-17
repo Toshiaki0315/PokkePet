@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::care::{Care, SICK_MOOD_LOSS};
 use crate::companion::{Companion, Observation};
+use crate::daylog::{day_number, month_day, DayStats};
 use crate::genome::{record_ancestor, Ancestor, EggCode, Genome};
 use crate::souvenirs::{self, SouvenirBook, OUTING_MIN_SECS};
 use crate::minigame::Rng;
@@ -88,6 +89,11 @@ pub struct GameState {
     /// 集めたおみやげと、飾っているもの。世代をこえて引き継ぐ。
     #[serde(default)]
     pub souvenirs: SouvenirBook,
+    /// きょう（ローカル時刻）の出来事と、その日番号。日が変わると、絵日記として思い出に書く。
+    #[serde(default)]
+    pub today: DayStats,
+    #[serde(default)]
+    pub day_index: i64,
     /// いまのペットの見た目の特徴（色あい・飾り）。
     #[serde(default)]
     pub genome: Genome,
@@ -191,6 +197,8 @@ impl GameState {
             care: Care::default(),
             companion: Companion::default(),
             souvenirs: SouvenirBook::default(),
+            today: DayStats::default(),
+            day_index: i64::MIN,
             genome: Genome::default(),
             lineage: Vec::new(),
             gift: Vec::new(),
@@ -234,7 +242,9 @@ impl GameState {
         if self.dead {
             return Observation::default();
         }
+        let before = self.companion.total_secs;
         let obs = self.companion.observe(now_unix, idle_secs, local_hour);
+        self.today.together_secs += self.companion.total_secs - before;
         if self.form.stage >= 2 {
             self.status.affinity = self.status.affinity.saturating_add(obs.affinity_gain).min(100);
         }
@@ -252,6 +262,7 @@ impl GameState {
         for _ in 0..souvenirs::count_for(away_secs) {
             let found = souvenirs::pick(&mut rng, away_secs);
             self.souvenirs.add(found.id);
+            self.today.souvenirs += 1;
             self.gift.push(found.id.to_string());
             if found.rarity >= 2 {
                 self.remember(DiaryEvent::Souvenir { name: found.name.to_string(), emoji: found.emoji.to_string() });
@@ -347,6 +358,35 @@ impl GameState {
         self.remember(DiaryEvent::Born);
     }
 
+    /// 日が変わっていたら、前の日の絵日記を思い出に書いて、きょうの数え直しを始める（何もなかった日は書かない）。
+    fn roll_day(&mut self, now_unix: u64, utc_offset: i32) {
+        let day = day_number(now_unix, utc_offset);
+        if self.day_index == i64::MIN {
+            self.day_index = day; // 初めての観測。ここから数える
+            return;
+        }
+        if day == self.day_index {
+            return;
+        }
+        if self.today.has_anything() {
+            let (month, day_of_month) = month_day(self.day_index);
+            let t = self.today;
+            self.remember(DiaryEvent::DayLog {
+                month,
+                day: day_of_month,
+                feeds: t.feeds,
+                snacks: t.snacks,
+                plays: t.plays,
+                cleans: t.cleans,
+                strokes: t.strokes,
+                together_minutes: t.together_minutes(),
+                souvenirs: t.souvenirs,
+            });
+        }
+        self.today = DayStats::default();
+        self.day_index = day;
+    }
+
     /// いっしょに丸 1 日・2 日…が経っていたら、記念日として思い出に残す（まとめて経ったときは最新の 1 件）。
     fn remember_anniversary(&mut self) {
         let days = u32::try_from(self.last_unix.saturating_sub(self.born_unix) / DAY_SECS).unwrap_or(u32::MAX);
@@ -411,22 +451,26 @@ impl GameState {
         self.intro_seen = true;
         match action {
             Action::Feed => {
+                self.today.feeds += 1;
                 self.status.feed();
                 self.care.fed();
                 self.history.feeds += 1;
             }
             Action::Snack => {
+                self.today.snacks += 1;
                 self.status.snack();
                 self.care.snacked();
                 self.history.snacks += 1;
             }
             Action::Play if self.form.stage <= 1 => self.status.pet(),
             Action::Play => {
+                self.today.plays += 1;
                 self.status.play();
                 self.care.played();
                 self.history.plays += 1;
             }
             Action::Clean => {
+                self.today.cleans += 1;
                 self.status.clean();
                 self.history.cleans += 1;
             }
@@ -450,6 +494,7 @@ impl GameState {
         if self.dead {
             return;
         }
+        self.today.strokes += 1;
         self.status.stroke();
     }
 
@@ -534,6 +579,7 @@ impl GameState {
         let start_unix = self.last_unix;
         let elapsed = now_unix.saturating_sub(start_unix);
         self.last_unix = now_unix;
+        self.roll_day(now_unix, utc_offset);
         if elapsed == 0 {
             return 0;
         }
@@ -1582,6 +1628,78 @@ mod tests {
         assert!(s.diary.iter().any(|e| matches!(&e.event, DiaryEvent::EggReceived { name: Some(n), .. } if n == "ごま")));
         let kinds = kinds(&s);
         assert_eq!(&kinds[kinds.len() - 2..], ["eggReceived", "born"]);
+    }
+
+    /// 絵日記の 1 件（月, 日, ご飯, おやつ, 遊ぶ, 掃除, なでた, 作業の分, おみやげ）。
+    type DayLogRow = (u8, u8, u32, u32, u32, u32, u32, u32, u32);
+
+    fn day_logs(s: &GameState) -> Vec<DayLogRow> {
+        s.diary
+            .iter()
+            .filter_map(|e| match e.event {
+                DiaryEvent::DayLog { month, day, feeds, snacks, plays, cleans, strokes, together_minutes, souvenirs } => Some((month, day, feeds, snacks, plays, cleans, strokes, together_minutes, souvenirs)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_days_events_are_counted_and_written_into_the_diary_when_the_day_changes() {
+        let mut s = hatched_state();
+        let noon = 86_400 * 31 + 12 * 3600; // 2 月 1 日の昼
+        s.step_to_in(noon, 1, 0, SleepWindow::default());
+        s.apply(Action::Feed);
+        s.apply(Action::Feed);
+        s.apply(Action::Snack);
+        s.apply(Action::Play);
+        s.apply(Action::Clean);
+        s.stroke();
+        s.stroke();
+        s.stroke();
+        s.observe_activity(noon, 0, 12);
+        for i in 1..=60 {
+            s.observe_activity(noon + i * 10, 0, 12);
+        }
+        assert!(day_logs(&s).is_empty(), "the day is not over yet");
+        assert_eq!((s.today.feeds, s.today.snacks, s.today.plays, s.today.cleans, s.today.strokes), (2, 1, 1, 1, 3));
+        s.step_to_in(86_400 * 32 + 60, 1, 0, SleepWindow::default());
+        assert_eq!(day_logs(&s), [(2, 1, 2, 1, 1, 1, 3, 10, 0)]);
+        assert_eq!(s.today, DayStats::default(), "a fresh page");
+    }
+
+    #[test]
+    fn a_quiet_day_leaves_no_entry_and_the_local_midnight_decides_the_day() {
+        let mut s = hatched_state();
+        s.step_to_in(86_400 * 10 + 100, 1, 0, SleepWindow::default());
+        s.step_to_in(86_400 * 11 + 100, 1, 0, SleepWindow::default());
+        assert!(day_logs(&s).is_empty());
+        // 東京（+9 時間）では、UTC 15 時でもう翌日
+        let mut tokyo = hatched_state();
+        let utc_14 = 86_400 * 20 + 14 * 3600;
+        tokyo.step_to_in(utc_14, 1, 9 * 3600, SleepWindow::default());
+        tokyo.apply(Action::Feed);
+        tokyo.step_to_in(utc_14 + 3600, 1, 9 * 3600, SleepWindow::default());
+        assert_eq!(day_logs(&tokyo).len(), 1);
+    }
+
+    #[test]
+    fn souvenirs_found_are_counted_in_the_days_page() {
+        let mut s = hatched_state();
+        s.step_to_in(86_400 * 5 + 100, 1, 0, SleepWindow::default());
+        s.bring_back(3 * 3600, 86_400 * 5 + 200);
+        assert_eq!(s.today.souvenirs, 2);
+    }
+
+    #[test]
+    fn saves_from_before_the_picture_diary_start_counting_at_their_next_step() {
+        let mut json: serde_json::Value = serde_json::from_str(&new_state().to_json()).unwrap();
+        json.as_object_mut().unwrap().remove("dayIndex");
+        json.as_object_mut().unwrap().remove("day_index");
+        json.as_object_mut().unwrap().remove("today");
+        let mut back: GameState = serde_json::from_value(json).unwrap();
+        assert_eq!((back.today, back.day_index), (DayStats::default(), 0));
+        back.step_to_in(back.last_unix + 60, 1, 0, SleepWindow::default());
+        assert!(day_logs(&back).is_empty());
     }
 
     #[test]

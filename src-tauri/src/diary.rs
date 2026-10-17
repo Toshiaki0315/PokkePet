@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::daylog::DayStats;
 use crate::evolution::{Branch, Personality};
 use crate::genome::Ancestor;
 use crate::rhythm::Chronotype;
@@ -28,6 +29,8 @@ pub enum DiaryEvent {
     CareMilestone { count: u32 },
     /// いっしょに過ごして丸 `days` 日が経った（記念日）。
     Anniversary { days: u32 },
+    /// 1 日の絵日記（日が変わったときに書く）。
+    DayLog { month: u8, day: u8, feeds: u32, snacks: u32, plays: u32, cleans: u32, strokes: u32, together_minutes: u32, souvenirs: u32 },
     /// おでかけで、とてもめずらしいおみやげを持ち帰った。
     Souvenir { name: String, emoji: String },
     /// 友だちからたまごコードでたまごをもらい、いまのペットとお別れした。
@@ -74,6 +77,8 @@ pub struct DiaryView {
     pub chronotype: Option<Chronotype>,
     /// 家系図（旅立った先祖。古い順）。
     pub lineage: Vec<AncestorView>,
+    /// きょうの、ここまでの出来事。
+    pub today: DayStats,
 }
 
 /// 家系図の 1 人（表示用）。
@@ -111,6 +116,7 @@ pub fn build_view(entries: &[DiaryEntry], born_unix: u64, now_unix: u64) -> Diar
         together_minutes: 0,
         chronotype: None,
         lineage: Vec::new(),
+        today: DayStats::default(),
     }
 }
 

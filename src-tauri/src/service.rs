@@ -236,6 +236,7 @@ impl GameService {
         view.together_minutes = state.companion.total_secs / 60;
         view.chronotype = chronotype(&state.companion.rhythm);
         view.lineage = state.lineage.iter().map(Into::into).collect();
+        view.today = state.today;
         view
     }
 
@@ -1050,6 +1051,18 @@ mod tests {
         let s = GameService::new(state, tmp("tree")).with_utc_offset(NOON_AT_ZERO);
         let tree = s.diary().lineage;
         assert_eq!(tree.iter().map(|a| a.generation).collect::<Vec<_>>(), [1, 2]);
+    }
+
+    #[test]
+    fn the_diary_shows_todays_page_so_far() {
+        let s = grown_pet("today");
+        s.perform(Action::Feed, 700).unwrap();
+        s.perform(Action::Play, 710).unwrap();
+        s.stroke(720).unwrap();
+        let today = s.diary().today;
+        assert_eq!((today.feeds, today.plays, today.strokes), (1, 1, 1));
+        let json = serde_json::to_value(s.diary()).unwrap();
+        assert_eq!((json["today"]["feeds"].as_u64(), json["today"]["strokes"].as_u64()), (Some(1), Some(1)));
     }
 
     #[test]
