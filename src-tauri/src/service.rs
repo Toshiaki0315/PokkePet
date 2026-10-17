@@ -294,7 +294,7 @@ impl GameService {
         let hour = local_hour(now_unix, offset);
         // 席を離れている間にペットが眠っていた時間（おやすみ時間・電源ボタンで寝かせた間）は、おでかけにならない。
         let awake = Awake {
-            now: !is_sleeping(now_unix, offset, window) && state.forced_sleep_until.is_none_or(|until| until <= now_unix),
+            now: (!is_sleeping(now_unix, offset, window) || state.awake_override_until.is_some_and(|until| until > now_unix)) && state.forced_sleep_until.is_none_or(|until| until <= now_unix),
             during_gap: state.companion.last_observed().map(|prev| awake_secs_between(prev, now_unix, offset, window)),
         };
         let obs = state.observe_activity_with(now_unix, idle_secs, hour, awake);
@@ -326,18 +326,15 @@ impl GameService {
         Ok(self.view(&state))
     }
 
-    /// 電源ボタン。おやすみ時間とは関係なく寝かせる（ご機嫌が上がるか下がるかはランダム）。寝かせている最中に押すと起こす。
-    /// おやすみ時間で眠っているときは何もできない。
+    /// 電源ボタン。おやすみ時間とは関係なく寝かせる（ご機嫌が上がるか下がるかはランダム）。寝ている最中に押すと起こす
+    /// （おやすみ時間で眠っているのを起こすと、ご機嫌が大きく下がり、親密度も少し下がる）。
     pub fn toggle_power(&self, now_unix: u64) -> Result<StateView, String> {
         let mut state = self.lock();
         let mut next = state.clone();
         next.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix), self.sleep_window());
         let scheduled = is_sleeping(next.last_unix, self.offset_at(next.last_unix), self.sleep_window());
-        if scheduled && !next.forced_asleep() {
-            return Err("the pet is already asleep for the night".to_string());
-        }
         let good = self.rng.lock().unwrap_or_else(|e| e.into_inner()).next_bool();
-        next.toggle_power(good)?;
+        next.toggle_power_in(good, scheduled)?;
         next.save(&self.path).map_err(|e| e.to_string())?;
         *state = next;
         Ok(self.view(&state))
@@ -483,7 +480,7 @@ fn event_for_today(unix: u64, utc_offset: i32) -> Option<Event> {
 
 fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow, system: SystemInfo, events: bool) -> StateView {
     let forced_sleep = s.forced_asleep();
-    let sleeping = forced_sleep || is_sleeping(s.last_unix, utc_offset, window);
+    let sleeping = forced_sleep || (is_sleeping(s.last_unix, utc_offset, window) && !s.woken_by_force());
     let mut expression = express(&s.status);
     if sleeping {
         expression.bubble = Some(Bubble::Sleeping);
@@ -735,15 +732,67 @@ mod tests {
         assert!(!v.forced_sleep && !v.sleeping);
     }
 
+    /// おやすみ時間（UTC の 0 時台）に、孵化した、名前のあるペット。
+    fn pet_asleep_for_the_night(name: &str) -> GameService {
+        let s = GameService::new(GameState::new(0), tmp(name)).with_utc_offset(0);
+        {
+            let mut state = s.lock();
+            state.step(crate::evolution::EGG_SECS);
+            state.ack_hatch();
+            state.status = crate::status::Status::new(80, 50, 80, 0);
+        }
+        s
+    }
+
     #[test]
-    fn the_power_button_does_nothing_while_the_pet_sleeps_for_the_night() {
-        let s = GameService::new(GameState::new(0), tmp("power-night")).with_utc_offset(0); // UTC の 0 時台
-        let mut state = s.lock();
-        state.step(crate::evolution::EGG_SECS);
-        state.ack_hatch();
-        drop(state);
-        assert!(s.snapshot().sleeping);
-        assert!(s.toggle_power(700).is_err());
+    fn the_power_button_wakes_a_pet_that_sleeps_for_the_night_but_it_wakes_up_grumpy() {
+        let s = pet_asleep_for_the_night("wake-night");
+        let before = s.snapshot();
+        assert!(before.sleeping && !before.forced_sleep);
+        let v = s.toggle_power(700).unwrap();
+        assert!(!v.sleeping, "woken up by force");
+        assert!(v.mood + 15 <= before.mood, "{} -> {}", before.mood, v.mood);
+        assert_eq!(v.affinity, before.affinity - 3);
+        assert_eq!(v.expression.bubble, None, "not the Zzz bubble any more");
+    }
+
+    #[test]
+    fn a_woken_pet_stays_up_for_two_hours_and_then_falls_asleep_again_if_it_is_still_night() {
+        let s = pet_asleep_for_the_night("wake-night-again");
+        s.toggle_power(700).unwrap();
+        assert!(!s.tick(700 + crate::game::WOKEN_AWAKE_SECS - 10).unwrap().view.sleeping);
+        assert!(s.tick(700 + crate::game::WOKEN_AWAKE_SECS + 10).unwrap().view.sleeping, "back to sleep: it is still 2 am");
+    }
+
+    #[test]
+    fn pressing_the_power_button_again_after_waking_the_pet_puts_it_to_sleep() {
+        let s = pet_asleep_for_the_night("wake-then-sleep");
+        s.toggle_power(700).unwrap();
+        let v = s.toggle_power(800).unwrap();
+        assert!(v.sleeping && v.forced_sleep);
+    }
+
+    #[test]
+    fn waking_a_pet_that_was_put_to_bed_in_the_daytime_costs_nothing_but_at_night_it_does() {
+        let day = grown_pet("wake-day");
+        day.toggle_power(700).unwrap();
+        let before = day.snapshot();
+        let v = day.toggle_power(710).unwrap();
+        assert!(!v.sleeping);
+        assert_eq!((v.affinity, v.forced_sleep), (before.affinity, false));
+        let night = pet_asleep_for_the_night("wake-forced-night");
+        night.toggle_power(700).unwrap(); // 起こす
+        night.toggle_power(710).unwrap(); // 寝かせる
+        let before = night.snapshot();
+        let v = night.toggle_power(720).unwrap(); // もう一度起こす（夜なので、無理やり）
+        assert!(!v.sleeping);
+        assert_eq!(v.affinity, before.affinity - 3);
+    }
+
+    #[test]
+    fn the_power_button_is_refused_for_an_egg_even_at_night() {
+        let s = GameService::new(GameState::new(0), tmp("wake-egg")).with_utc_offset(0);
+        assert!(s.toggle_power(10).is_err());
     }
 
     #[test]

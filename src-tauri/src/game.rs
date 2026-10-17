@@ -31,6 +31,8 @@ pub const SLEEP_DECAY_DIV: u32 = 4;
 pub const AFFINITY_DECAY_TICKS: u32 = 60;
 /// 電源ボタンで寝かせたとき、自然に起きるまでの長さ（秒）。
 pub const FORCED_SLEEP_SECS: u64 = 8 * 60 * 60;
+/// 電源ボタンでおやすみ時間に起こされたとき、そのまま起きている長さ（秒）。そのあと、まだ夜なら、また眠る。
+pub const WOKEN_AWAKE_SECS: u64 = 2 * 60 * 60;
 pub const MAX_CATCHUP_TICKS: u32 = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -108,6 +110,9 @@ pub struct GameState {
     /// 電源ボタンで寝かされている間の終わり（UNIX秒）。おやすみ時間とは関係なく眠っている。
     #[serde(default)]
     pub forced_sleep_until: Option<u64>,
+    /// 電源ボタンで無理やり起こされて、おやすみ時間でも起きている間の終わり（UNIX秒）。
+    #[serde(default)]
+    pub awake_override_until: Option<u64>,
     /// きびしいモードか。設定から与えられる実行時の値で、セーブには含めない。
     #[serde(skip)]
     pub strict: bool,
@@ -150,6 +155,8 @@ pub struct Timeline {
     pub sleep: SleepWindow,
     /// 電源ボタンで寝かされている間の終わり（UNIX秒）。
     pub forced_until: Option<u64>,
+    /// 電源ボタンで起こされて、おやすみ時間でも起きている間の終わり（UNIX秒）。
+    pub awake_until: Option<u64>,
 }
 
 fn yes() -> bool {
@@ -171,7 +178,8 @@ fn decay_divisor(timeline: Option<Timeline>, tick_index: u32, carried_secs: u32)
     if t.away {
         div *= AWAY_DECAY_DIV;
     }
-    if is_sleeping(at, t.utc_offset, t.sleep) || t.forced_until.is_some_and(|until| at < until) {
+    let woken = t.awake_until.is_some_and(|until| at < until);
+    if (is_sleeping(at, t.utc_offset, t.sleep) && !woken) || t.forced_until.is_some_and(|until| at < until) {
         div *= SLEEP_DECAY_DIV;
     }
     div
@@ -204,6 +212,7 @@ impl GameState {
             gift: Vec::new(),
             dead: false,
             forced_sleep_until: None,
+            awake_override_until: None,
             strict: false,
             generation: 1,
             legacy: None,
@@ -285,19 +294,46 @@ impl GameState {
         self.forced_sleep_until.is_some_and(|until| until > self.last_unix)
     }
 
-    /// 電源ボタン。起きているペットを、おやすみ時間と関係なく寝かせる（無理やりなので、ご機嫌が上がるか下がるかは
-    /// `good` しだい）。寝かされている最中に押すと起こす。卵と、亡くなったペットには使えない。
+    /// 無理やり起こされて、おやすみ時間でも起きている最中か。
+    pub fn woken_by_force(&self) -> bool {
+        self.awake_override_until.is_some_and(|until| until > self.last_unix)
+    }
+
+    /// 電源ボタン（おやすみ時間のことは考えない簡単な版。起きているペットを寝かせる）。
     pub fn toggle_power(&mut self, good: bool) -> Result<(), String> {
+        self.toggle_power_in(good, false)
+    }
+
+    /// 電源ボタン。`scheduled_sleep` は、いま、おやすみ時間で眠っているか。
+    /// - 起きているペットは、おやすみ時間と関係なく寝かせる（無理やりなので、ご機嫌が上がるか下がるかは `good` しだい）。
+    /// - おやすみ時間で眠っているペットは、無理やり起こす（ご機嫌が大きく下がり、親密度も少し下がる）。
+    ///   `WOKEN_AWAKE_SECS` のあいだ起きていて、そのあとまだ夜なら、また眠る。
+    /// - 寝かされている最中に押すと起こす（おやすみ時間のあいだなら、無理やり起こしたことになる）。
+    /// 卵と、亡くなったペットには使えない。
+    pub fn toggle_power_in(&mut self, good: bool, scheduled_sleep: bool) -> Result<(), String> {
         if self.dead || self.form.stage <= 1 {
             return Err("only a living pet that has hatched can be put to bed".to_string());
         }
         if self.forced_asleep() {
             self.forced_sleep_until = None;
+            if scheduled_sleep {
+                self.wake_by_force();
+            }
             return Ok(());
         }
+        if scheduled_sleep && !self.woken_by_force() {
+            self.wake_by_force();
+            return Ok(());
+        }
+        self.awake_override_until = None;
         self.forced_sleep_until = Some(self.last_unix.saturating_add(FORCED_SLEEP_SECS));
         self.status.put_to_bed(good);
         Ok(())
+    }
+
+    fn wake_by_force(&mut self) {
+        self.awake_override_until = Some(self.last_unix.saturating_add(WOKEN_AWAKE_SECS));
+        self.status.woken_up();
     }
 
     /// 亡くなった。時間が止まり、思い出に記録される。
@@ -347,6 +383,7 @@ impl GameState {
         self.dead = false;
         self.genome = genome;
         self.forced_sleep_until = None;
+        self.awake_override_until = None;
         self.legacy = legacy;
         self.generation += 1;
         self.status = Status::new(50, 0, 80, 0);
@@ -590,9 +627,12 @@ impl GameState {
         }
         let secs = elapsed.saturating_mul(u64::from(scale.max(1)));
         let away = elapsed > AWAY_THRESHOLD_SECS;
-        let evolutions = self.step_in(u32::try_from(secs).unwrap_or(u32::MAX), Some(Timeline { start_unix, utc_offset, away, sleep, forced_until: self.forced_sleep_until }));
+        let evolutions = self.step_in(u32::try_from(secs).unwrap_or(u32::MAX), Some(Timeline { start_unix, utc_offset, away, sleep, forced_until: self.forced_sleep_until, awake_until: self.awake_override_until }));
         if self.forced_sleep_until.is_some_and(|until| until <= now_unix) {
             self.forced_sleep_until = None; // 自然に起きた
+        }
+        if self.awake_override_until.is_some_and(|until| until <= now_unix) {
+            self.awake_override_until = None; // 起こされていた時間が終わった（まだ夜なら、また眠る）
         }
         self.remember_anniversary();
         evolutions
@@ -1448,6 +1488,62 @@ mod tests {
     }
 
     #[test]
+    fn waking_a_pet_that_sleeps_for_the_night_makes_it_grumpy_and_keeps_it_up_for_two_hours() {
+        let mut s = hatched_state();
+        s.status = Status::new(80, 50, 80, 0);
+        s.toggle_power_in(true, true).unwrap();
+        assert_eq!((s.status.mood, s.status.affinity), (60, 47));
+        assert_eq!(s.awake_override_until, Some(s.last_unix + WOKEN_AWAKE_SECS));
+        assert!(s.woken_by_force() && s.forced_sleep_until.is_none());
+        let end = s.awake_override_until.unwrap();
+        s.step_to(end - 1);
+        assert!(s.woken_by_force());
+        s.step_to(end);
+        assert!(s.awake_override_until.is_none(), "the night takes over again");
+    }
+
+    #[test]
+    fn waking_a_pet_put_to_bed_at_night_is_a_forced_waking_too_but_by_day_it_is_free() {
+        let mut night = hatched_state();
+        night.status = Status::new(80, 50, 80, 0);
+        night.toggle_power(true).unwrap(); // 寝かせる
+        night.status = Status::new(80, 50, 80, 0);
+        night.toggle_power_in(true, true).unwrap(); // 夜に起こす
+        assert!(night.forced_sleep_until.is_none() && night.woken_by_force());
+        assert_eq!((night.status.mood, night.status.affinity), (60, 47));
+        let mut day = hatched_state();
+        day.status = Status::new(80, 50, 80, 0);
+        day.toggle_power(true).unwrap();
+        day.status = Status::new(80, 50, 80, 0);
+        day.toggle_power_in(true, false).unwrap();
+        assert_eq!((day.status.mood, day.status.affinity, day.woken_by_force()), (80, 50, false));
+    }
+
+    #[test]
+    fn pressing_it_again_while_woken_puts_the_pet_back_to_bed() {
+        let mut s = hatched_state();
+        s.toggle_power_in(true, true).unwrap();
+        s.toggle_power_in(true, true).unwrap();
+        assert!(s.forced_asleep() && s.awake_override_until.is_none());
+    }
+
+    #[test]
+    fn a_woken_pet_gets_hungry_at_the_daytime_pace_not_the_sleeping_pace() {
+        let night = SleepWindow { start_hour: 0, end_hour: 8 };
+        let run = |woken: bool| {
+            let mut s = hatched_state();
+            s.status = Status::new(80, 50, 80, 0);
+            if woken {
+                s.awake_override_until = Some(s.last_unix + 4 * 3600);
+            }
+            let start = s.last_unix;
+            s.step_to_in(start + 3600, 1, 0, night);
+            80 - s.status.hunger
+        };
+        assert!(run(true) >= run(false) * 3, "woken {} asleep {}", run(true), run(false));
+    }
+
+    #[test]
     fn the_forced_sleep_ends_on_its_own_and_the_pet_can_be_woken_early() {
         let mut s = hatched_state();
         s.toggle_power(true).unwrap();
@@ -1906,7 +2002,7 @@ mod tests {
     const FOUR_HOURS: u32 = 4 * 3600; // 120 ティック
 
     fn timeline(start_hour: u64, away: bool) -> Option<Timeline> {
-        Some(Timeline { start_unix: start_hour * H, utc_offset: 0, away, sleep: SleepWindow::default(), forced_until: None })
+        Some(Timeline { start_unix: start_hour * H, utc_offset: 0, away, sleep: SleepWindow::default(), forced_until: None, awake_until: None })
     }
 
     fn hunger_drop(timeline: Option<Timeline>, secs: u32) -> u8 {

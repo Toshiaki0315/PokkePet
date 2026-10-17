@@ -1413,13 +1413,35 @@ describe("power button", () => {
     expect(api.togglePower).toHaveBeenCalledTimes(2);
   });
 
-  it("cannot be used on an egg, while the pet sleeps for the night, or after death", async () => {
-    for (const view of [{ ...base, stage: 1 }, { ...base, sleeping: true }, { ...base, dead: true }]) {
+  it("cannot be used on an egg, while the pet is out, or after death", async () => {
+    for (const view of [{ ...base, stage: 1 }, { ...base, out: true }, { ...base, dead: true }]) {
       api.getState.mockResolvedValue(view);
       const { unmount } = render(<App />);
       expect(await screen.findByRole("button", { name: "電源" })).toBeDisabled();
       unmount();
     }
+  });
+
+  it("can wake a pet that sleeps for the night, and warns that it will be grumpy", async () => {
+    api.getState.mockResolvedValue({ ...base, sleeping: true, forcedSleep: false });
+    api.togglePower.mockResolvedValue({ ...base, sleeping: false, mood: 30, affinity: 7 });
+    render(<App />);
+    const button = await screen.findByRole("button", { name: "電源" });
+    expect(button).toBeEnabled();
+    expect(button).toHaveAttribute("title", expect.stringContaining("不機嫌"));
+    await userEvent.click(button);
+    expect(api.togglePower).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(button).toHaveAttribute("aria-pressed", "false"));
+  });
+
+  it("explains the button by the state: wake up a pet that was put to bed, put an awake pet to bed", async () => {
+    api.getState.mockResolvedValue({ ...base, sleeping: true, forcedSleep: true });
+    const { unmount } = render(<App />);
+    expect(await screen.findByRole("button", { name: "電源" })).toHaveAttribute("title", "電源（起こす）");
+    unmount();
+    api.getState.mockResolvedValue(base);
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "電源" })).toHaveAttribute("title", "電源（寝かせる）");
   });
 
   it("can wake a pet that was put to sleep even though it is night", async () => {
