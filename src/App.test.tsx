@@ -56,6 +56,7 @@ const base: StateView = {
   hatching: false,
   sleeping: false,
   forcedSleep: false,
+  out: false,
   tintDegrees: 0,
   charm: null,
   gift: [],
@@ -1644,5 +1645,86 @@ describe("inherited look", () => {
     const img = await screen.findByRole("img", { name: /stage/ });
     expect((img.parentElement as HTMLElement).style.filter).toBe("");
     expect(screen.queryByRole("img", { name: "かざり" })).toBeNull();
+  });
+});
+
+describe("outing scene", () => {
+  const away = { ...base, out: true, expression: { ...base.expression, bubble: "hungry" as const } };
+  const endAnimation = (el: Element) => {
+    for (const name of ["animationend", "webkitAnimationEnd"]) fireEvent(el, new Event(name, { bubbles: true }));
+  };
+
+  it("shows an empty room with a note while the pet is out, hides the needs bubble and disables the buttons", async () => {
+    api.getState.mockResolvedValue(away);
+    render(<App />);
+    expect(await screen.findByRole("img", { name: "おでかけ中" })).toHaveTextContent("🎒");
+    expect(screen.getByRole("status")).toHaveTextContent("いってきまーす！");
+    expect(screen.queryByRole("img", { name: /stage/ })).toBeNull();
+    expect(screen.queryByText("おなかすいたよ…")).toBeNull();
+    for (const name of ["ご飯", "おやつ", "遊ぶ", "掃除", "しつけ", "電源"]) expect(screen.getByRole("button", { name })).toBeDisabled();
+  });
+
+  it("walks out of the screen when the owner leaves while the popup is open", async () => {
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+    act(() => emitVisible(true));
+    act(() => emit(away));
+    const sprite = await screen.findByRole("img", { name: /stage/ });
+    expect(sprite).toHaveClass("leave");
+    endAnimation(sprite);
+    expect(await screen.findByRole("img", { name: "おでかけ中" })).toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /stage/ })).toBeNull();
+  });
+
+  it("is in the empty room straight away even if the leaving animation never reports back", async () => {
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+    act(() => emitVisible(true));
+    act(() => emit(away));
+    await screen.findByRole("img", { name: /stage/ });
+    expect(await screen.findByRole("img", { name: "おでかけ中" }, { timeout: 3000 })).toBeInTheDocument();
+  });
+
+  it("walks back in, cheering, when the owner returns while the popup is open", async () => {
+    api.getState.mockResolvedValue(away);
+    render(<App />);
+    await screen.findByRole("img", { name: "おでかけ中" });
+    await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+    act(() => emitVisible(true));
+    await waitFor(() => expect(screen.getByRole("img", { name: /stage|おでかけ中/ })).toBeInTheDocument());
+    act(() => emit(base));
+    const sprite = await screen.findByRole("img", { name: /stage/ });
+    expect(sprite).toHaveClass("arrive");
+    await waitFor(() => expect(sound.play).toHaveBeenCalledWith("happy", { personality: "calm", stage: 2 }));
+  });
+
+  it("plays the homecoming when the popup is opened right after the owner came back", async () => {
+    api.getState.mockResolvedValue({ ...base, expression: { ...base.expression, bubble: "welcomeback" } });
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+    act(() => emitVisible(true));
+    await waitFor(() => expect(screen.getByRole("img", { name: /stage/ })).toHaveClass("arrive"));
+  });
+
+  it("does not play any of it while the popup is closed, and not a cry for a sleeping pet", async () => {
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    act(() => emit(away));
+    expect(await screen.findByRole("img", { name: "おでかけ中" })).toBeInTheDocument();
+    act(() => emit({ ...base, sleeping: true }));
+    expect((await screen.findByRole("img", { name: /stage/ })).className).not.toMatch(/arrive|leave/);
+    expect(sound.play).not.toHaveBeenCalled();
+  });
+
+  it("stays quiet (no greeting cry) when the popup opens while the pet is out", async () => {
+    api.getState.mockResolvedValue(away);
+    render(<App />);
+    await screen.findByRole("img", { name: "おでかけ中" });
+    await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+    act(() => emitVisible(true));
+    expect(sound.play).not.toHaveBeenCalledWith("happy", expect.anything());
   });
 });

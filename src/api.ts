@@ -47,6 +47,8 @@ export interface StateView {
   sleeping: boolean;
   /** 電源ボタンで寝かされている（おやすみ時間とは関係なく）。もう一度押すと起こせる */
   forcedSleep: boolean;
+  /** おでかけ中（飼い主が席を離れていて、ペットは起きている）。画面にはいない */
+  out: boolean;
   /** 親から受け継いだ色あい（色相を回す角度。0 ならもとの色）と、飾り（絵文字。なければ null） */
   tintDegrees: number;
   charm: string | null;

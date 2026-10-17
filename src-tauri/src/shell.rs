@@ -315,6 +315,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             let Some(window) = tray.app_handle().get_webview_window("main") else {
                 return;
             };
+            // 開く前に、いまの操作を観測して状態を最新にする（おでかけ中なら、この操作で戻ったことになる）。
+            refresh_before_showing(tray.app_handle());
             toggle_popup(&window, rect.position.to_physical(window.scale_factor().unwrap_or(1.0)), rect.size.to_physical::<u32>(window.scale_factor().unwrap_or(1.0)).height);
         });
     if let Some(icon) = app.default_window_icon() {
@@ -467,6 +469,16 @@ fn observe_companionship(handle: &AppHandle, popup_open: bool) {
     let obs = svc.observe_activity(now_unix(), idle);
     if obs.break_due && settings.break_reminder && !popup_open {
         notify_break(handle, svc.snapshot().name.as_deref());
+    }
+}
+
+/// ポップアップを開く直前に、Mac の操作を観測して時間を進め、最新の状態をみんなに知らせる。
+fn refresh_before_showing(app: &AppHandle) {
+    observe_companionship(app, true);
+    let svc = app.state::<GameService>();
+    if let Ok(tick) = svc.tick(now_unix()) {
+        let _ = app.emit(STATE_EVENT, tick.view.clone());
+        update_tray_title(app, &tick.view);
     }
 }
 
