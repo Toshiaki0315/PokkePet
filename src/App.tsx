@@ -24,7 +24,7 @@ import type {
 } from "./api";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { Sprite } from "./SpriteView";
-import { bubbleText } from "./bubble";
+import { BUBBLE_TEXT } from "./bubble";
 import { Farewell } from "./Farewell";
 import { Grave } from "./Grave";
 import { MiniGame } from "./MiniGame";
@@ -315,7 +315,7 @@ export default function App() {
             )}
             {view.expression.bubble && (
               <div className="bubble" role="status">
-                {bubbleText(view.expression.bubble, view.name)}
+                {BUBBLE_TEXT[view.expression.bubble]}
               </div>
             )}
             {view.hatching && popupOpen ? (
