@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS: Settings = {
   strictMode: false,
   companionEnabled: true,
   systemReactions: true,
+  background: "classic",
   breakReminder: true,
   autoSleep: true,
   sleepStartHour: 23,
@@ -18,6 +19,16 @@ export const DEFAULT_SETTINGS: Settings = {
   bodyColor: "#4b5fb8",
   buttonColor: "#f280a8",
 };
+
+/** 選べる背景（`id` は設定の値）。見た目は `scenes.css`。 */
+export const BACKGROUNDS: readonly { id: Settings["background"]; name: string }[] = [
+  { id: "classic", name: "きもち（いつもの）" },
+  { id: "room", name: "おへや" },
+  { id: "tatami", name: "わしつ" },
+  { id: "meadow", name: "そうげん" },
+  { id: "forest", name: "もり" },
+  { id: "beach", name: "うみべ" },
+];
 
 export interface Preset {
   name: string;

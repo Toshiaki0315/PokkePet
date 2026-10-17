@@ -34,6 +34,7 @@ import { Grave } from "./Grave";
 import { ResetConfirm } from "./ResetConfirm";
 import { MiniGame } from "./MiniGame";
 import { NamePrompt } from "./NamePrompt";
+import { useBubblePhase } from "./bubbleTimeout";
 import { useHiddenCommand } from "./hiddenCommand";
 import { useHeldKey } from "./heldKey";
 import { HatchSequence } from "./hatch";
@@ -49,6 +50,7 @@ import type { CryKind } from "./sound";
 import { strokeReaction, usePetting } from "./petting";
 import { useListener } from "./useListener";
 import "./App.css";
+import "./scenes.css";
 
 // 隠しコマンド: ↑ ↑ ↓ ↓ でゲージの表示を切り替える。
 // 隠しコマンド: ← ← → → で、卵からやり直す（確認が出る）。
@@ -127,6 +129,16 @@ export default function App() {
       (e) => setError(errorText(e)),
     );
   });
+
+  // 吹き出しは、しばらくしたら消える（言葉が変わる・ポップアップを開くと、また出る）。
+  const bubbleText = view
+    ? view.out
+      ? "いってきまーす！"
+      : view.expression.bubble
+        ? bubbleMessage(view)
+        : null
+    : null;
+  const bubblePhase = useBubblePhase(bubbleText, popupOpen);
 
   const idle = useIdleGesture(
     view ? gesturesFor(view) : [],
@@ -374,6 +386,10 @@ export default function App() {
           className={`screen${settings.showGauges ? " compact" : ""}`}
           aria-label="画面"
         >
+          <div
+            className={`scene scene-${settings.background}`}
+            aria-hidden="true"
+          />
           <div className="titlebar">
             {view.name && <p className="name">{view.name}</p>}
             {view.charm && (
@@ -454,16 +470,26 @@ export default function App() {
                 🤒
               </div>
             )}
-            {view.expression.bubble && !view.out && (
-              <div className="bubble" role="status">
+            {view.expression.bubble && !view.out && bubblePhase !== "gone" && (
+              <div
+                className={bubblePhase === "fade" ? "bubble fading" : "bubble"}
+                role="status"
+              >
                 {bubbleMessage(view)}
               </div>
             )}
             {view.out && !leaving ? (
               <div className="away">
-                <div className="bubble" role="status">
-                  いってきまーす！
-                </div>
+                {bubblePhase !== "gone" && (
+                  <div
+                    className={
+                      bubblePhase === "fade" ? "bubble fading" : "bubble"
+                    }
+                    role="status"
+                  >
+                    いってきまーす！
+                  </div>
+                )}
                 <div className="away-spot" role="img" aria-label="おでかけ中">
                   🎒
                 </div>

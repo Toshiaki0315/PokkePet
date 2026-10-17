@@ -27,3 +27,8 @@
 
 .slider { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
 .slider input { flex: 1; }
+.settings .scenes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.settings .scene-choice { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 6px 4px; border-radius: 8px; border: 2px solid transparent; font-size: 12px; cursor: pointer; }
+.settings .scene-choice.selected { border-color: #4b8bf5; background: rgba(75, 139, 245, 0.1); }
+.settings .scene-choice input { position: absolute; opacity: 0; width: 0; height: 0; }
+.settings .scene-choice:focus-within { outline: 2px solid #4b8bf5; }

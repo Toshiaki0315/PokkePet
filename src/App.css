@@ -40,12 +40,22 @@ body { overflow: hidden; user-select: none; }
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  transition: background 0.6s;
-  background: linear-gradient(#f6f8ff, #ffffff);
+  isolation: isolate; /* 背景（.scene）を、汚れの斑点（::before）より後ろに置くため */
 }
-.container[data-mood="high"] .screen { background: linear-gradient(#fff3c9, #ffe0ec); }
-.container[data-mood="mid"] .screen { background: linear-gradient(#f6f8ff, #ffffff); }
-.container[data-mood="low"] .screen { background: linear-gradient(#aab4c8, #d3d8e2); }
+
+/* --- 背景(画面の景色)。景色そのものは scenes.css。きもち・おやすみ・ダークモードは、色みの変化で表す --- */
+.container { --f-mood: brightness(1); --f-sleep: brightness(1); --f-dark: brightness(1); }
+.container[data-mood="high"] { --f-mood: saturate(1.15) brightness(1.04); }
+.container[data-mood="low"] { --f-mood: saturate(0.55) brightness(0.92); }
+.container[data-sleep="true"] { --f-sleep: brightness(0.5) saturate(0.75); }
+.container[data-dark="true"] { --f-dark: brightness(0.82) saturate(0.95); }
+.screen > .scene { position: absolute; inset: 0; z-index: -1; pointer-events: none; transition: filter 0.6s, background 0.6s; filter: var(--f-mood) var(--f-sleep) var(--f-dark); }
+/* いつもの背景は、きもちで色そのものが変わる（おやすみは、夜の色） */
+.scene-classic { background: linear-gradient(#f6f8ff, #ffffff); }
+.container[data-mood="high"] .scene-classic { background: linear-gradient(#fff3c9, #ffe0ec); }
+.container[data-mood="low"] .scene-classic { background: linear-gradient(#aab4c8, #d3d8e2); }
+.container[data-sleep="true"] .scene-classic { background: linear-gradient(#1d2447, #2b3566); }
+.screen > .scene.scene-classic { filter: var(--f-dark); }
 
 /* 汚れ: ほこりの斑点が増え、画面全体がうっすらくすむ */
 .screen::before { content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity 0.6s; z-index: 0; }
@@ -123,7 +133,6 @@ body { overflow: hidden; user-select: none; }
 }
 
 /* --- おやすみ: 画面が暗くなり、キャラはゆっくり上下する --- */
-.container[data-sleep="true"] .screen { background: linear-gradient(#1d2447, #2b3566); }
 .container[data-sleep="true"] .screen::before { opacity: 0.25; }
 .container[data-sleep="true"] .bubble { background: #dfe6ff; color: #223; }
 .container[data-sleep="true"] .bubble::after { background: #dfe6ff; }
@@ -228,8 +237,6 @@ body { overflow: hidden; user-select: none; }
 .titlebar .charm, .titlebar .charging { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 16px; line-height: 1; }
 .titlebar .charm + .charging { left: 28px; }
 
-/* Mac がダークモードのときは、画面も少し夜らしく */
-.container[data-dark="true"] .screen { filter: brightness(0.82) saturate(0.95); }
 
 /* おみやげの飾り(足もとの左側)と、おみやげを見せる画面 */
 .shelf { position: absolute; left: 6px; bottom: 4px; z-index: 1; display: flex; gap: 2px; font-size: 20px; line-height: 1; pointer-events: none; }
@@ -249,3 +256,7 @@ body { overflow: hidden; user-select: none; }
 .away { display: flex; flex-direction: column; align-items: center; width: 100%; }
 .away-spot { font-size: 56px; line-height: 1; margin-bottom: 14px; opacity: 0.85; }
 @media (prefers-reduced-motion: reduce) { .sprite.leave, .sprite.arrive { animation: none; } }
+
+/* 吹き出しは、しばらくしたらすっと消える */
+.bubble { transition: opacity 0.5s ease-out; }
+.bubble.fading { opacity: 0; }

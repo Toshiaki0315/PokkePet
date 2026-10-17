@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { getSettings, onSettingsChanged, saveSettings } from "./api";
 import type { Settings as SettingsModel } from "./api";
-import { DEFAULT_SETTINGS, PRESETS } from "./defaults";
+import { BACKGROUNDS, DEFAULT_SETTINGS, PRESETS } from "./defaults";
 import { useSound } from "./sound";
 import { useListener } from "./useListener";
 import "./Settings.css";
+import "./scenes.css";
 
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
@@ -145,6 +146,20 @@ export default function Settings() {
           <input type="checkbox" checked={settings.notifyCalls} onChange={(e) => patch({ notifyCalls: e.target.checked })} />
           お世話の呼びかけを通知
         </label>
+      </fieldset>
+
+      <fieldset>
+        <legend>背景</legend>
+        <div className="scenes" role="radiogroup" aria-label="背景">
+          {BACKGROUNDS.map(({ id, name }) => (
+            <label key={id} className={`scene-choice${settings.background === id ? " selected" : ""}`}>
+              <input type="radio" name="background" value={id} checked={settings.background === id} onChange={() => patch({ background: id })} />
+              <span className={`scene-thumb scene-${id}`} aria-hidden="true" />
+              <span>{name}</span>
+            </label>
+          ))}
+        </div>
+        <p className="hint">「きもち（いつもの）」は、ご機嫌で色が変わります。ほかの背景は、ご機嫌やおやすみで、色みが変わります。</p>
       </fieldset>
 
       <fieldset>

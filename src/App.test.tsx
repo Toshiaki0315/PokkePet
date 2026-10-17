@@ -34,6 +34,7 @@ vi.mock("./sound", () => ({
   },
 }));
 
+import { BUBBLE_FADE_MS, BUBBLE_SHOW_MS } from "./bubbleTimeout";
 import App from "./App";
 
 const base: StateView = {
@@ -1748,5 +1749,81 @@ describe("outing scene", () => {
     await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
     act(() => emitVisible(true));
     expect(sound.play).not.toHaveBeenCalledWith("happy", expect.anything());
+  });
+});
+
+describe("background scenes", () => {
+  it.each(["classic", "room", "tatami", "meadow", "forest", "beach"] as const)("draws the %s background chosen in the settings", async (background) => {
+    api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, background });
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    await waitFor(() => expect(document.querySelector(".screen > .scene")).toHaveClass(`scene-${background}`));
+  });
+
+  it("starts with the classic background until the saved settings arrive", async () => {
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    expect(document.querySelector(".screen > .scene")).toHaveClass("scene-classic");
+    expect(document.querySelector(".screen > .scene")).toHaveAttribute("aria-hidden", "true");
+  });
+
+  it("follows a background change made in the settings dialog", async () => {
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    await waitFor(() => expect(api.onSettingsChanged).toHaveBeenCalled());
+    act(() => emitSettings({ ...DEFAULT_SETTINGS, background: "beach" }));
+    await waitFor(() => expect(document.querySelector(".screen > .scene")).toHaveClass("scene-beach"));
+  });
+});
+
+describe("speech bubbles go away by themselves", () => {
+  const happy = { ...base, expression: { ...base.expression, bubble: "happy" as const } };
+
+  beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const tick = async (ms: number) => {
+    await act(async () => {
+      vi.advanceTimersByTime(ms);
+    });
+  };
+
+  it("fades out and disappears after a while", async () => {
+    api.getState.mockResolvedValue(happy);
+    render(<App />);
+    const bubble = await screen.findByRole("status");
+    expect(bubble).not.toHaveClass("fading");
+    await tick(BUBBLE_SHOW_MS + 10);
+    expect(screen.getByRole("status")).toHaveClass("fading");
+    await tick(BUBBLE_FADE_MS + 10);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("comes back with new words or when the popup is opened again", async () => {
+    api.getState.mockResolvedValue(happy);
+    render(<App />);
+    await screen.findByRole("status");
+    await tick(BUBBLE_SHOW_MS + BUBBLE_FADE_MS + 10);
+    expect(screen.queryByRole("status")).toBeNull();
+    act(() => emit({ ...base, expression: { ...base.expression, bubble: "gloomy" } }));
+    expect(await screen.findByRole("status")).toHaveTextContent("つまんないな…");
+    await tick(BUBBLE_SHOW_MS + BUBBLE_FADE_MS + 10);
+    expect(screen.queryByRole("status")).toBeNull();
+    await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+    act(() => emitVisible(true));
+    expect(await screen.findByRole("status")).toHaveTextContent("つまんないな…");
+  });
+
+  it("also applies to the note the pet leaves while it is out", async () => {
+    api.getState.mockResolvedValue({ ...base, out: true });
+    render(<App />);
+    expect(await screen.findByRole("status")).toHaveTextContent("いってきまーす！");
+    await tick(BUBBLE_SHOW_MS + BUBBLE_FADE_MS + 10);
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByRole("img", { name: "おでかけ中" })).toBeInTheDocument();
   });
 });
