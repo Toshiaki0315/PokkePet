@@ -15,7 +15,7 @@
         "label": "main",
         "title": "PokkePet",
         "width": 320,
-        "height": 470,
+        "height": 380,
         "visible": false,
         "decorations": false,
         "alwaysOnTop": true,

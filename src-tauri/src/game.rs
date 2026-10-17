@@ -1152,7 +1152,8 @@ mod tests {
 
     #[test]
     fn balance_a_fully_neglected_pet_dies_in_strict_mode_but_careful_players_survive() {
-        let strict_sim = |mut policy: Box<dyn FnMut(u32, &mut GameState)>| {
+        type Policy = Box<dyn FnMut(u32, &mut GameState)>;
+        let strict_sim = |mut policy: Policy| {
             let mut s = new_state();
             s.strict = true;
             for minute in 0..(secs_until_graduation() / 60) {
