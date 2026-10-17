@@ -224,6 +224,14 @@ impl GameState {
         self.remember(farewell);
     }
 
+    /// 最初からやり直す（隠しコマンド）。今のペットとはお別れして、新しい卵を迎える。性格は受け継がず、
+    /// 図鑑と思い出は残る（思い出には「やり直した」と記録する）。
+    pub fn restart(&mut self) {
+        let farewell = DiaryEvent::Restarted { name: self.name.take(), personality: self.form.personality };
+        self.remember(farewell);
+        self.start_next_generation(None);
+    }
+
     /// 亡くなったペットを見送り、新しい卵を迎える。性格は受け継がない。
     pub fn bury(&mut self) -> Result<(), String> {
         if !self.dead {
@@ -236,6 +244,7 @@ impl GameState {
 
     fn start_next_generation(&mut self, legacy: Option<Personality>) {
         self.dead = false;
+        self.forced_sleep_until = None;
         self.legacy = legacy;
         self.generation += 1;
         self.status = Status::new(50, 0, 80, 0);
@@ -286,8 +295,11 @@ impl GameState {
         Ok(())
     }
 
-    /// 名前を付ける（付け直しもできる）。
+    /// 名前を付ける。孵化したときに一度だけ決められ、旅立つ（または、やり直す）まで変えられない。
     pub fn set_name(&mut self, raw: &str) -> Result<(), String> {
+        if self.name.is_some() {
+            return Err("the name cannot be changed until the pet leaves".to_string());
+        }
         let name = validate_name(raw)?;
         self.name = Some(name.clone());
         self.remember(DiaryEvent::Named { name });
@@ -612,11 +624,11 @@ mod tests {
     }
 
     #[test]
-    fn naming_and_renaming_are_remembered_but_failures_are_not() {
+    fn naming_is_remembered_but_failures_are_not() {
         let mut s = new_state();
-        s.set_name("ごま").unwrap();
-        s.set_name("もち").unwrap();
         assert!(s.set_name("").is_err());
+        s.set_name("ごま").unwrap();
+        assert!(s.set_name("もち").is_err());
         let names: Vec<&str> = s
             .diary
             .iter()
@@ -625,7 +637,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(names, ["ごま", "もち"]);
+        assert_eq!(names, ["ごま"]);
     }
 
     #[test]
@@ -659,7 +671,7 @@ mod tests {
     fn the_diary_never_grows_beyond_its_limit() {
         let mut s = new_state();
         for _ in 0..(diary::DIARY_MAX + 30) {
-            s.set_name("ごま").unwrap();
+            s.restart(); // やり直すたびに思い出が 2 件（やり直した・卵が届いた）増える
         }
         assert_eq!(s.diary.len(), diary::DIARY_MAX);
     }
@@ -898,10 +910,19 @@ mod tests {
     }
 
     #[test]
-    fn set_name_stores_the_trimmed_name_and_can_rename() {
+    fn set_name_stores_the_trimmed_name() {
         let mut s = new_state();
         s.set_name("  ごま ").unwrap();
         assert_eq!(s.name.as_deref(), Some("ごま"));
+    }
+
+    #[test]
+    fn the_name_is_fixed_until_the_pet_leaves_and_then_the_next_pet_can_be_named() {
+        let mut s = elder_state();
+        s.set_name("ごま").unwrap();
+        assert!(s.set_name("もち").is_err());
+        assert_eq!(s.name.as_deref(), Some("ごま"));
+        s.graduate().unwrap();
         s.set_name("もち").unwrap();
         assert_eq!(s.name.as_deref(), Some("もち"));
     }
@@ -1160,6 +1181,34 @@ mod tests {
         assert_eq!(s.care, Care::default());
         assert_eq!(kinds(&s).last().map(String::as_str), Some("born"));
         assert!(s.strict, "the mode itself carries over");
+    }
+
+    #[test]
+    fn restarting_sends_the_pet_off_and_brings_a_new_egg_keeping_the_dex_and_diary() {
+        let mut s = elder_state();
+        s.set_name("ごま").unwrap();
+        s.apply(Action::Feed);
+        s.care.discipline = 50;
+        let discovered = s.discovered.len();
+        s.restart();
+        assert_eq!((s.generation, s.form.stage, s.name.clone(), s.legacy), (2, 1, None, None));
+        assert_eq!((s.care.clone(), s.history), (Care::default(), History::default()));
+        assert!(s.discovered.len() >= discovered, "the dex stays");
+        let kinds = kinds(&s);
+        assert_eq!(&kinds[kinds.len() - 2..], ["restarted", "born"]);
+        assert!(s.diary.iter().any(|e| matches!(&e.event, DiaryEvent::Restarted { name: Some(n), .. } if n == "ごま")));
+    }
+
+    #[test]
+    fn a_dead_or_sleeping_pet_can_be_restarted_too() {
+        let mut dead = doomed_state();
+        run_ticks(&mut dead, crate::care::FATAL_TICKS);
+        dead.restart();
+        assert!(!dead.dead);
+        let mut asleep = hatched_state();
+        asleep.toggle_power(true).unwrap();
+        asleep.restart();
+        assert!(asleep.forced_sleep_until.is_none());
     }
 
     #[test]

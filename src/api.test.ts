@@ -5,7 +5,7 @@ const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
-import { ackHatch, buryPet, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
+import { ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
 
 const view = { mood: 1, affinity: 2, hunger: 3, dirtiness: 4, stage: 1, branch: "normal", personality: "calm" };
 
@@ -120,6 +120,12 @@ describe("api", () => {
     invoke.mockResolvedValue(view);
     await expect(togglePower()).resolves.toEqual(view);
     expect(invoke).toHaveBeenCalledWith("toggle_power");
+  });
+
+  it("restartGame invokes restart_game", async () => {
+    invoke.mockResolvedValue(view);
+    await expect(restartGame()).resolves.toEqual(view);
+    expect(invoke).toHaveBeenCalledWith("restart_game");
   });
 
   it("buryPet invokes bury_pet", async () => {

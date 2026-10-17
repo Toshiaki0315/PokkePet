@@ -28,6 +28,8 @@ const describe = (event: DiaryEvent): string => {
       return `お世話が ${event.count} 回になった`;
     case "anniversary":
       return `いっしょに ${event.days} 日が経った`;
+    case "restarted":
+      return event.name ? `「${event.name}」とお別れして、卵からやり直した` : "卵からやり直した";
     case "died":
       return event.name ? `「${event.name}」が天国へ旅立った（${SPECIES_NAMES[event.personality]}）` : `天国へ旅立った（${SPECIES_NAMES[event.personality]}）`;
     case "graduated":

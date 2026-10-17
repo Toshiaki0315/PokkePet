@@ -37,6 +37,21 @@ beforeEach(() => {
   });
 });
 
+describe("Diary window (restart)", () => {
+  it("describes starting over, with and without a name", async () => {
+    api.getDiary.mockResolvedValue({
+      daysTogether: 1,
+      entries: [
+        { atUnix: at(10, 18, 7, 5), event: { kind: "restarted", name: "ごま", personality: "calm" } },
+        { atUnix: at(10, 17, 7, 5), event: { kind: "restarted", name: null, personality: "tidy" } },
+      ],
+    });
+    render(<Diary />);
+    expect(await screen.findByText("「ごま」とお別れして、卵からやり直した")).toBeInTheDocument();
+    expect(screen.getByText("卵からやり直した")).toBeInTheDocument();
+  });
+});
+
 describe("Diary window (death)", () => {
   it("describes a death, with and without a name", async () => {
     api.getDiary.mockResolvedValue({

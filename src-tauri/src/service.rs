@@ -280,6 +280,16 @@ impl GameService {
         self.lock().strict = strict;
     }
 
+    /// 最初からやり直す（隠しコマンド）。今のペットとお別れして、新しい卵を迎える。
+    pub fn restart(&self) -> Result<StateView, String> {
+        let mut state = self.lock();
+        let mut next = state.clone();
+        next.restart();
+        next.save(&self.path).map_err(|e| e.to_string())?;
+        *state = next;
+        Ok(self.view(&state))
+    }
+
     /// 亡くなったペットを見送り、新しい卵を迎える。
     pub fn bury(&self) -> Result<StateView, String> {
         let mut state = self.lock();
@@ -846,6 +856,31 @@ mod tests {
         let v = s.set_name("  ごま ").unwrap();
         assert_eq!((v.name.as_deref(), v.needs_name), (Some("ごま"), false));
         assert_eq!(s.snapshot().name.as_deref(), Some("ごま"));
+    }
+
+    #[test]
+    fn the_name_cannot_be_changed_once_it_is_set() {
+        let s = hatched_and_shown("name-fixed");
+        s.set_name("ごま").unwrap();
+        assert!(s.set_name("もち").is_err());
+        assert_eq!(s.snapshot().name.as_deref(), Some("ごま"));
+    }
+
+    #[test]
+    fn restarting_brings_a_new_unnamed_egg_that_needs_no_name_yet() {
+        let s = hatched_and_shown("restart");
+        s.set_name("ごま").unwrap();
+        let v = s.restart().unwrap();
+        assert_eq!((v.stage, v.generation, v.name, v.needs_name, v.intro), (1, 2, None, false, true));
+        assert!(GameState::load(&s.path, 0).unwrap().name.is_none(), "saved");
+    }
+
+    #[test]
+    fn restarting_returns_an_error_when_saving_fails() {
+        let bad = tmp("restart-bad").parent().unwrap().join("no/such/dir/save.json");
+        let s = GameService::new(GameState::new(0), bad);
+        assert!(s.restart().is_err());
+        assert_eq!(s.snapshot().generation, 1, "the pet stays as it was");
     }
 
     #[test]

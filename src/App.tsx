@@ -5,6 +5,7 @@ import {
   buryPet,
   graduate,
   playMinigame,
+  restartGame,
   setName,
   togglePower,
   getSettings,
@@ -28,6 +29,7 @@ import { Sprite } from "./SpriteView";
 import { BUBBLE_TEXT } from "./bubble";
 import { Farewell } from "./Farewell";
 import { Grave } from "./Grave";
+import { ResetConfirm } from "./ResetConfirm";
 import { MiniGame } from "./MiniGame";
 import { NamePrompt } from "./NamePrompt";
 import { useHiddenCommand } from "./hiddenCommand";
@@ -47,6 +49,8 @@ import { useListener } from "./useListener";
 import "./App.css";
 
 // 隠しコマンド: ↑ ↑ ↓ ↓ でゲージの表示を切り替える。
+// 隠しコマンド: ← ← → → で、卵からやり直す（確認が出る）。
+const RESET_COMMAND = ["ArrowLeft", "ArrowLeft", "ArrowRight", "ArrowRight"] as const;
 const GAUGE_COMMAND = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown"] as const;
 
 const GAUGES: ReadonlyArray<readonly [string, keyof StateView]> = [
@@ -85,7 +89,7 @@ export default function App() {
   } | null>(null);
   // ポップアップが開いている間だけ孵化の演出を再生する（Rust が表示/非表示を通知する）。
   const [popupOpen, setPopupOpen] = useState(false);
-  const [namingLater, setNamingLater] = useState(false);
+  const [resetOpen, setResetOpen] = useState(false);
   const [gameOpen, setGameOpen] = useState(false);
   // 「もう少しいっしょにいる」を選んだ世代（その世代の間だけお別れ画面を隠す）。
   const [stayedGeneration, setStayedGeneration] = useState<number | null>(null);
@@ -101,6 +105,9 @@ export default function App() {
   // 隠しコマンドでゲージ表示を切り替える。
   // ⌘P を押している間だけ、画面の上にゲージを重ねて見せる。
   const peekGauges = useHeldKey("p", true);
+
+  // 隠しコマンド: ← ← → → で、卵からやり直す（確認が出る）。
+  useHiddenCommand(RESET_COMMAND, () => setResetOpen(true));
 
   useHiddenCommand(GAUGE_COMMAND, () => {
     saveSettings({ ...settings, showGauges: !settings.showGauges }).then(
@@ -244,6 +251,19 @@ export default function App() {
     );
   };
 
+  // 隠しコマンド（← ← → →）で出る確認に「やり直す」と答えたとき。
+  const restart = () => {
+    restartGame().then(
+      (next) => {
+        setError(null);
+        setView(next);
+        setResetOpen(false);
+        setStayedGeneration(null);
+      },
+      (e) => setError(errorText(e)),
+    );
+  };
+
   const bury = () => {
     buryPet().then(
       (next) => {
@@ -321,12 +341,8 @@ export default function App() {
           {gameOpen && (
             <MiniGame onPlay={playGame} onClose={() => setGameOpen(false)} />
           )}
-          {view.needsName && !namingLater && (
-            <NamePrompt
-              onSubmit={submitName}
-              onLater={() => setNamingLater(true)}
-            />
-          )}
+          {view.needsName && <NamePrompt onSubmit={submitName} />}
+          {resetOpen && <ResetConfirm name={view.name} onConfirm={restart} onCancel={() => setResetOpen(false)} />}
           <div className="stage-area">
             {view.poops > 0 && (
               <div
