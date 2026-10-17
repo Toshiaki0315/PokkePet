@@ -47,6 +47,22 @@ pub fn is_sleeping(unix_secs: u64, utc_offset_secs: i32, window: SleepWindow) ->
     hour >= start_hour || hour < end_hour
 }
 
+/// `start` から `end`（どちらも UTC の UNIX 秒）までのうち、おやすみ時間でない（起きている）秒数。
+/// 5 分きざみで調べる。
+pub fn awake_secs_between(start_unix: u64, end_unix: u64, utc_offset_secs: i32, window: SleepWindow) -> u64 {
+    const CHUNK: u64 = 300;
+    let mut awake = 0;
+    let mut t = start_unix;
+    while t < end_unix {
+        let chunk = CHUNK.min(end_unix - t);
+        if !is_sleeping(t, utc_offset_secs, window) {
+            awake += chunk;
+        }
+        t += chunk;
+    }
+    awake
+}
+
 /// この時刻の、このマシンのローカルタイムゾーンの UTC オフセット（秒）。取得できなければ 0。
 pub fn local_utc_offset(unix_secs: u64) -> i32 {
     i64::try_from(unix_secs)
@@ -78,6 +94,24 @@ mod tests {
         assert_eq!(local_month_day(new_year - 1, 0), (12, 31));
         assert_eq!(local_month_day(new_year - 1, 9 * 3600), (1, 1), "already the new year in Tokyo");
         assert_eq!(local_month_day(new_year, -3600), (12, 31));
+    }
+
+    #[test]
+    fn the_awake_time_between_two_moments_leaves_out_the_night() {
+        let night = SleepWindow { start_hour: 23, end_hour: 7 };
+        // 22:00〜翌 8:00（10 時間）のうち、起きているのは 22〜23 時と 7〜8 時
+        assert_eq!(awake_secs_between(22 * H, 32 * H, 0, night), 2 * H);
+        assert_eq!(awake_secs_between(10 * H, 12 * H, 0, night), 2 * H, "all day");
+        assert_eq!(awake_secs_between(0, 6 * H, 0, night), 0, "all night");
+        assert_eq!(awake_secs_between(100, 100, 0, night), 0);
+        assert_eq!(awake_secs_between(200, 100, 0, night), 0);
+        assert_eq!(awake_secs_between(0, 10 * H, 0, SleepWindow { start_hour: 5, end_hour: 5 }), 10 * H, "a pet that never sleeps");
+    }
+
+    #[test]
+    fn a_span_that_is_not_a_multiple_of_the_step_is_counted_to_the_second() {
+        let night = SleepWindow { start_hour: 23, end_hour: 7 };
+        assert_eq!(awake_secs_between(12 * H, 12 * H + 421, 0, night), 421);
     }
 
     #[test]

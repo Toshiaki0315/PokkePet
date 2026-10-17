@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::evolution::{Branch, Personality};
 use crate::expression::{express, greeting, Bubble, Expression};
-use crate::companion::Observation;
+use crate::companion::{Awake, Observation};
 use crate::dex::{build_view, DexView};
 use crate::diary::{self, DiaryView};
 use crate::game::{Action, GameState};
@@ -20,7 +20,7 @@ use crate::events::{event_for, Event};
 use crate::rhythm::{chronotype, learned_sleep_window};
 use crate::souvenirs::{self, SouvenirView};
 use crate::system::SystemInfo;
-use crate::sleep::{is_sleeping, local_hour, local_month_day, local_utc_offset, SleepWindow};
+use crate::sleep::{awake_secs_between, is_sleeping, local_hour, local_month_day, local_utc_offset, SleepWindow};
 
 impl FromStr for Action {
     type Err = String;
@@ -284,14 +284,17 @@ impl GameService {
     /// 保存は、そのあとの `tick` がまとめて行う。
     pub fn observe_activity(&self, now_unix: u64, idle_secs: u64) -> Observation {
         let mut state = self.lock();
-        let hour = local_hour(now_unix, self.offset_at(now_unix));
-        let obs = state.observe_activity(now_unix, idle_secs, hour);
-        if let Some(away) = obs.returned_after {
-            // 出かけたとき（離席の始まり）にペットが眠っていたら、おでかけはしていない。
-            let left_at = now_unix.saturating_sub(away);
-            if !is_sleeping(left_at, self.offset_at(left_at), self.sleep_window()) {
-                state.bring_back(away, now_unix);
-            }
+        let offset = self.offset_at(now_unix);
+        let window = self.sleep_window();
+        let hour = local_hour(now_unix, offset);
+        // 席を離れている間にペットが眠っていた時間（おやすみ時間・電源ボタンで寝かせた間）は、おでかけにならない。
+        let awake = Awake {
+            now: !is_sleeping(now_unix, offset, window) && state.forced_sleep_until.is_none_or(|until| until <= now_unix),
+            during_gap: state.companion.last_observed().map(|prev| awake_secs_between(prev, now_unix, offset, window)),
+        };
+        let obs = state.observe_activity_with(now_unix, idle_secs, hour, awake);
+        if obs.returned_after.is_some() {
+            state.bring_back(obs.outing_secs, now_unix);
         }
         *self.learned_sleep.lock().unwrap_or_else(|e| e.into_inner()) = learned_sleep_window(&state.companion.rhythm);
         obs
@@ -957,6 +960,70 @@ mod tests {
             state.ack_hatch();
         }
         go_out_and_come_back(&s, 3 * 3600);
+        assert!(s.snapshot().gift.is_empty());
+    }
+
+    /// 飼い主が `leaves_at` に席を離れて（10 秒ごとに観測され）、`back_at` に戻る。UTC 0 時 = ローカル 0 時の設定で使う。
+    fn observed_absence(s: &GameService, leaves_at: u64, back_at: u64) {
+        s.observe_activity(leaves_at, 0);
+        let mut now = leaves_at;
+        while now + 10 < back_at {
+            now += 10;
+            s.observe_activity(now, now - leaves_at);
+        }
+        s.observe_activity(back_at, 0);
+    }
+
+    fn night_owner_service(name: &str) -> GameService {
+        let s = GameService::new(GameState::new(0), tmp(name)).with_utc_offset(0); // おやすみは 23〜7 時
+        {
+            let mut state = s.lock();
+            state.step(crate::evolution::EGG_SECS);
+            state.ack_hatch();
+        }
+        s
+    }
+
+    #[test]
+    fn leaving_just_before_bedtime_and_coming_back_in_the_morning_brings_nothing() {
+        // 22:30 に席を離れる（ペットはまだ起きている）→ 23 時に眠る → 朝 7 時すぎに戻る。起きていたのは最初の 30 分だけ。
+        let s = night_owner_service("night-away");
+        let day = 5 * 86_400;
+        observed_absence(&s, day + 22 * 3600 + 1800, day + 7 * 3600 + 300 + 86_400);
+        assert!(s.snapshot().gift.is_empty(), "{:?}", s.snapshot().gift);
+    }
+
+    #[test]
+    fn a_pet_that_wakes_up_while_the_owner_is_still_away_goes_out_for_that_hour_only() {
+        let s = night_owner_service("night-away-late");
+        let day = 5 * 86_400;
+        observed_absence(&s, day + 22 * 3600 + 1800, day + 8 * 3600 + 86_400); // 7〜8 時は起きている
+        assert_eq!(s.snapshot().gift.len(), 1, "one hour out: one souvenir, not a whole night's worth");
+    }
+
+    #[test]
+    fn a_short_stretch_awake_before_bedtime_is_not_enough_for_an_outing_either() {
+        let s = night_owner_service("night-away-short");
+        let day = 5 * 86_400;
+        observed_absence(&s, day + 22 * 3600 + 1800, day + 23 * 3600 + 1700); // 起きていたのは 30 分だけ
+        assert!(s.snapshot().gift.is_empty());
+    }
+
+    #[test]
+    fn only_the_awake_hours_are_counted_when_the_owner_was_away_through_the_evening_and_night() {
+        // 18:00 に離れて、翌朝 8 時に戻る: 起きていたのは 18〜23 時の 5 時間 + 7〜8 時の 1 時間（戻る前は観測されている）
+        let s = night_owner_service("evening-away");
+        let day = 5 * 86_400;
+        observed_absence(&s, day + 18 * 3600, day + 8 * 3600 + 86_400);
+        let gift = s.snapshot().gift;
+        assert_eq!(gift.len(), 2, "5 hours awake: two souvenirs, not the three of a whole night: {gift:?}");
+    }
+
+    #[test]
+    fn a_pet_put_to_bed_with_the_power_button_does_not_go_out_either() {
+        let s = grown_pet("forced-away");
+        s.toggle_power(900).unwrap();
+        observed_absence(&s, 1_000, 1_000 + 3 * 3600); // ずっと強制睡眠中（8 時間）
         assert!(s.snapshot().gift.is_empty());
     }
 
