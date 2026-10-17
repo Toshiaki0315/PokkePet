@@ -82,6 +82,11 @@ export function setName(name: string): Promise<StateView> {
 }
 
 /** 旅立ちを見送り、次の世代の卵を迎える。 */
+/** 最初からやり直す（隠しコマンド）。今のペットとお別れして、新しい卵を迎える。図鑑と思い出は残る。 */
+export function restartGame(): Promise<StateView> {
+  return invoke<StateView>("restart_game");
+}
+
 /** 電源ボタン。ペットを無理やり寝かせる（ご機嫌が上がるか下がるかはランダム）。寝ている間にもう一度押すと起こす。 */
 export function togglePower(): Promise<StateView> {
   return invoke<StateView>("toggle_power");
@@ -164,6 +169,7 @@ export type DiaryEvent =
   | { kind: "named"; name: string }
   | { kind: "careMilestone"; count: number }
   | { kind: "anniversary"; days: number }
+  | { kind: "restarted"; name: string | null; personality: Personality }
   | { kind: "died"; name: string | null; personality: Personality }
   | { kind: "graduated"; name: string | null; personality: Personality };
 

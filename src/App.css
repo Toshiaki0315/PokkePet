@@ -222,3 +222,4 @@ body { overflow: hidden; user-select: none; }
 .gauges.peek { position: absolute; inset: 0; width: auto; z-index: 4; padding: 8px 16px; display: flex; flex-direction: column; justify-content: space-between; gap: 0; background: #fbfbfe; }
 .gauges.peek .gauge { display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 13px; font-weight: 700; line-height: 1.25; }
 .gauges.peek .gauge progress { height: 12px; }
+.name-prompt .note { font-weight: 400; font-size: 11px; color: #555; }

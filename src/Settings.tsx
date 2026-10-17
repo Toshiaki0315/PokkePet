@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
-import { getSettings, getState, onSettingsChanged, onStateChanged, saveSettings, setName } from "./api";
+import { getSettings, onSettingsChanged, saveSettings } from "./api";
 import type { Settings as SettingsModel } from "./api";
 import { DEFAULT_SETTINGS, PRESETS } from "./defaults";
-import { NAME_INPUT_MAX } from "./NamePrompt";
 import { useSound } from "./sound";
 import { useListener } from "./useListener";
 import "./Settings.css";
@@ -18,22 +17,13 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 export default function Settings() {
   const [settings, setSettings] = useState<SettingsModel>(DEFAULT_SETTINGS);
   const [error, setError] = useState<string | null>(null);
-  const [petName, setPetName] = useState("");
 
   useEffect(() => {
     getSettings().then(setSettings, (e) => setError(errorText(e)));
-    getState().then((v) => setPetName(v.name ?? ""), (e) => setError(errorText(e)));
   }, []);
   useListener(onSettingsChanged, setSettings);
   // 鳴き声の聞き比べ用。調整中の音量・高さでそのまま鳴る。
   const preview = useSound(settings.soundEnabled, { volume: settings.soundVolume, pitch: settings.soundPitch });
-  useListener(onStateChanged, (v: { name: string | null }) => setPetName(v.name ?? ""));
-
-  const rename = () =>
-    setName(petName).then(
-      () => setError(null), // 入力欄の値は state-changed の通知（と、いま入力した値）で揃う
-      (e) => setError(errorText(e)),
-    );
 
   const change = (next: SettingsModel) =>
     saveSettings(next).then(
@@ -48,19 +38,6 @@ export default function Settings() {
   return (
     <main className="settings">
       <h1>設定</h1>
-
-      <fieldset>
-        <legend>ペット</legend>
-        <div className="row">
-          <label>
-            名前
-            <input type="text" value={petName} maxLength={NAME_INPUT_MAX} onChange={(e) => setPetName(e.target.value)} />
-          </label>
-          <button type="button" aria-label="名前を変更" disabled={petName.trim() === ""} onClick={rename}>
-            変更
-          </button>
-        </div>
-      </fieldset>
 
       <fieldset>
         <legend>表示</legend>

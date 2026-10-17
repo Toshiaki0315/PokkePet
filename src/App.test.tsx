@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   ackHatch: vi.fn(),
   graduate: vi.fn(),
   buryPet: vi.fn(),
+  restartGame: vi.fn(),
   togglePower: vi.fn(),
   playMinigame: vi.fn(),
   setName: vi.fn(),
@@ -708,12 +709,12 @@ describe("App", () => {
       expect(screen.getByRole("textbox", { name: "名前" })).toBeInTheDocument();
     });
 
-    it("lets the player decide later", async () => {
+    it("has no way to postpone the naming, and says the name is fixed until the pet leaves", async () => {
       api.getState.mockResolvedValue(unnamed);
       render(<App />);
-      await userEvent.click(await screen.findByRole("button", { name: "あとで" }));
-      expect(screen.queryByRole("textbox", { name: "名前" })).toBeNull();
-      expect(screen.getByRole("img")).toBeInTheDocument();
+      expect(await screen.findByRole("textbox", { name: "名前" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "あとで" })).toBeNull();
+      expect(screen.getByText("旅立つまで変えられません")).toBeInTheDocument();
     });
 
     it("shows the pet's name on the screen", async () => {
@@ -1471,5 +1472,60 @@ describe("title bar and closed eyes", () => {
     api.getState.mockResolvedValue({ ...base, stage: 1, sleeping: true });
     render(<App />);
     expect(await screen.findByRole("img")).toHaveAttribute("src", "/sprites/egg.png");
+  });
+});
+
+describe("hidden command: start over from an egg", () => {
+  const restartCommand = async () => {
+    await userEvent.keyboard("{ArrowLeft}{ArrowLeft}{ArrowRight}{ArrowRight}");
+  };
+
+  it("asks first, and does nothing if the player backs out", async () => {
+    render(<App />);
+    await screen.findByRole("img");
+    expect(screen.queryByRole("dialog", { name: "やり直し" })).toBeNull();
+    await restartCommand();
+    const dialog = await screen.findByRole("dialog", { name: "やり直し" });
+    expect(dialog).toHaveTextContent("卵からやり直しますか？");
+    await userEvent.click(screen.getByRole("button", { name: "やめる" }));
+    expect(screen.queryByRole("dialog", { name: "やり直し" })).toBeNull();
+    expect(api.restartGame).not.toHaveBeenCalled();
+  });
+
+  it("starts over from an egg once confirmed", async () => {
+    api.getState.mockResolvedValue({ ...base, name: "ごま" });
+    api.restartGame.mockResolvedValue({ ...base, stage: 1, generation: 2, name: null });
+    render(<App />);
+    await screen.findByRole("img");
+    await restartCommand();
+    expect(await screen.findByRole("dialog", { name: "やり直し" })).toHaveTextContent("ごまとはお別れになります");
+    await userEvent.click(screen.getByRole("button", { name: "やり直す" }));
+    expect(api.restartGame).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "やり直し" })).toBeNull());
+    expect(await screen.findByRole("img")).toHaveAttribute("alt", expect.stringContaining("stage 1"));
+  });
+
+  it("words the question for a pet without a name too", async () => {
+    render(<App />);
+    await screen.findByRole("img");
+    await restartCommand();
+    expect(await screen.findByRole("dialog", { name: "やり直し" })).toHaveTextContent("今のペットとはお別れになります");
+  });
+
+  it("keeps the dialog and shows the error when it fails", async () => {
+    api.restartGame.mockRejectedValue(new Error("save failed"));
+    render(<App />);
+    await screen.findByRole("img");
+    await restartCommand();
+    await userEvent.click(await screen.findByRole("button", { name: "やり直す" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("save failed");
+    expect(screen.getByRole("dialog", { name: "やり直し" })).toBeInTheDocument();
+  });
+
+  it("does not interfere with the gauge command", async () => {
+    render(<App />);
+    await screen.findByRole("img");
+    await userEvent.keyboard("{ArrowUp}{ArrowUp}{ArrowDown}{ArrowDown}");
+    expect(screen.queryByRole("dialog", { name: "やり直し" })).toBeNull();
   });
 });

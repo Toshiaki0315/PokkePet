@@ -66,6 +66,15 @@ pub fn toggle_power(app: AppHandle, svc: State<GameService>) -> Result<StateView
     Ok(view)
 }
 
+/// 最初からやり直す（隠しコマンド）。今のペットとお別れして、新しい卵を迎える。
+#[tauri::command]
+pub fn restart_game(app: AppHandle, svc: State<GameService>, gate: State<Mutex<CallGate>>) -> Result<StateView, String> {
+    let view = svc.restart()?;
+    gate.lock().unwrap_or_else(|e| e.into_inner()).answered();
+    update_tray_title(&app, &view);
+    Ok(view)
+}
+
 /// 亡くなったペットを見送り、新しい卵を迎える。
 #[tauri::command]
 pub fn bury_pet(app: AppHandle, svc: State<GameService>) -> Result<StateView, String> {
