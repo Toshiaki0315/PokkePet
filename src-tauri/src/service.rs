@@ -8,12 +8,12 @@ use std::sync::{Mutex, MutexGuard};
 use serde::Serialize;
 
 use crate::evolution::{Branch, Personality};
-use crate::expression::{express, Bubble, Expression};
+use crate::expression::{express, greeting, Bubble, Expression};
 use crate::dex::{build_view, DexView};
 use crate::diary::{self, DiaryView};
 use crate::game::{Action, GameState};
 use crate::minigame::{is_win, Rng, Side};
-use crate::sleep::{is_sleeping, local_utc_offset, SleepWindow};
+use crate::sleep::{is_sleeping, local_hour, local_utc_offset, SleepWindow};
 
 impl FromStr for Action {
     type Err = String;
@@ -102,7 +102,8 @@ pub fn tray_title(view: &StateView) -> Option<&'static str> {
         Bubble::Gloomy => Some("💧"),
         Bubble::Sleeping => Some("💤"),
         Bubble::Welcome => Some("🥚"),
-        Bubble::Happy => None,
+        // あいさつはメニューバーには出さない（落ち着いて見えるように）。
+        Bubble::Happy | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy => None,
     }
 }
 
@@ -271,6 +272,10 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
     if sleeping {
         expression.bubble = Some(Bubble::Sleeping);
     }
+    // 世話が必要なとき以外は、時間帯のあいさつ（卵・おやすみ中は言わない）。
+    if !sleeping && s.form.stage >= 2 && expression.bubble.is_none() {
+        expression.bubble = greeting(local_hour(s.last_unix, utc_offset), window);
+    }
     if !s.intro_seen {
         expression.bubble = Some(Bubble::Welcome);
     }
@@ -310,8 +315,8 @@ mod tests {
         dir.join("save.json")
     }
 
-    /// UTC+12 に固定: UNIX 秒 0 が昼の 12:00 になり、テスト中はおやすみ時間にならない。
-    const NOON_AT_ZERO: i32 = 12 * 3600;
+    /// UTC+15 に固定: UNIX 秒 0 が昼の 15:00 になり、おやすみ時間でも、あいさつの時間帯でもない。
+    const NOON_AT_ZERO: i32 = 15 * 3600;
 
     fn svc(name: &str) -> GameService {
         GameService::new(GameState::new(0), tmp(name)).with_utc_offset(NOON_AT_ZERO)
@@ -372,6 +377,30 @@ mod tests {
         }
         assert_eq!(v.expression.hunger, Level::Low);
         assert_eq!(v.expression.bubble, Some(Bubble::Hungry));
+    }
+
+    #[test]
+    fn a_hatched_pet_greets_by_the_time_of_day_when_nothing_else_needs_saying() {
+        let mut state = GameState::new(0);
+        state.step(crate::evolution::EGG_SECS); // 孵化
+        state.ack_hatch();
+        let at = |hour: i32| GameService::new(state.clone(), tmp(&format!("greet-{hour}"))).with_utc_offset(hour * 3600).snapshot().expression.bubble;
+        assert_eq!(at(8 - 0), Some(Bubble::Morning)); // 秒 0 + 孵化の経過で、ほぼ 8 時
+        assert_eq!(at(15), None);
+    }
+
+    #[test]
+    fn a_need_comes_before_the_greeting_and_an_egg_does_not_greet() {
+        let mut hungry = GameState::new(0);
+        hungry.step(crate::evolution::EGG_SECS);
+        hungry.ack_hatch();
+        hungry.status = crate::status::Status::new(50, 50, 0, 0);
+        let v = GameService::new(hungry, tmp("greet-hungry")).with_utc_offset(8 * 3600).snapshot();
+        assert_eq!(v.expression.bubble, Some(Bubble::Hungry));
+        let mut egg = GameState::new(0);
+        egg.intro_seen = true;
+        let v = GameService::new(egg, tmp("greet-egg")).with_utc_offset(8 * 3600).snapshot();
+        assert_eq!(v.expression.bubble, None);
     }
 
     #[test]
@@ -906,7 +935,9 @@ mod tests {
     #[test]
     fn the_menu_bar_mark_follows_the_bubble() {
         assert_eq!(tray_title(&view_with(None)), None);
-        assert_eq!(tray_title(&view_with(Some(Bubble::Happy))), None);
+        for quiet in [Bubble::Happy, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy] {
+            assert_eq!(tray_title(&view_with(Some(quiet))), None);
+        }
         assert_eq!(tray_title(&view_with(Some(Bubble::Hungry))), Some("🍙"));
         assert_eq!(tray_title(&view_with(Some(Bubble::Dirty))), Some("🧹"));
         assert_eq!(tray_title(&view_with(Some(Bubble::Gloomy))), Some("💧"));

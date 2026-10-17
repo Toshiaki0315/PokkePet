@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { STROKE_COOLDOWN_MS, STROKE_DISTANCE, usePetting } from "./petting";
+import { STROKE_COOLDOWN_MS, STROKE_DISTANCE, strokeReaction, usePetting } from "./petting";
 
 function Pad({
   onStroke,
@@ -78,5 +78,20 @@ describe("usePetting", () => {
     advance(STROKE_COOLDOWN_MS);
     move(pad, 0);
     expect(onStroke).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("strokeReaction", () => {
+  it.each([
+    ["calm", "nod"],
+    ["playful", "dance"],
+    ["gluttonous", "flop"],
+    ["tidy", "spin"],
+  ] as const)("a %s pet reacts with %s", (personality, reaction) => {
+    expect(strokeReaction(personality, 5)).toBe(reaction);
+  });
+
+  it("an egg just wobbles", () => {
+    expect(strokeReaction("playful", 1)).toBe("wobble");
   });
 });

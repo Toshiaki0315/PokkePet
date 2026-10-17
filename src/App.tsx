@@ -38,7 +38,7 @@ import {
 } from "./idle";
 import { useSound } from "./sound";
 import type { CryKind } from "./sound";
-import { usePetting } from "./petting";
+import { strokeReaction, usePetting } from "./petting";
 import { useListener } from "./useListener";
 import "./App.css";
 
@@ -72,7 +72,7 @@ export default function App() {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   // ボタンを押したときのキャラの反応。id を変えて同じ演出でも再生し直す。
   const [reaction, setReaction] = useState<{
-    name: "wobble" | "hop";
+    name: string;
     id: number;
   } | null>(null);
   // ポップアップが開いている間だけ孵化の演出を再生する（Rust が表示/非表示を通知する）。
@@ -187,7 +187,7 @@ export default function App() {
         setView(next);
         if (next.sleeping) return;
         setHearts((prev) => (prev ?? 0) + 1);
-        setReaction((prev) => ({ name: "hop", id: (prev?.id ?? 0) + 1 }));
+        setReaction((prev) => ({ name: strokeReaction(next.personality, next.stage), id: (prev?.id ?? 0) + 1 }));
         cry("happy", next);
       },
       (e) => setError(errorText(e)),
