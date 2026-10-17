@@ -109,6 +109,11 @@ impl Companion {
         obs
     }
 
+    /// 席を離れているか（操作がない状態が 30 分以上続いている。戻ってくるまで）。
+    pub fn is_away(&self) -> bool {
+        self.away_since.is_some()
+    }
+
     /// 最後に観測した時刻（まだなら None）。
     pub fn last_observed(&self) -> Option<u64> {
         self.last_observed
@@ -337,6 +342,19 @@ mod tests {
         c.observe(T0, 0, 9);
         c.observe(T0 + 10, ACTIVE_IDLE_MAX_SECS + 5, 9);
         assert_eq!(c.observe(T0 + 20, 0, 9).returned_after, None);
+    }
+
+    #[test]
+    fn the_owner_is_away_from_half_an_hour_of_no_input_until_the_next_input() {
+        let mut c = Companion::default();
+        assert!(!c.is_away());
+        c.observe(T0, 0, 9);
+        c.observe(T0 + 10, AWAY_AFTER_SECS - 1, 9);
+        assert!(!c.is_away());
+        c.observe(T0 + 20, AWAY_AFTER_SECS, 9);
+        assert!(c.is_away());
+        c.observe(T0 + 30, 0, 9);
+        assert!(!c.is_away());
     }
 
     #[test]

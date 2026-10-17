@@ -52,7 +52,14 @@ import "./App.css";
 
 // 隠しコマンド: ↑ ↑ ↓ ↓ でゲージの表示を切り替える。
 // 隠しコマンド: ← ← → → で、卵からやり直す（確認が出る）。
-const RESET_COMMAND = ["ArrowLeft", "ArrowLeft", "ArrowRight", "ArrowRight"] as const;
+const RESET_COMMAND = [
+  "ArrowLeft",
+  "ArrowLeft",
+  "ArrowRight",
+  "ArrowRight",
+] as const;
+/** 出かけるときの演出の長さ（ミリ秒）。アニメーションが動かない設定でも、これで終わらせる。 */
+const LEAVE_MS = 1000;
 const GAUGE_COMMAND = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown"] as const;
 
 const GAUGES: ReadonlyArray<readonly [string, keyof StateView]> = [
@@ -92,6 +99,9 @@ export default function App() {
   // ポップアップが開いている間だけ孵化の演出を再生する（Rust が表示/非表示を通知する）。
   const [popupOpen, setPopupOpen] = useState(false);
   const [resetOpen, setResetOpen] = useState(false);
+  // おでかけの演出: 出かけるときは画面の外へ歩いていき（leaving）、戻るときは外から入ってくる（reaction "arrive"）。
+  const [leaving, setLeaving] = useState(false);
+  const lastShownOut = useRef(false);
   const [gameOpen, setGameOpen] = useState(false);
   // 「もう少しいっしょにいる」を選んだ世代（その世代の間だけお別れ画面を隠す）。
   const [stayedGeneration, setStayedGeneration] = useState<number | null>(null);
@@ -125,6 +135,8 @@ export default function App() {
       !view.sleeping &&
       !view.intro &&
       !view.hatching &&
+      !view.out &&
+      !leaving &&
       view.expression.hunger !== "low" &&
       reaction === null,
   );
@@ -142,10 +154,42 @@ export default function App() {
   });
   const lastIdleCry = useRef(0);
 
+  const arrive = () => {
+    const { view: current, cry: speak } = latest.current;
+    setLeaving(false); // 出かける途中で戻ってきたときも、入ってくる演出にする
+    setReaction((prev) => ({ name: "arrive", id: (prev?.id ?? 0) + 1 }));
+    if (current && !current.sleeping) speak("happy", current);
+  };
+
+  // ポップアップを開いている間に、おでかけが始まる・終わる（画面で見ている間だけ演出する）。
+  useEffect(() => {
+    if (!popupOpen || !view) return;
+    const was = lastShownOut.current;
+    lastShownOut.current = view.out;
+    if (view.out && !was) {
+      setLeaving(true);
+      const timer = setTimeout(() => setLeaving(false), LEAVE_MS);
+      return () => clearTimeout(timer);
+    }
+    if (!view.out && was) arrive();
+  }, [popupOpen, view?.out]);
+
+  // 飼い主が戻ってすぐにポップアップを開いたとき（開く前に戻っている）も、「ただいま」の演出をする。
+  useEffect(() => {
+    const { view: current } = latest.current;
+    if (
+      popupOpen &&
+      current &&
+      !current.out &&
+      current.expression.bubble === "welcomeback"
+    )
+      arrive();
+  }, [popupOpen]);
+
   // ポップアップを開いたときのあいさつ。おやすみ中は鳴かない。
   useEffect(() => {
     const { view: current, cry: speak } = latest.current;
-    if (!popupOpen || !current || current.sleeping) return;
+    if (!popupOpen || !current || current.sleeping || current.out) return;
     const e = current.expression;
     speak(
       e.hunger === "low" || e.mood === "low"
@@ -353,7 +397,12 @@ export default function App() {
               aria-label="電源"
               aria-pressed={view.forcedSleep}
               title={view.forcedSleep ? "電源（起こす）" : "電源（寝かせる）"}
-              disabled={view.stage <= 1 || view.dead || (view.sleeping && !view.forcedSleep)}
+              disabled={
+                view.out ||
+                view.stage <= 1 ||
+                view.dead ||
+                (view.sleeping && !view.forcedSleep)
+              }
               onClick={power}
             >
               ⏻
@@ -366,13 +415,22 @@ export default function App() {
               onStay={() => setStayedGeneration(view.generation)}
             />
           )}
-          {view.gift.length > 0 && !view.hatching && !view.needsName && !view.dead && <Gift items={view.gift} onThanks={thanks} />}
+          {view.gift.length > 0 &&
+            !view.hatching &&
+            !view.needsName &&
+            !view.dead && <Gift items={view.gift} onThanks={thanks} />}
           {view.dead && <Grave name={view.name} onBury={bury} />}
           {gameOpen && (
             <MiniGame onPlay={playGame} onClose={() => setGameOpen(false)} />
           )}
           {view.needsName && <NamePrompt onSubmit={submitName} />}
-          {resetOpen && <ResetConfirm name={view.name} onConfirm={restart} onCancel={() => setResetOpen(false)} />}
+          {resetOpen && (
+            <ResetConfirm
+              name={view.name}
+              onConfirm={restart}
+              onCancel={() => setResetOpen(false)}
+            />
+          )}
           <div className="stage-area">
             {view.displayed.length > 0 && (
               <div className="shelf" role="img" aria-label="かざり">
@@ -395,12 +453,21 @@ export default function App() {
                 🤒
               </div>
             )}
-            {view.expression.bubble && (
+            {view.expression.bubble && !view.out && (
               <div className="bubble" role="status">
                 {bubbleMessage(view)}
               </div>
             )}
-            {view.hatching && popupOpen ? (
+            {view.out && !leaving ? (
+              <div className="away">
+                <div className="bubble" role="status">
+                  いってきまーす！
+                </div>
+                <div className="away-spot" role="img" aria-label="おでかけ中">
+                  🎒
+                </div>
+              </div>
+            ) : view.hatching && popupOpen ? (
               <HatchSequence
                 view={view}
                 onDone={finishHatch}
@@ -426,10 +493,14 @@ export default function App() {
                   view={view}
                   breathing={!view.sleeping}
                   extraClass={
-                    reaction?.name ??
-                    (view.intro ? "appear" : (idle ?? undefined))
+                    leaving
+                      ? "leave"
+                      : (reaction?.name ??
+                        (view.intro ? "appear" : (idle ?? undefined)))
                   }
-                  onAnimationEnd={() => setReaction(null)}
+                  onAnimationEnd={() =>
+                    leaving ? setLeaving(false) : setReaction(null)
+                  }
                 />
               </div>
             )}
@@ -457,6 +528,7 @@ export default function App() {
               <button
                 type="button"
                 aria-label={label}
+                disabled={view.out}
                 onClick={() =>
                   name === "play" && view.playAction === "play"
                     ? setGameOpen(true)

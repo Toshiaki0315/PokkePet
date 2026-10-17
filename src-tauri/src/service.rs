@@ -78,6 +78,8 @@ pub struct StateView {
     pub sleeping: bool,
     /// 電源ボタンで寝かされている（おやすみ時間とは関係なく）。もう一度押すと起こせる。
     pub forced_sleep: bool,
+    /// おでかけ中（飼い主が席を離れていて、ペットは起きている）。画面にはいない。
+    pub out: bool,
     /// 色あい（色相を回す角度。0 ならもとの色）と、飾り（絵文字）。親から受け継いだ見た目の特徴。
     pub tint_degrees: u16,
     pub charm: Option<&'static str>,
@@ -146,6 +148,9 @@ pub fn tray_title(view: &StateView) -> Option<&'static str> {
     }
     if view.graduating {
         return Some("👋");
+    }
+    if view.out {
+        return Some("🎒");
     }
     match view.expression.bubble? {
         Bubble::Hungry => Some("🍙"),
@@ -534,6 +539,7 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow, system: SystemIn
         hatching: s.hatching(),
         sleeping,
         forced_sleep,
+        out: s.companion.is_away() && s.form.stage >= 2 && !sleeping && !s.dead && !s.hatching() && !s.graduating() && !(s.form.stage >= 2 && s.hatch_shown && s.name.is_none()),
         tint_degrees: s.genome.tint_degrees(),
         charm: s.genome.charm_emoji(),
         gift: s.gift.iter().filter_map(|id| souvenirs::find(id)).map(|x| GiftItem { emoji: x.emoji, name: x.name, rarity: x.rarity }).collect(),
@@ -619,6 +625,7 @@ mod tests {
                 hatching: false,
                 sleeping: false,
                 forced_sleep: false,
+                out: false,
                 tint_degrees: 0,
                 charm: None,
                 gift: Vec::new(),
@@ -1025,6 +1032,48 @@ mod tests {
         s.toggle_power(900).unwrap();
         observed_absence(&s, 1_000, 1_000 + 3 * 3600); // ずっと強制睡眠中（8 時間）
         assert!(s.snapshot().gift.is_empty());
+    }
+
+    #[test]
+    fn the_pet_is_out_while_the_owner_is_away_and_back_when_the_owner_returns() {
+        let s = grown_pet("out");
+        s.lock().name = Some("ごま".to_string());
+        s.observe_activity(1_000, 0);
+        assert!(!s.snapshot().out);
+        s.observe_activity(1_010, crate::companion::AWAY_AFTER_SECS);
+        let v = s.snapshot();
+        assert!(v.out);
+        assert_eq!(tray_title(&v), Some("🎒"));
+        assert_eq!(serde_json::to_value(&v).unwrap()["out"], true);
+        s.observe_activity(1_020, 0);
+        assert!(!s.snapshot().out);
+    }
+
+    #[test]
+    fn a_sleeping_pet_an_egg_a_dead_pet_and_one_without_a_name_are_never_out() {
+        let away = |s: &GameService| {
+            s.observe_activity(1_000, 0);
+            s.observe_activity(1_010, crate::companion::AWAY_AFTER_SECS);
+        };
+        let asleep = grown_pet("out-asleep");
+        asleep.lock().name = Some("ごま".to_string());
+        asleep.toggle_power(900).unwrap();
+        away(&asleep);
+        assert!(!asleep.snapshot().out);
+        let egg = svc("out-egg");
+        egg.lock().name = Some("ごま".to_string());
+        away(&egg);
+        assert!(!egg.snapshot().out);
+        let unnamed = hatched_and_shown("out-unnamed");
+        away(&unnamed);
+        assert!(!unnamed.snapshot().out, "the name has to be decided first");
+        let mut state = GameState::new(0);
+        state.step(crate::evolution::EGG_SECS);
+        state.name = Some("ごま".to_string());
+        state.dead = true;
+        let dead = GameService::new(state, tmp("out-dead")).with_utc_offset(NOON_AT_ZERO);
+        away(&dead);
+        assert!(!dead.snapshot().out);
     }
 
     #[test]
@@ -1796,6 +1845,9 @@ mod tests {
         assert_eq!(tray_title(&view_with(Some(Bubble::Sick))), Some("🤒"));
         assert_eq!(tray_title(&view_with(Some(Bubble::Dying))), Some("🆘"));
         assert_eq!(tray_title(&view_with(Some(Bubble::Rest))), Some("☕"));
+        let mut out = view_with(Some(Bubble::Hungry));
+        out.out = true;
+        assert_eq!(tray_title(&out), Some("🎒"), "while out, the bag shows instead of the needs");
         assert_eq!(tray_title(&view_with(Some(Bubble::BatteryLow))), Some("🪫"));
         assert_eq!(tray_title(&view_with(Some(Bubble::Offline))), Some("📡"));
         for quiet in [Bubble::Happy, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy, Bubble::WelcomeBack, Bubble::Event] {
