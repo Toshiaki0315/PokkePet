@@ -35,7 +35,8 @@ export function HatchSequence({ view, onDone, onCry }: { view: StateView; onDone
     };
   }, []);
 
-  if (phase === "born") return <Sprite view={view} extraClass="pop" />;
+  // 生まれたては、夜でも目を開けている。
+  if (phase === "born") return <Sprite view={{ ...view, sleeping: false }} extraClass="pop" />;
   return (
     <>
       <Sprite view={{ ...view, stage: 1 }} extraClass="shake" />
