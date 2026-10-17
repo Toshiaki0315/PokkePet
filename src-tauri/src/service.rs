@@ -329,9 +329,12 @@ fn time_seed() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64)
 }
 
-/// 汚れ度から、画面に出すうんちの数を決める（25 ごとに 1 つ、最大 4 つ）。
-fn poops(dirtiness: u8) -> u8 {
-    dirtiness.div_ceil(25).min(4)
+/// 汚れ度から、画面に出すうんちの数を決める（25 たまるごとに 1 つ、最大 4 つ）。卵はうんちをしない。
+fn poops(stage: u8, dirtiness: u8) -> u8 {
+    if stage <= 1 {
+        return 0;
+    }
+    (dirtiness / 25).min(4)
 }
 
 fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
@@ -364,7 +367,7 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
         dirtiness: s.status.dirtiness,
         weight: s.care.weight,
         discipline: s.care.discipline,
-        poops: poops(s.status.dirtiness),
+        poops: poops(s.form.stage, s.status.dirtiness),
         sick: s.care.sick,
         danger: s.strict && !s.dead && s.care.in_danger(),
         dead: s.dead,
@@ -590,9 +593,10 @@ mod tests {
     }
 
     #[test]
-    fn the_number_of_poops_follows_the_dirtiness() {
-        for (dirtiness, shown) in [(0, 0), (1, 1), (25, 1), (26, 2), (50, 2), (51, 3), (75, 3), (76, 4), (100, 4)] {
-            assert_eq!(poops(dirtiness), shown, "dirtiness {dirtiness}");
+    fn the_number_of_poops_follows_the_dirtiness_and_eggs_make_none() {
+        for (dirtiness, shown) in [(0, 0), (1, 0), (24, 0), (25, 1), (49, 1), (50, 2), (74, 2), (75, 3), (99, 3), (100, 4)] {
+            assert_eq!(poops(2, dirtiness), shown, "dirtiness {dirtiness}");
+            assert_eq!(poops(1, dirtiness), 0, "an egg at dirtiness {dirtiness}");
         }
     }
 
