@@ -57,6 +57,31 @@ describe("useBubblePhase", () => {
     expect(result.current).toBe("show");
   });
 
+  it("uses the length it is given", () => {
+    const { result } = renderHook(() => useBubblePhase("たのしい！", false, 3000));
+    tick(2999);
+    expect(result.current).toBe("show");
+    tick(1);
+    expect(result.current).toBe("fade");
+    tick(BUBBLE_FADE_MS);
+    expect(result.current).toBe("gone");
+  });
+
+  it("never removes the bubble when the length is 0", () => {
+    const { result } = renderHook(() => useBubblePhase("たのしい！", false, 0));
+    tick(10 * 60 * 1000);
+    expect(result.current).toBe("show");
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("applies a new length straight away", () => {
+    const { result, rerender } = renderHook(({ ms }) => useBubblePhase("たのしい！", false, ms), { initialProps: { ms: 3000 } });
+    tick(3000 + BUBBLE_FADE_MS);
+    expect(result.current).toBe("gone");
+    rerender({ ms: 0 });
+    expect(result.current).toBe("show");
+  });
+
   it("stops its timers when removed", () => {
     const { unmount } = renderHook(() => useBubblePhase("たのしい！", false));
     unmount();

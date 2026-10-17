@@ -21,7 +21,7 @@ vi.mock("./sound", () => ({
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, background: "classic", breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, background: "classic", bubbleSeconds: 8, breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 const unlisten = vi.fn();
 
@@ -136,6 +136,17 @@ describe("Settings dialog", () => {
     await waitFor(() => expect(screen.getByRole("radio", { name: "もり" })).toBeChecked());
     expect(screen.getByRole("radio", { name: "もり" }).closest("label")).toHaveClass("selected");
     expect(screen.getByRole("radio", { name: "おへや" }).closest("label")).not.toHaveClass("selected");
+  });
+
+  it("chooses how long the speech bubbles stay, including forever", async () => {
+    render(<Settings />);
+    const select = await screen.findByRole("combobox", { name: "吹き出しを出す長さ" });
+    expect(select).toHaveValue("8");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["3 秒", "5 秒", "8 秒", "15 秒", "30 秒", "ずっと出しておく"]);
+    await userEvent.selectOptions(select, "30 秒");
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, bubbleSeconds: 30 });
+    await userEvent.selectOptions(select, "ずっと出しておく");
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...custom, bubbleSeconds: 0 });
   });
 
   it("shows and saves the strict-mode switch", async () => {

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getSettings, onSettingsChanged, saveSettings } from "./api";
 import type { Settings as SettingsModel } from "./api";
-import { BACKGROUNDS, DEFAULT_SETTINGS, PRESETS } from "./defaults";
+import { BACKGROUNDS, BUBBLE_SECONDS_CHOICES, DEFAULT_SETTINGS, PRESETS } from "./defaults";
 import { useSound } from "./sound";
 import { useListener } from "./useListener";
 import "./Settings.css";
@@ -46,6 +46,17 @@ export default function Settings() {
           <input type="checkbox" checked={settings.showGauges} onChange={(e) => patch({ showGauges: e.target.checked })} />
           ゲージを表示
         </label>
+        <label className="row">
+          吹き出しを出す長さ
+          <select aria-label="吹き出しを出す長さ" value={settings.bubbleSeconds} onChange={(e) => patch({ bubbleSeconds: Number(e.target.value) })}>
+            {BUBBLE_SECONDS_CHOICES.map(({ seconds, name }) => (
+              <option key={seconds} value={seconds}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="hint">ペットのひとことが、これだけ出てから、すっと消えます。</p>
       </fieldset>
 
       <fieldset>
