@@ -391,7 +391,8 @@ impl GameState {
             self.tick_count = self.tick_count.wrapping_add(1);
             if self.tick_count.is_multiple_of(decay_divisor(timeline, k, carried)) {
                 self.status.tick();
-                self.care.tick(&self.status, self.tick_count, self.form.stage >= 2);
+                let mess = self.care.tick(&self.status, self.tick_count, self.form.stage >= 2);
+                self.status.add_dirt(mess);
                 if self.care.sick {
                     self.status.mood = self.status.mood.saturating_sub(SICK_MOOD_LOSS);
                 }
@@ -992,6 +993,54 @@ mod tests {
     }
 
     #[test]
+    fn eating_makes_a_poop_after_a_while_and_cleaning_clears_it() {
+        let mut s = hatched_state();
+        s.status = Status::new(80, 50, 40, 0);
+        s.apply(Action::Feed);
+        assert_eq!(s.status.dirtiness, 0, "not right away");
+        run_ticks(&mut s, crate::care::DIGEST_TICKS);
+        // 時間で増えた汚れ（毎ティック +1）に、食べたぶんが上乗せされる
+        assert_eq!(s.status.dirtiness, crate::care::FEED_MESS + crate::care::DIGEST_TICKS as u8);
+        s.apply(Action::Clean);
+        assert_eq!(s.status.dirtiness, 0);
+    }
+
+    #[test]
+    fn a_pet_that_eats_a_lot_gets_dirtier_than_one_that_does_not() {
+        let dirt_after = |meals: u32| {
+            let mut s = hatched_state();
+            s.status = Status::new(80, 50, 60, 0);
+            for _ in 0..meals {
+                s.apply(Action::Snack);
+            }
+            run_ticks(&mut s, crate::care::DIGEST_TICKS);
+            s.status.dirtiness
+        };
+        assert!(dirt_after(4) > dirt_after(0) + 15);
+    }
+
+    #[test]
+    fn playing_gets_the_pet_a_little_dirty_straight_away_but_petting_an_egg_does_not() {
+        let mut s = hatched_state();
+        s.status = Status::new(50, 50, 80, 10);
+        s.apply(Action::Play);
+        assert_eq!(s.status.dirtiness, 15);
+        let mut egg = new_state();
+        egg.status = Status::new(50, 50, 80, 10);
+        egg.apply(Action::Play);
+        assert_eq!(egg.status.dirtiness, 10);
+    }
+
+    #[test]
+    fn an_egg_that_is_fed_makes_no_mess_even_after_hatching() {
+        let mut s = new_state();
+        s.status = Status::new(50, 0, 40, 0);
+        s.apply(Action::Feed);
+        s.step(EGG_SECS);
+        assert!(s.status.dirtiness <= 5, "only the passing of time: {}", s.status.dirtiness);
+    }
+
+    #[test]
     fn eating_and_playing_move_the_weight() {
         let mut s = hatched_state();
         s.apply(Action::Feed);
@@ -1308,6 +1357,20 @@ mod tests {
     fn balance_hourly_care_keeps_a_healthy_weight() {
         let s = simulate(care_every(60));
         assert!(s.care.weight_is_ideal(), "weight {}", s.care.weight);
+    }
+
+    #[test]
+    fn balance_the_extra_mess_does_not_make_a_pet_that_is_cared_for_every_hour_sick() {
+        let mut s = new_state();
+        let mut policy = care_every(60);
+        let mut ever_sick = false;
+        for minute in 0..(secs_until_graduation() / 60) {
+            s.step(60);
+            policy(minute, &mut s);
+            // 世話の直後以外（次の世話まで）でも、部屋が病気になるほど汚れないこと
+            ever_sick |= s.care.sick;
+        }
+        assert!(!ever_sick);
     }
 
     #[test]
