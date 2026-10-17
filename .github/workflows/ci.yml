@@ -16,11 +16,11 @@ jobs:
     name: Frontend (vitest, coverage >= 90%)
     runs-on: macos-14
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 12.14.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -28,7 +28,7 @@ jobs:
       - run: pnpm exec tsc --noEmit
       # vite.config.ts の coverage.thresholds (90%) を下回ると失敗する。
       - run: pnpm test:coverage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: frontend-coverage
@@ -41,11 +41,11 @@ jobs:
       run:
         working-directory: src-tauri
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 12.14.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -65,7 +65,7 @@ jobs:
           tool: cargo-tarpaulin
       # tarpaulin.toml で接着層 (lib.rs / main.rs / shell.rs) を除外。90% 未満なら失敗する。
       - run: cargo tarpaulin --lib --fail-under ${{ env.COVERAGE_MIN }} --out Html --out Xml --output-dir ../coverage-rust
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: backend-coverage

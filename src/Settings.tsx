@@ -3,6 +3,7 @@ import { getSettings, getState, onSettingsChanged, onStateChanged, saveSettings,
 import type { Settings as SettingsModel } from "./api";
 import { DEFAULT_SETTINGS, PRESETS } from "./defaults";
 import { NAME_INPUT_MAX } from "./NamePrompt";
+import { useSound } from "./sound";
 import { useListener } from "./useListener";
 import "./Settings.css";
 
@@ -24,6 +25,8 @@ export default function Settings() {
     getState().then((v) => setPetName(v.name ?? ""), (e) => setError(errorText(e)));
   }, []);
   useListener(onSettingsChanged, setSettings);
+  // 鳴き声の聞き比べ用。調整中の音量・高さでそのまま鳴る。
+  const preview = useSound(settings.soundEnabled, { volume: settings.soundVolume, pitch: settings.soundPitch });
   useListener(onStateChanged, (v: { name: string | null }) => setPetName(v.name ?? ""));
 
   const rename = () =>
@@ -104,6 +107,26 @@ export default function Settings() {
           鳴き声を鳴らす
         </label>
         <p className="hint">ポップアップを開いている間に、お世話やしぐさに合わせて鳴きます（おやすみ中は鳴きません）。</p>
+        <label className="slider">
+          大きさ
+          <input type="range" aria-label="鳴き声の大きさ" min={0} max={100} step={10} value={settings.soundVolume} disabled={!settings.soundEnabled} onChange={(e) => patch({ soundVolume: Number(e.target.value) })} />
+        </label>
+        <label className="slider">
+          高さ
+          <input type="range" aria-label="鳴き声の高さ" min={-2} max={2} step={1} value={settings.soundPitch} disabled={!settings.soundEnabled} onChange={(e) => patch({ soundPitch: Number(e.target.value) })} />
+        </label>
+        <button type="button" disabled={!settings.soundEnabled} onClick={() => preview("happy", { personality: "calm", stage: 5 })}>
+          ためしに鳴かせる
+        </button>
+      </fieldset>
+
+      <fieldset>
+        <legend>起動</legend>
+        <label className="row">
+          <input type="checkbox" checked={settings.launchAtLogin} onChange={(e) => patch({ launchAtLogin: e.target.checked })} />
+          ログイン時に自動で起動
+        </label>
+        <p className="hint">インストールしたアプリだけに効きます（開発中の起動では登録されません）。</p>
       </fieldset>
 
       <fieldset>

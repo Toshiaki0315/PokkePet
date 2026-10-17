@@ -385,7 +385,7 @@ mod tests {
         state.step(crate::evolution::EGG_SECS); // 孵化
         state.ack_hatch();
         let at = |hour: i32| GameService::new(state.clone(), tmp(&format!("greet-{hour}"))).with_utc_offset(hour * 3600).snapshot().expression.bubble;
-        assert_eq!(at(8 - 0), Some(Bubble::Morning)); // 秒 0 + 孵化の経過で、ほぼ 8 時
+        assert_eq!(at(8), Some(Bubble::Morning)); // 秒 0 + 孵化の経過で、ほぼ 8 時
         assert_eq!(at(15), None);
     }
 

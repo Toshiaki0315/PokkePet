@@ -287,10 +287,10 @@ impl GameState {
         self.tick_acc = acc % TICK_SECS;
         for k in 0..(acc / TICK_SECS).min(MAX_CATCHUP_TICKS) {
             self.tick_count = self.tick_count.wrapping_add(1);
-            if self.tick_count % decay_divisor(timeline, k, carried) == 0 {
+            if self.tick_count.is_multiple_of(decay_divisor(timeline, k, carried)) {
                 self.status.tick();
                 // ほったらかしにすると、少しずつ親密度が下がる（世話を続けていれば下がらない）。
-                if self.tick_count % AFFINITY_DECAY_TICKS == 0 && self.status.is_neglected() {
+                if self.tick_count.is_multiple_of(AFFINITY_DECAY_TICKS) && self.status.is_neglected() {
                     self.status.lose_affinity();
                 }
             }

@@ -14,9 +14,17 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock("./api", () => api);
 
+const sound = vi.hoisted(() => ({ play: vi.fn(), useSound: vi.fn() }));
+vi.mock("./sound", () => ({
+  useSound: (enabled: boolean, tuning: unknown) => {
+    sound.useSound(enabled, tuning);
+    return sound.play;
+  },
+}));
+
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 let emitState: (v: { name: string | null }) => void;
 const unlisten = vi.fn();
@@ -74,6 +82,39 @@ describe("Settings dialog", () => {
     expect(box).toBeChecked();
     await userEvent.click(box);
     expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, soundEnabled: false });
+  });
+
+  it("saves the cry volume and pitch", async () => {
+    render(<Settings />);
+    const volume = await screen.findByRole("slider", { name: "鳴き声の大きさ" });
+    fireEvent.change(volume, { target: { value: "80" } });
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, soundVolume: 80 });
+    fireEvent.change(screen.getByRole("slider", { name: "鳴き声の高さ" }), { target: { value: "-1" } });
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, soundPitch: -1 });
+  });
+
+  it("lets you listen to a cry with the current volume and pitch", async () => {
+    api.getSettings.mockResolvedValue({ ...custom, soundVolume: 70, soundPitch: 1 });
+    render(<Settings />);
+    await waitFor(() => expect(sound.useSound).toHaveBeenLastCalledWith(true, { volume: 70, pitch: 1 }));
+    await userEvent.click(screen.getByRole("button", { name: "ためしに鳴かせる" }));
+    expect(sound.play).toHaveBeenCalledWith("happy", { personality: "calm", stage: 5 });
+  });
+
+  it("disables the sound tuning while the sound is off", async () => {
+    api.getSettings.mockResolvedValue({ ...custom, soundEnabled: false });
+    render(<Settings />);
+    await waitFor(() => expect(screen.getByRole("slider", { name: "鳴き声の大きさ" })).toBeDisabled());
+    expect(screen.getByRole("slider", { name: "鳴き声の高さ" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "ためしに鳴かせる" })).toBeDisabled();
+  });
+
+  it("shows and saves the launch-at-login switch", async () => {
+    render(<Settings />);
+    const box = await screen.findByRole("checkbox", { name: "ログイン時に自動で起動" });
+    expect(box).not.toBeChecked();
+    await userEvent.click(box);
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, launchAtLogin: true });
   });
 
   it("starts with the sound on until the saved settings arrive", () => {
