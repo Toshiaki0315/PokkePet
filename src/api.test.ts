@@ -5,7 +5,7 @@ const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
-import { getEggCode, receiveEgg, ackGift, getSouvenirs, toggleSouvenir, ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
+import { saveCard, getEggCode, receiveEgg, ackGift, getSouvenirs, toggleSouvenir, ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
 
 const view = { mood: 1, affinity: 2, hunger: 3, dirtiness: 4, stage: 1, branch: "normal", personality: "calm" };
 
@@ -104,8 +104,8 @@ describe("api", () => {
   });
 
   it("getDiary invokes get_diary", async () => {
-    invoke.mockResolvedValue({ daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], entries: [] });
-    await expect(getDiary()).resolves.toEqual({ daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], entries: [] });
+    invoke.mockResolvedValue({ daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], today: { feeds: 0, snacks: 0, plays: 0, cleans: 0, strokes: 0, togetherSecs: 0, souvenirs: 0 }, entries: [] });
+    await expect(getDiary()).resolves.toEqual({ daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], today: { feeds: 0, snacks: 0, plays: 0, cleans: 0, strokes: 0, togetherSecs: 0, souvenirs: 0 }, entries: [] });
     expect(invoke).toHaveBeenCalledWith("get_diary");
   });
 
@@ -120,6 +120,12 @@ describe("api", () => {
     invoke.mockResolvedValue(view);
     await expect(togglePower()).resolves.toEqual(view);
     expect(invoke).toHaveBeenCalledWith("toggle_power");
+  });
+
+  it("saveCard invokes save_card with the image", async () => {
+    invoke.mockResolvedValue("/Users/me/Pictures/card.png");
+    await expect(saveCard("data:image/png;base64,AAAA")).resolves.toBe("/Users/me/Pictures/card.png");
+    expect(invoke).toHaveBeenCalledWith("save_card", { dataUrl: "data:image/png;base64,AAAA" });
   });
 
   it("egg code commands invoke the matching Tauri commands", async () => {

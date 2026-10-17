@@ -1,9 +1,14 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { DiaryView } from "./api";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { DayStats, DiaryView } from "./api";
+
+const noToday: DayStats = { feeds: 0, snacks: 0, plays: 0, cleans: 0, strokes: 0, togetherSecs: 0, souvenirs: 0 };
 
 const api = vi.hoisted(() => ({
   getDiary: vi.fn(),
+  getState: vi.fn(),
+  saveCard: vi.fn(),
   onStateChanged: vi.fn(),
 }));
 vi.mock("./api", () => api);
@@ -14,7 +19,7 @@ import Diary from "./Diary";
 const at = (month: number, day: number, hour: number, minute: number) => new Date(2026, month - 1, day, hour, minute).getTime() / 1000;
 
 const sample: DiaryView = {
-  daysTogether: 3, togetherMinutes: 0, chronotype: null, lineage: [],
+  daysTogether: 3, togetherMinutes: 0, chronotype: null, lineage: [], today: noToday,
   // 新しい順
   entries: [
     { atUnix: at(10, 19, 21, 30), event: { kind: "careMilestone", count: 50 } },
@@ -37,11 +42,93 @@ beforeEach(() => {
   });
 });
 
+describe("Diary window (picture diary and card)", () => {
+  const page = (today: Partial<DayStats>, entries: DiaryView["entries"] = []): DiaryView => ({ daysTogether: 2, togetherMinutes: 90, chronotype: "night", lineage: [], today: { ...noToday, ...today }, entries });
+
+  it("shows today's page so far, in the pet's voice", async () => {
+    api.getDiary.mockResolvedValue(page({ feeds: 2, plays: 1, strokes: 4, togetherSecs: 5_400 }));
+    render(<Diary />);
+    const section = await screen.findByRole("region", { name: "きょうのページ" });
+    expect(section).toHaveTextContent("1時間30分、いっしょにいたよ。 ごはんを 2かい たべたよ。 あそんだのは 1かい。 なでてもらったのは 4かい。");
+  });
+
+  it("says nothing has happened yet on a quiet day", async () => {
+    api.getDiary.mockResolvedValue(page({}));
+    render(<Diary />);
+    expect(await screen.findByRole("region", { name: "きょうのページ" })).toHaveTextContent("まだ、なにも ないよ。");
+  });
+
+  it("writes finished days into the memories as a picture-diary line", async () => {
+    api.getDiary.mockResolvedValue(page({}, [{ atUnix: at(10, 18, 0, 5), event: { kind: "dayLog", month: 10, day: 17, feeds: 3, snacks: 1, plays: 2, cleans: 1, strokes: 0, togetherMinutes: 45, souvenirs: 0 } }]));
+    render(<Diary />);
+    expect(await screen.findByText("10/17 きょうは… 45分、いっしょにいたよ。 ごはんを 3かい、おやつを 1かい たべたよ。 あそんだのは 2かい。 おそうじは 1かい。")).toBeInTheDocument();
+  });
+
+  describe("saving the growth card", () => {
+    const pet = { name: "ごま", personality: "playful", branch: "good", stage: 5, generation: 2, charm: "🎀", tintDegrees: 80 };
+    const ctx = { createLinearGradient: () => ({ addColorStop: vi.fn() }), fillRect: vi.fn(), fillText: vi.fn(), drawImage: vi.fn() };
+    const originalImage = globalThis.Image;
+
+    beforeEach(() => {
+      api.getState.mockResolvedValue(pet);
+      api.saveCard.mockResolvedValue("/Users/me/Pictures/PokkePet-ごま-20261017-153045.png");
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as never);
+      vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/png;base64,AAAA");
+      class OkImage {
+        onload: (() => void) | null = null;
+        set src(_: string) {
+          queueMicrotask(() => this.onload?.());
+        }
+      }
+      globalThis.Image = OkImage as unknown as typeof Image;
+      api.getDiary.mockResolvedValue(page({}));
+    });
+    afterEach(() => {
+      vi.restoreAllMocks();
+      globalThis.Image = originalImage;
+    });
+
+    it("draws the card for the current pet, saves it and says where", async () => {
+      render(<Diary />);
+      await userEvent.click(await screen.findByRole("button", { name: "成長カードを保存" }));
+      expect(await screen.findByText(/ピクチャフォルダに保存しました: \/Users\/me\/Pictures\/PokkePet-ごま-20261017-153045.png/)).toBeInTheDocument();
+      expect(api.saveCard).toHaveBeenCalledWith("data:image/png;base64,AAAA");
+      expect(ctx.fillText).toHaveBeenCalledWith("🎀 ごま", expect.any(Number), expect.any(Number));
+      expect(ctx.fillText).toHaveBeenCalledWith("きつね・きらきら", expect.any(Number), expect.any(Number));
+      expect(ctx.fillText).toHaveBeenCalledWith("いっしょに作業 1時間30分（夜型）", expect.any(Number), expect.any(Number));
+    });
+
+    it("leaves out the working time and type when there is none", async () => {
+      api.getDiary.mockResolvedValue({ ...page({}), togetherMinutes: 0, chronotype: null });
+      render(<Diary />);
+      await userEvent.click(await screen.findByRole("button", { name: "成長カードを保存" }));
+      await screen.findByText(/ピクチャフォルダに保存しました/);
+      expect(ctx.fillText).not.toHaveBeenCalledWith(expect.stringContaining("いっしょに作業"), expect.any(Number), expect.any(Number));
+    });
+
+    it("shows the error when the card cannot be saved", async () => {
+      api.saveCard.mockRejectedValue(new Error("disk full"));
+      render(<Diary />);
+      await userEvent.click(await screen.findByRole("button", { name: "成長カードを保存" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("disk full");
+      expect(screen.queryByText(/ピクチャフォルダに保存しました/)).toBeNull();
+    });
+
+    it("explains when no drawing surface is available", async () => {
+      vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+      render(<Diary />);
+      await userEvent.click(await screen.findByRole("button", { name: "成長カードを保存" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("画像をつくれませんでした");
+    });
+  });
+});
+
 describe("Diary window (family tree)", () => {
   const tree: DiaryView = {
     daysTogether: 5,
     togetherMinutes: 0,
     chronotype: null,
+    today: noToday,
     entries: [{ atUnix: at(10, 18, 7, 5), event: { kind: "eggReceived", name: "ごま", personality: "calm" } }, { atUnix: at(10, 17, 7, 5), event: { kind: "eggReceived", name: null, personality: "tidy" } }],
     lineage: [
       { generation: 1, name: "ごま", personality: "playful", branch: "good", tintDegrees: 0, charm: null, fromFriend: false },
@@ -79,14 +166,14 @@ describe("Diary window (family tree)", () => {
 
 describe("Diary window (souvenir)", () => {
   it("describes a rare find", async () => {
-    api.getDiary.mockResolvedValue({ daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], entries: [{ atUnix: at(10, 18, 7, 5), event: { kind: "souvenir", name: "ほうせき", emoji: "💎" } }] });
+    api.getDiary.mockResolvedValue({ daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], today: noToday, entries: [{ atUnix: at(10, 18, 7, 5), event: { kind: "souvenir", name: "ほうせき", emoji: "💎" } }] });
     render(<Diary />);
     expect(await screen.findByText("おでかけで 💎ほうせき を見つけた！")).toBeInTheDocument();
   });
 });
 
 describe("Diary window (together)", () => {
-  const withTime = (togetherMinutes: number, chronotype: DiaryView["chronotype"]): DiaryView => ({ daysTogether: 2, togetherMinutes, chronotype, lineage: [], entries: [] });
+  const withTime = (togetherMinutes: number, chronotype: DiaryView["chronotype"]): DiaryView => ({ daysTogether: 2, togetherMinutes, chronotype, lineage: [], today: noToday, entries: [] });
 
   it("shows the working time together, in hours and minutes, with the learned type", async () => {
     api.getDiary.mockResolvedValue(withTime(150, "night"));
@@ -115,7 +202,7 @@ describe("Diary window (together)", () => {
 describe("Diary window (restart)", () => {
   it("describes starting over, with and without a name", async () => {
     api.getDiary.mockResolvedValue({
-      daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [],
+      daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], today: noToday,
       entries: [
         { atUnix: at(10, 18, 7, 5), event: { kind: "restarted", name: "ごま", personality: "calm" } },
         { atUnix: at(10, 17, 7, 5), event: { kind: "restarted", name: null, personality: "tidy" } },
@@ -130,7 +217,7 @@ describe("Diary window (restart)", () => {
 describe("Diary window (death)", () => {
   it("describes a death, with and without a name", async () => {
     api.getDiary.mockResolvedValue({
-      daysTogether: 3, togetherMinutes: 0, chronotype: null, lineage: [],
+      daysTogether: 3, togetherMinutes: 0, chronotype: null, lineage: [], today: noToday,
       entries: [
         { atUnix: at(10, 18, 7, 5), event: { kind: "died", name: "ごま", personality: "calm" } },
         { atUnix: at(10, 17, 7, 5), event: { kind: "died", name: null, personality: "tidy" } },
@@ -144,7 +231,7 @@ describe("Diary window (death)", () => {
 
 describe("Diary window (anniversaries)", () => {
   it("describes an anniversary", async () => {
-    api.getDiary.mockResolvedValue({ daysTogether: 2, togetherMinutes: 0, chronotype: null, lineage: [], entries: [{ atUnix: at(10, 18, 7, 5), event: { kind: "anniversary", days: 1 } }] });
+    api.getDiary.mockResolvedValue({ daysTogether: 2, togetherMinutes: 0, chronotype: null, lineage: [], today: noToday, entries: [{ atUnix: at(10, 18, 7, 5), event: { kind: "anniversary", days: 1 } }] });
     render(<Diary />);
     expect(await screen.findByText("いっしょに 1 日が経った")).toBeInTheDocument();
   });
@@ -176,7 +263,7 @@ describe("Diary window", () => {
 
   it("remembers farewells, with or without a name", async () => {
     api.getDiary.mockResolvedValue({
-      daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [],
+      daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], today: noToday,
       entries: [
         { atUnix: at(10, 17, 12, 0), event: { kind: "graduated", name: "ごま", personality: "playful" } },
         { atUnix: at(10, 17, 11, 0), event: { kind: "graduated", name: null, personality: "calm" } },
@@ -189,7 +276,7 @@ describe("Diary window", () => {
 
   it("names the branch and species of every evolution", async () => {
     api.getDiary.mockResolvedValue({
-      daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [],
+      daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], today: noToday,
       entries: [
         { atUnix: at(10, 17, 12, 0), event: { kind: "evolved", stage: 4, branch: "poor", personality: "gluttonous" } },
         { atUnix: at(10, 17, 11, 0), event: { kind: "evolved", stage: 5, branch: "normal", personality: "tidy" } },
@@ -210,7 +297,7 @@ describe("Diary window", () => {
   });
 
   it("says so when there are no memories yet", async () => {
-    api.getDiary.mockResolvedValue({ daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], entries: [] });
+    api.getDiary.mockResolvedValue({ daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], today: noToday, entries: [] });
     render(<Diary />);
     expect(await screen.findByText("まだ思い出がありません")).toBeInTheDocument();
   });

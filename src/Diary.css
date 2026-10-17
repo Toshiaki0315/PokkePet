@@ -20,3 +20,9 @@
 .diary .lineage li { padding: 2px 0; }
 .diary .lineage .gen { font-weight: 700; margin-right: 4px; }
 .diary .lineage em { margin-left: 6px; font-style: normal; font-size: 11px; color: #888; }
+.diary .today { margin: 0 0 10px; padding: 8px 12px; border-radius: 10px; background: #fffbe8; border: 1px solid #f0b42955; }
+.diary .today h2 { margin: 0 0 4px; font-size: 13px; }
+.diary .today p { margin: 0; font-size: 13px; line-height: 1.6; }
+.diary .card-row { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; flex-wrap: wrap; }
+.diary .card-row button { padding: 6px 12px; border-radius: 8px; border: 1px solid #0003; background: #fff; color: inherit; cursor: pointer; font-size: 12px; }
+.diary .card-row .saved { font-size: 11px; color: #2e7d32; word-break: break-all; }

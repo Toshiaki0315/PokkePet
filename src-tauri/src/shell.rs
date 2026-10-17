@@ -11,11 +11,13 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
 
 use crate::calls::{Call, CallGate};
+use crate::card::{card_file_name, decode_png_data_url};
 use crate::dex::DexView;
 use crate::diary::DiaryView;
 use crate::game::GameState;
 use crate::minigame::Side;
 use crate::paths::data_dir;
+use crate::sleep::local_utc_offset;
 use crate::system::{parse_battery, parse_dark_mode, parse_hid_idle_secs, SystemInfo};
 use crate::souvenirs::SouvenirView;
 use crate::service::{should_notify_graduation, should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
@@ -70,6 +72,18 @@ pub fn toggle_power(app: AppHandle, svc: State<GameService>) -> Result<StateView
     let view = svc.toggle_power(now_unix())?;
     update_tray_title(&app, &view);
     Ok(view)
+}
+
+/// 画面で描いた成長カード（PNG の data URL）を、ピクチャフォルダに保存する。保存した場所を返す。
+#[tauri::command]
+pub fn save_card(app: AppHandle, svc: State<GameService>, data_url: String) -> Result<String, String> {
+    let bytes = decode_png_data_url(&data_url)?;
+    let dir = app.path().picture_dir().or_else(|_| app.path().download_dir()).map_err(|e| e.to_string())?;
+    let now = now_unix();
+    let file_name = card_file_name(svc.snapshot().name.as_deref(), now, local_utc_offset(now));
+    let path = dir.join(file_name);
+    std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path.display().to_string())
 }
 
 /// 最初からやり直す（隠しコマンド）。今のペットとお別れして、新しい卵を迎える。
