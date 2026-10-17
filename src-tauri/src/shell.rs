@@ -5,6 +5,7 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use tauri::menu::{Menu, MenuItem};
+use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_notification::NotificationExt;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent};
@@ -110,10 +111,28 @@ pub fn get_settings(svc: State<SettingsService>) -> Settings {
 #[tauri::command]
 pub fn save_settings(app: AppHandle, svc: State<SettingsService>, game: State<GameService>, settings: Settings) -> Result<Settings, String> {
     let saved = svc.update(settings)?;
+    apply_launch_at_login(&app, saved.launch_at_login);
     game.set_sleep_window(saved.sleep_window()); // おやすみ時間の変更をすぐ反映する
     let _ = app.emit(SETTINGS_EVENT, saved.clone());
     let _ = app.emit(STATE_EVENT, game.snapshot());
     Ok(saved)
+}
+
+/// ログイン時の自動起動を設定に合わせる。開発版は（開発用のバイナリを登録してしまうので）何もしない。
+fn apply_launch_at_login(app: &AppHandle, wanted: bool) {
+    if cfg!(debug_assertions) {
+        return;
+    }
+    let launcher = app.autolaunch();
+    match launcher.is_enabled() {
+        Ok(current) if current == wanted => {}
+        _ => {
+            let result = if wanted { launcher.enable() } else { launcher.disable() };
+            if let Err(e) = result {
+                eprintln!("failed to update launch at login: {e}");
+            }
+        }
+    }
 }
 
 pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
@@ -140,7 +159,9 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         Settings::default()
     });
     app.state::<GameService>().set_sleep_window(settings.sleep_window());
+    let launch_at_login = settings.launch_at_login;
     app.manage(SettingsService::new(settings, settings_path));
+    apply_launch_at_login(app.handle(), launch_at_login);
 
     setup_popup(app)?;
     setup_tray(app)?;
@@ -179,7 +200,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             match event.id.as_ref() {
                 "dex" => open_window(app, DEX_WINDOW, "PokkePet 図鑑", (640.0, 580.0)),
                 "diary" => open_window(app, DIARY_WINDOW, "PokkePet 思い出", (460.0, 560.0)),
-                "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 850.0)),
+                "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 1010.0)),
                 "quit" => app.exit(0),
                 _ => {}
             }
@@ -249,10 +270,10 @@ fn update_tray_title(app: &AppHandle, view: &StateView) {
     if *shown == title {
         return;
     }
-    if let Some(tray) = app.tray_by_id(TRAY_ID) {
-        if tray.set_title(title).is_ok() {
-            *shown = title;
-        }
+    if let Some(tray) = app.tray_by_id(TRAY_ID)
+        && tray.set_title(title).is_ok()
+    {
+        *shown = title;
     }
 }
 

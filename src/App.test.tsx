@@ -24,8 +24,8 @@ vi.mock("./api", () => api);
 
 const sound = vi.hoisted(() => ({ play: vi.fn(), useSound: vi.fn() }));
 vi.mock("./sound", () => ({
-  useSound: (enabled: boolean) => {
-    sound.useSound(enabled);
+  useSound: (enabled: boolean, tuning: unknown) => {
+    sound.useSound(enabled, tuning);
     return sound.play;
   },
 }));
@@ -1051,14 +1051,14 @@ describe("App", () => {
     it("follows the sound setting", async () => {
       render(<App />);
       await screen.findByRole("img");
-      expect(sound.useSound).toHaveBeenLastCalledWith(true);
+      expect(sound.useSound).toHaveBeenLastCalledWith(true, { volume: 50, pitch: 0 });
     });
 
     it("is switched off by the setting", async () => {
       api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, soundEnabled: false });
       render(<App />);
       await screen.findByRole("img");
-      await waitFor(() => expect(sound.useSound).toHaveBeenLastCalledWith(false));
+      await waitFor(() => expect(sound.useSound).toHaveBeenLastCalledWith(false, { volume: 50, pitch: 0 }));
     });
 
     it.each([["ご飯"], ["おやつ"]])("munches when given %s", async (label) => {
@@ -1274,5 +1274,13 @@ describe("stroke reaction by species", () => {
     render(<App />);
     await userEvent.click(await screen.findByRole("img"));
     await waitFor(() => expect(screen.getByRole("img")).toHaveClass(reaction));
+  });
+});
+
+describe("sound tuning", () => {
+  it("passes the saved volume and pitch to the sound", async () => {
+    api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, soundVolume: 90, soundPitch: -2 });
+    render(<App />);
+    await waitFor(() => expect(sound.useSound).toHaveBeenLastCalledWith(true, { volume: 90, pitch: -2 }));
   });
 });

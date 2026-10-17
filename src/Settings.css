@@ -24,3 +24,6 @@
   .settings .hint { color: #aaa; }
   .settings select { background: #34343b; }
 }
+
+.slider { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.slider input { flex: 1; }

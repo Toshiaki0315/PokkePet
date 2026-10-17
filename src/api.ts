@@ -87,6 +87,12 @@ export interface Settings {
   notifyCalls: boolean;
   /** 鳴き声（サウンド）を鳴らす */
   soundEnabled: boolean;
+  /** 鳴き声の大きさ（0〜100。50 が標準） */
+  soundVolume: number;
+  /** 鳴き声の高さ（-2〜2。0 が標準） */
+  soundPitch: number;
+  /** ログイン時にアプリを自動で起動する */
+  launchAtLogin: boolean;
   /** おやすみ時間の開始・終了（0〜23時）。同じ値ならおやすみなし */
   sleepStartHour: number;
   sleepEndHour: number;

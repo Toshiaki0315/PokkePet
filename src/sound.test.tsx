@@ -1,7 +1,7 @@
 import { fireEvent, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Personality } from "./api";
-import { cryNotes, MASTER_GAIN, playNotes, useSound } from "./sound";
+import { cryNotes, MASTER_GAIN, PITCH_STEP_SEMITONES, playNotes, useSound } from "./sound";
 import type { CryKind, Voice } from "./sound";
 
 const PERSONALITIES: Personality[] = ["calm", "playful", "gluttonous", "tidy"];
@@ -171,6 +171,49 @@ describe("playNotes", () => {
     const starts = ctx.oscillators.map((o) => o.start.mock.calls[0][0] as number);
     expect(starts[1]).toBeGreaterThan(starts[0]);
     expect(starts[2]).toBeGreaterThan(starts[1]);
+  });
+});
+
+describe("tuning", () => {
+  it("raising the pitch by one step multiplies every frequency by the same ratio", () => {
+    const base = cryNotes("happy", voice("calm", 5));
+    const up = cryNotes("happy", voice("calm", 5), 1);
+    const ratio = 2 ** (PITCH_STEP_SEMITONES / 12);
+    up.forEach((n, i) => {
+      expect(n.from).toBeCloseTo(base[i].from * ratio, 6);
+      expect(n.to).toBeCloseTo(base[i].to * ratio, 6);
+      expect(n.start).toBe(base[i].start);
+    });
+  });
+
+  it("lowering the pitch makes the voice lower, and 0 changes nothing", () => {
+    const base = cryNotes("sad", voice("tidy", 4));
+    expect(cryNotes("sad", voice("tidy", 4), 0)).toEqual(base);
+    expect(cryNotes("sad", voice("tidy", 4), -2)[0].from).toBeLessThan(base[0].from);
+  });
+
+  it("the volume scales the loudness: 100 is twice the standard, 0 is silent", () => {
+    const peakAt = (volume: number) => {
+      const ctx = new FakeContext();
+      playNotes(ctx as never, cryNotes("neutral", voice("playful", 5)), volume);
+      return ctx.gains.length === 0 ? 0 : Math.max(...ctx.gains[0].gain.calls.map((c) => c[1]));
+    };
+    expect(peakAt(50)).toBeCloseTo(MASTER_GAIN * 0.9, 6);
+    expect(peakAt(100)).toBeCloseTo(MASTER_GAIN * 0.9 * 2, 6);
+    expect(peakAt(25)).toBeCloseTo(MASTER_GAIN * 0.9 * 0.5, 6);
+    expect(peakAt(0)).toBe(0);
+  });
+
+  it("useSound plays with the given volume and pitch", () => {
+    FakeContext.instances = [];
+    vi.stubGlobal("AudioContext", FakeContext);
+    const { result } = renderHook(() => useSound(true, { volume: 100, pitch: 1 }));
+    result.current("neutral", voice("calm", 5));
+    const [ctx] = FakeContext.instances;
+    const expected = cryNotes("neutral", voice("calm", 5), 1)[0].from;
+    expect(ctx.oscillators[0].frequency.setValueAtTime.mock.calls[0][0]).toBeCloseTo(expected, 6);
+    expect(Math.max(...ctx.gains[0].gain.calls.map((c) => c[1]))).toBeCloseTo(MASTER_GAIN * 2, 6);
+    vi.unstubAllGlobals();
   });
 });
 

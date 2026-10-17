@@ -24,6 +24,21 @@ export interface Note {
 /** 全体の音量。小さめにして、作業中に鳴ってもうるさくならないようにする。 */
 export const MASTER_GAIN = 0.18;
 
+/** 設定の音量（0〜100）の標準値。このとき音量は MASTER_GAIN そのもの。 */
+export const STANDARD_VOLUME = 50;
+/** 設定の高さ 1 段ぶん（半音いくつか）。 */
+export const PITCH_STEP_SEMITONES = 3;
+
+/** 鳴き声の調整（設定ダイアログで変えられる）。 */
+export interface Tuning {
+  /** 0〜100。0 は鳴らさない。 */
+  volume: number;
+  /** -2〜2 段。 */
+  pitch: number;
+}
+
+export const STANDARD_TUNING: Tuning = { volume: STANDARD_VOLUME, pitch: 0 };
+
 // 種族ごとの基本の高さ(Hz)と音色。
 const SPECIES: Record<Personality, { base: number; type: OscillatorType; gain: number }> = {
   calm: { base: 520, type: "sine", gain: 1 },
@@ -41,7 +56,14 @@ const taps = (): Note[] => [note("square", 900, 700, 0, 0.03, 0.5), note("square
  * 鳴き声の音符を作る。純粋な関数（乱数や時刻は使わない）。
  * 段階が大きいほど低く、卵はコツコツ（孵化の鳴き声だけは例外）。
  */
-export function cryNotes(kind: CryKind, { personality, stage }: Voice): Note[] {
+export function cryNotes(kind: CryKind, { personality, stage }: Voice, pitch = 0): Note[] {
+  const notes = baseNotes(kind, { personality, stage });
+  if (pitch === 0) return notes;
+  const ratio = 2 ** ((pitch * PITCH_STEP_SEMITONES) / 12);
+  return notes.map((n) => ({ ...n, from: n.from * ratio, to: n.to * ratio }));
+}
+
+function baseNotes(kind: CryKind, { personality, stage }: Voice): Note[] {
   if (stage <= 1 && kind !== "hatch") return taps();
   const { base, type, gain } = SPECIES[personality];
   const f = base / (1 + (Math.max(stage, 2) - 2) * 0.05);
@@ -62,7 +84,9 @@ export function cryNotes(kind: CryKind, { personality, stage }: Voice): Note[] {
 }
 
 /** 音符を Web Audio で鳴らす。各音は無音から立ち上がり無音で終わる（プチッという音を出さない）。 */
-export function playNotes(ctx: AudioContext, notes: readonly Note[]): void {
+export function playNotes(ctx: AudioContext, notes: readonly Note[], volume = STANDARD_VOLUME): void {
+  if (volume <= 0) return;
+  const level = MASTER_GAIN * (volume / STANDARD_VOLUME);
   const origin = ctx.currentTime + 0.02;
   for (const n of notes) {
     const t0 = origin + n.start;
@@ -73,7 +97,7 @@ export function playNotes(ctx: AudioContext, notes: readonly Note[]): void {
     osc.frequency.setValueAtTime(n.from, t0);
     osc.frequency.exponentialRampToValueAtTime(n.to, t1);
     amp.gain.setValueAtTime(0.0001, t0);
-    amp.gain.exponentialRampToValueAtTime(MASTER_GAIN * n.gain, t0 + Math.min(0.01, n.duration / 3));
+    amp.gain.exponentialRampToValueAtTime(level * n.gain, t0 + Math.min(0.01, n.duration / 3));
     amp.gain.exponentialRampToValueAtTime(0.0001, t1);
     osc.connect(amp);
     amp.connect(ctx.destination);
@@ -97,7 +121,8 @@ function audioContextCtor(): AudioContextCtor | null {
  * WebView は、ユーザーが一度も操作していないページの音を許可しないことがある。そこで、最初のクリックや
  * キー入力のときに AudioContext を作って有効にしておく（音は出さない）。
  */
-export function useSound(enabled: boolean): (kind: CryKind, voice: Voice) => void {
+export function useSound(enabled: boolean, tuning: Tuning = STANDARD_TUNING): (kind: CryKind, voice: Voice) => void {
+  const { volume, pitch } = tuning;
   const context = useRef<AudioContext | null>(null);
 
   /** AudioContext を用意して、止まっていれば動かす。使えない環境では null。 */
@@ -131,11 +156,11 @@ export function useSound(enabled: boolean): (kind: CryKind, voice: Voice) => voi
       if (!enabled) return;
       try {
         const ctx = ensureContext();
-        if (ctx) playNotes(ctx, cryNotes(kind, voice));
+        if (ctx) playNotes(ctx, cryNotes(kind, voice, pitch), volume);
       } catch {
         // 音が鳴らなくてもゲームの動作には影響しない。
       }
     },
-    [enabled, ensureContext],
+    [enabled, ensureContext, volume, pitch],
   );
 }

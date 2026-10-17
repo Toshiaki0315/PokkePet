@@ -110,7 +110,7 @@ export default function App() {
   );
 
   // 鳴き声（設定でオフにできる）。声は、そのときのペットの性格と段階で決まる。
-  const play = useSound(settings.soundEnabled);
+  const play = useSound(settings.soundEnabled, { volume: settings.soundVolume, pitch: settings.soundPitch });
   const cry = (kind: CryKind, who: StateView) =>
     play(kind, { personality: who.personality, stage: who.stage });
   const latest = useRef({ view, cry });

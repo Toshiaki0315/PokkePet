@@ -9,6 +9,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::sleep::{SleepWindow, DEFAULT_SLEEP_END_HOUR, DEFAULT_SLEEP_START_HOUR};
 
+pub const DEFAULT_SOUND_VOLUME: u8 = 50;
+pub const SOUND_VOLUME_MAX: u8 = 100;
+pub const SOUND_PITCH_RANGE: std::ops::RangeInclusive<i8> = -2..=2;
 pub const DEFAULT_BODY_COLOR: &str = "#4b5fb8";
 pub const DEFAULT_BUTTON_COLOR: &str = "#f280a8";
 
@@ -20,6 +23,12 @@ pub struct Settings {
     pub notify_calls: bool,
     /// 鳴き声（サウンド）を鳴らす。
     pub sound_enabled: bool,
+    /// 鳴き声の大きさ（0〜100。50 が標準）。
+    pub sound_volume: u8,
+    /// 鳴き声の高さ（-2〜2。0 が標準、1 段で半音 3 つぶん）。
+    pub sound_pitch: i8,
+    /// ログイン時にアプリを自動で起動する。
+    pub launch_at_login: bool,
     /// おやすみ時間の開始・終了（0〜23時）。同じ値ならおやすみなし。
     pub sleep_start_hour: u8,
     pub sleep_end_hour: u8,
@@ -33,6 +42,9 @@ impl Default for Settings {
             show_gauges: false,
             notify_calls: true,
             sound_enabled: true,
+            sound_volume: DEFAULT_SOUND_VOLUME,
+            sound_pitch: 0,
+            launch_at_login: false,
             sleep_start_hour: DEFAULT_SLEEP_START_HOUR,
             sleep_end_hour: DEFAULT_SLEEP_END_HOUR,
             body_color: DEFAULT_BODY_COLOR.to_string(),
@@ -46,6 +58,12 @@ impl Settings {
     pub fn validate(&self) -> Result<(), String> {
         check_hour("sleepStartHour", self.sleep_start_hour)?;
         check_hour("sleepEndHour", self.sleep_end_hour)?;
+        if self.sound_volume > SOUND_VOLUME_MAX {
+            return Err(format!("soundVolume must be 0-{SOUND_VOLUME_MAX}: {}", self.sound_volume));
+        }
+        if !SOUND_PITCH_RANGE.contains(&self.sound_pitch) {
+            return Err(format!("soundPitch must be -2..=2: {}", self.sound_pitch));
+        }
         check_color("bodyColor", &self.body_color)?;
         check_color("buttonColor", &self.button_color)
     }
@@ -254,12 +272,35 @@ mod tests {
     }
 
     #[test]
+    fn the_cry_volume_and_pitch_default_to_standard_and_are_saved() {
+        let d = Settings::default();
+        assert_eq!((d.sound_volume, d.sound_pitch, d.launch_at_login), (50, 0, false));
+        let p = tmp("sound-tuning");
+        Settings { sound_volume: 80, sound_pitch: -1, launch_at_login: true, ..d }.save(&p).unwrap();
+        let back = Settings::load(&p).unwrap();
+        assert_eq!((back.sound_volume, back.sound_pitch, back.launch_at_login), (80, -1, true));
+    }
+
+    #[test]
+    fn out_of_range_volume_or_pitch_is_rejected() {
+        let base = Settings::default();
+        assert!(Settings { sound_volume: 100, sound_pitch: 2, ..base.clone() }.validate().is_ok());
+        assert!(Settings { sound_volume: 0, sound_pitch: -2, ..base.clone() }.validate().is_ok());
+        assert!(Settings { sound_volume: 101, ..base.clone() }.validate().unwrap_err().contains("soundVolume"));
+        assert!(Settings { sound_pitch: 3, ..base.clone() }.validate().unwrap_err().contains("soundPitch"));
+        assert!(Settings { sound_pitch: -3, ..base }.validate().is_err());
+    }
+
+    #[test]
     fn serializes_with_camel_case_keys() {
         let json = serde_json::to_value(Settings::default()).unwrap();
         assert!(json.get("showStage").is_none());
         assert_eq!(json["showGauges"], false);
         assert_eq!(json["notifyCalls"], true);
         assert_eq!(json["soundEnabled"], true);
+        assert_eq!(json["soundVolume"], 50);
+        assert_eq!(json["soundPitch"], 0);
+        assert_eq!(json["launchAtLogin"], false);
         assert_eq!(json["sleepStartHour"], 23);
         assert_eq!(json["sleepEndHour"], 7);
         assert_eq!(json["bodyColor"], "#4b5fb8");
