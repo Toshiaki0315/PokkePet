@@ -24,6 +24,7 @@ impl FromStr for Action {
             "snack" => Ok(Action::Snack),
             "play" => Ok(Action::Play),
             "clean" => Ok(Action::Clean),
+            "scold" => Ok(Action::Scold),
             other => Err(format!("unknown action: {other}")),
         }
     }
@@ -45,6 +46,9 @@ pub struct StateView {
     pub affinity: u8,
     pub hunger: u8,
     pub dirtiness: u8,
+    /// 体重とお世話の質（しつけ度）。
+    pub weight: u8,
+    pub discipline: u8,
     pub stage: u8,
     pub branch: Branch,
     pub personality: Personality,
@@ -103,6 +107,7 @@ pub fn tray_title(view: &StateView) -> Option<&'static str> {
         Bubble::Sleeping => Some("💤"),
         Bubble::Welcome => Some("🥚"),
         // あいさつはメニューバーには出さない（落ち着いて見えるように）。
+        Bubble::Selfish => Some("💬"),
         Bubble::Happy | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy => None,
     }
 }
@@ -273,6 +278,9 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
         expression.bubble = Some(Bubble::Sleeping);
     }
     // 世話が必要なとき以外は、時間帯のあいさつ（卵・おやすみ中は言わない）。
+    if !sleeping && s.form.stage >= 2 && s.care.is_selfish() && matches!(expression.bubble, None | Some(Bubble::Happy)) {
+        expression.bubble = Some(Bubble::Selfish);
+    }
     if !sleeping && s.form.stage >= 2 && expression.bubble.is_none() {
         expression.bubble = greeting(local_hour(s.last_unix, utc_offset), window);
     }
@@ -284,6 +292,8 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
         affinity: s.status.affinity,
         hunger: s.status.hunger,
         dirtiness: s.status.dirtiness,
+        weight: s.care.weight,
+        discipline: s.care.discipline,
         stage: s.form.stage,
         branch: s.form.branch,
         personality: s.form.personality,
@@ -328,6 +338,7 @@ mod tests {
         assert_eq!("snack".parse::<Action>(), Ok(Action::Snack));
         assert_eq!("play".parse::<Action>(), Ok(Action::Play));
         assert_eq!("clean".parse::<Action>(), Ok(Action::Clean));
+        assert_eq!("scold".parse::<Action>(), Ok(Action::Scold));
     }
 
     #[test]
@@ -345,6 +356,8 @@ mod tests {
                 affinity: 0,
                 hunger: 80,
                 dirtiness: 0,
+                weight: 50,
+                discipline: 0,
                 stage: 1,
                 branch: Branch::Normal,
                 personality: Personality::Calm,
@@ -401,6 +414,35 @@ mod tests {
         egg.intro_seen = true;
         let v = GameService::new(egg, tmp("greet-egg")).with_utc_offset(8 * 3600).snapshot();
         assert_eq!(v.expression.bubble, None);
+    }
+
+    fn selfish_pet(name: &str) -> GameService {
+        let mut state = GameState::new(0);
+        state.step(crate::evolution::EGG_SECS);
+        state.ack_hatch();
+        state.intro_seen = true;
+        state.status = crate::status::Status::new(100, 50, 100, 0);
+        state.tick_count = crate::care::SELFISH_EVERY_TICKS - 1;
+        state.step(crate::game::TICK_SECS);
+        GameService::new(state, tmp(name)).with_utc_offset(NOON_AT_ZERO)
+    }
+
+    #[test]
+    fn a_selfish_pet_says_so_until_it_is_scolded() {
+        let s = selfish_pet("selfish");
+        assert_eq!(s.snapshot().expression.bubble, Some(Bubble::Selfish));
+        let v = s.perform(Action::Scold, 700).unwrap();
+        assert_eq!(v.discipline, 15);
+        assert_ne!(v.expression.bubble, Some(Bubble::Selfish));
+    }
+
+    #[test]
+    fn the_view_reports_weight_and_discipline() {
+        let v = svc("weight").snapshot();
+        assert_eq!((v.weight, v.discipline), (50, 0));
+        let json = serde_json::to_value(&v).unwrap();
+        assert_eq!(json["weight"], 50);
+        assert_eq!(json["discipline"], 0);
     }
 
     #[test]
@@ -935,6 +977,7 @@ mod tests {
     #[test]
     fn the_menu_bar_mark_follows_the_bubble() {
         assert_eq!(tray_title(&view_with(None)), None);
+        assert_eq!(tray_title(&view_with(Some(Bubble::Selfish))), Some("💬"));
         for quiet in [Bubble::Happy, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy] {
             assert_eq!(tray_title(&view_with(Some(quiet))), None);
         }

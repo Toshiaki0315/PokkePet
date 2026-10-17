@@ -7,6 +7,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::care::Care;
 use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
 use crate::dex::form_key;
 use crate::diary::{self, DiaryEntry, DiaryEvent, DAY_SECS};
@@ -31,6 +32,8 @@ pub enum Action {
     Snack,
     Play,
     Clean,
+    /// しつけ（叱る）。わがままを言っているときだけ効果がある。
+    Scold,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -67,6 +70,9 @@ pub struct GameState {
     /// 記念日として記録した、いっしょの日数（丸何日か）。
     #[serde(default)]
     pub anniversaries: u32,
+    /// お世話の質（体重・しつけ度・お世話ミス・わがまま）。
+    #[serde(default)]
+    pub care: Care,
     /// 何代目か（最初のペットが 1）。
     #[serde(default = "first_generation")]
     pub generation: u32,
@@ -148,6 +154,7 @@ impl GameState {
             diary: Vec::new(),
             born_unix: now_unix,
             anniversaries: 0,
+            care: Care::default(),
             generation: 1,
             legacy: None,
         };
@@ -179,6 +186,7 @@ impl GameState {
         self.hatch_shown = false;
         self.born_unix = self.last_unix;
         self.anniversaries = 0;
+        self.care = Care::default();
         self.record_form();
         self.remember(DiaryEvent::Born);
         Ok(())
@@ -240,23 +248,30 @@ impl GameState {
         match action {
             Action::Feed => {
                 self.status.feed();
+                self.care.fed();
                 self.history.feeds += 1;
             }
             Action::Snack => {
                 self.status.snack();
+                self.care.snacked();
                 self.history.snacks += 1;
             }
             Action::Play if self.form.stage <= 1 => self.status.pet(),
             Action::Play => {
                 self.status.play();
+                self.care.played();
                 self.history.plays += 1;
             }
             Action::Clean => {
                 self.status.clean();
                 self.history.cleans += 1;
             }
+            Action::Scold if self.form.stage >= 2 => {
+                self.care.scold(&mut self.status);
+            }
+            Action::Scold => {}
         }
-        let was_petting = action == Action::Play && self.form.stage <= 1;
+        let was_petting = matches!(action, Action::Scold) || (action == Action::Play && self.form.stage <= 1);
         let total = self.care_total();
         if !was_petting && diary::is_care_milestone(total) {
             self.remember(DiaryEvent::CareMilestone { count: total });
@@ -289,6 +304,7 @@ impl GameState {
             self.tick_count = self.tick_count.wrapping_add(1);
             if self.tick_count.is_multiple_of(decay_divisor(timeline, k, carried)) {
                 self.status.tick();
+                self.care.tick(&self.status, self.tick_count, self.form.stage >= 2);
                 // ほったらかしにすると、少しずつ親密度が下がる（世話を続けていれば下がらない）。
                 if self.tick_count.is_multiple_of(AFFINITY_DECAY_TICKS) && self.status.is_neglected() {
                     self.status.lose_affinity();
@@ -303,7 +319,8 @@ impl GameState {
         let mut advanced = self.growth.advance(secs);
         while advanced {
             let previous_stage = self.growth.stage - 1;
-            self.form = evolve(previous_stage, &self.status, &self.history, self.legacy);
+            self.form = evolve(previous_stage, &self.status, &self.history, self.legacy, self.care.score_adjustment());
+            self.care.evolved();
             self.record_form();
             self.remember(if previous_stage <= 1 {
                 DiaryEvent::Hatched
@@ -866,6 +883,109 @@ mod tests {
         let mut s = new_state();
         s.step(EGG_SECS);
         s
+    }
+
+    #[test]
+    fn eating_and_playing_move_the_weight() {
+        let mut s = hatched_state();
+        s.apply(Action::Feed);
+        s.apply(Action::Snack);
+        assert_eq!(s.care.weight, 62);
+        s.apply(Action::Play);
+        assert_eq!(s.care.weight, 59);
+        s.play_minigame(false).unwrap();
+        assert_eq!(s.care.weight, 56);
+    }
+
+    #[test]
+    fn scolding_an_egg_does_nothing() {
+        let mut s = new_state();
+        let status = s.status;
+        s.apply(Action::Scold);
+        assert_eq!((s.status, s.care.discipline), (status, 0));
+        assert_eq!(s.care_total(), 0);
+    }
+
+    #[test]
+    fn a_content_pet_gets_selfish_and_a_scolding_teaches_it() {
+        let mut s = hatched_state();
+        s.status = Status::new(100, 50, 100, 0);
+        s.tick_count = crate::care::SELFISH_EVERY_TICKS - 1;
+        s.step(TICK_SECS);
+        assert!(s.care.is_selfish());
+        s.apply(Action::Scold);
+        assert_eq!(s.care.discipline, 15);
+        assert!(!s.care.is_selfish());
+        assert_eq!(s.care_total(), 0, "scolding is not care");
+    }
+
+    #[test]
+    fn a_neglected_pet_racks_up_care_misses() {
+        let mut s = hatched_state();
+        s.status = Status::new(80, 50, 20, 0);
+        s.step(TICK_SECS * crate::care::MISS_TICKS * 2);
+        assert!(s.care.misses >= 1);
+        assert_eq!(s.care.misses, s.care.recent_misses);
+    }
+
+    #[test]
+    fn evolution_counts_care_misses_since_the_last_evolution_only() {
+        let mut s = hatched_state();
+        s.care.recent_misses = 5;
+        s.care.misses = 5;
+        s.evolve_for(stage_secs(2));
+        assert_eq!((s.care.misses, s.care.recent_misses), (5, 0));
+    }
+
+    #[test]
+    fn good_discipline_and_an_ideal_weight_lift_the_evolution_but_an_unfit_pet_falls() {
+        let evolve_with = |discipline: u8, weight: u8| {
+            let mut s = hatched_state();
+            s.status = Status::new(60, 60, 50, 0);
+            s.care.discipline = discipline;
+            s.care.weight = weight;
+            s.evolve_for(stage_secs(2));
+            s.form.branch
+        };
+        assert_eq!(evolve_with(0, 50), Branch::Normal);
+        assert_eq!(evolve_with(100, 50), Branch::Good);
+        assert_eq!(evolve_with(0, 90), Branch::Normal); // 60 - 10 = 50
+        assert_eq!(evolve_with(0, 20), Branch::Normal);
+    }
+
+    #[test]
+    fn the_next_pet_starts_with_a_fresh_care_record() {
+        let mut s = elder_state();
+        s.care.misses = 9;
+        s.care.discipline = 80;
+        s.graduate().unwrap();
+        assert_eq!(s.care, Care::default());
+    }
+
+    #[test]
+    fn an_old_save_without_care_data_still_loads() {
+        let s = new_state();
+        let mut json: serde_json::Value = serde_json::from_str(&s.to_json()).unwrap();
+        json.as_object_mut().unwrap().remove("care");
+        let back: GameState = serde_json::from_value(json).unwrap();
+        assert_eq!(back.care, Care::default());
+    }
+
+    #[test]
+    fn balance_hourly_care_keeps_a_healthy_weight() {
+        let s = simulate(care_every(60));
+        assert!(s.care.weight_is_ideal(), "weight {}", s.care.weight);
+    }
+
+    #[test]
+    fn balance_snack_spam_makes_the_pet_heavy() {
+        let s = simulate(|m, s| {
+            if m % 30 == 0 {
+                s.apply(Action::Snack);
+                s.apply(Action::Clean);
+            }
+        });
+        assert!(!s.care.weight_is_ideal());
     }
 
     #[test]

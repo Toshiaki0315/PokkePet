@@ -11,8 +11,8 @@ pub const EGG_SECS: u32 = 600;
 pub const HOUR_SECS: u32 = 3600;
 /// 最終段階になってから旅立ちの時までの長さ。
 pub const GRADUATION_SECS: u32 = 24 * HOUR_SECS;
-const GOOD_MIN_AVG: u16 = 70;
-const POOR_MAX_AVG: u16 = 40;
+const GOOD_MIN_AVG: i16 = 70;
+const POOR_MAX_AVG: i16 = 40;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -140,9 +140,9 @@ pub fn personality_from(h: &History, legacy: Option<Personality>) -> Personality
     }
 }
 
-/// ご機嫌と親密度の平均から分岐を決める。
-pub fn branch_from(s: &Status) -> Branch {
-    let avg = (u16::from(s.mood) + u16::from(s.affinity)) / 2;
+/// ご機嫌と親密度の平均に、お世話の質による加減点 `adjust`（`Care::score_adjustment`）を足して分岐を決める。
+pub fn branch_from(s: &Status, adjust: i16) -> Branch {
+    let avg = ((i16::from(s.mood) + i16::from(s.affinity)) / 2 + adjust).clamp(0, 100);
     if avg >= GOOD_MIN_AVG {
         return Branch::Good;
     }
@@ -153,10 +153,10 @@ pub fn branch_from(s: &Status) -> Branch {
 }
 
 /// 進化先の形態（段階は進化後の段階）。
-pub fn evolve(stage: u8, s: &Status, h: &History, legacy: Option<Personality>) -> Form {
+pub fn evolve(stage: u8, s: &Status, h: &History, legacy: Option<Personality>, adjust: i16) -> Form {
     Form {
         stage: stage.saturating_add(1).min(MAX_STAGE),
-        branch: branch_from(s),
+        branch: branch_from(s, adjust),
         personality: personality_from(h, legacy),
     }
 }
@@ -167,6 +167,14 @@ mod tests {
 
     fn st(mood: u8, affinity: u8) -> Status {
         Status::new(mood, affinity, 50, 0)
+    }
+
+    #[test]
+    fn the_care_adjustment_moves_the_branch_and_is_kept_within_bounds() {
+        assert_eq!(branch_from(&st(60, 60), 10), Branch::Good); // 60 + 10
+        assert_eq!(branch_from(&st(60, 60), -20), Branch::Poor); // 60 - 20
+        assert_eq!(branch_from(&st(100, 100), 10), Branch::Good);
+        assert_eq!(branch_from(&st(0, 0), -20), Branch::Poor);
     }
 
     #[test]
@@ -319,7 +327,7 @@ mod tests {
 
     #[test]
     fn evolving_passes_the_legacy_on() {
-        let f = evolve(2, &st(90, 90), &History::default(), Some(Personality::Gluttonous));
+        let f = evolve(2, &st(90, 90), &History::default(), Some(Personality::Gluttonous), 0);
         assert_eq!(f.personality, Personality::Gluttonous);
     }
 
@@ -373,24 +381,24 @@ mod tests {
 
     #[test]
     fn branch_uses_average_of_mood_and_affinity() {
-        assert_eq!(branch_from(&st(100, 60)), Branch::Good); // avg 80
-        assert_eq!(branch_from(&st(60, 60)), Branch::Normal); // avg 60
-        assert_eq!(branch_from(&st(40, 40)), Branch::Poor); // avg 40
+        assert_eq!(branch_from(&st(100, 60), 0), Branch::Good); // avg 80
+        assert_eq!(branch_from(&st(60, 60), 0), Branch::Normal); // avg 60
+        assert_eq!(branch_from(&st(40, 40), 0), Branch::Poor); // avg 40
     }
 
     #[test]
     fn branch_boundaries() {
-        assert_eq!(branch_from(&st(70, 70)), Branch::Good);
-        assert_eq!(branch_from(&st(69, 70)), Branch::Normal); // avg 69.5 -> 69
-        assert_eq!(branch_from(&st(40, 40)), Branch::Poor);
-        assert_eq!(branch_from(&st(41, 40)), Branch::Poor); // avg 40.5 -> 40
-        assert_eq!(branch_from(&st(41, 41)), Branch::Normal);
+        assert_eq!(branch_from(&st(70, 70), 0), Branch::Good);
+        assert_eq!(branch_from(&st(69, 70), 0), Branch::Normal); // avg 69.5 -> 69
+        assert_eq!(branch_from(&st(40, 40), 0), Branch::Poor);
+        assert_eq!(branch_from(&st(41, 40), 0), Branch::Poor); // avg 40.5 -> 40
+        assert_eq!(branch_from(&st(41, 41), 0), Branch::Normal);
     }
 
     #[test]
     fn evolve_combines_next_stage_branch_and_personality() {
         let h = History { feeds: 0, plays: 3, cleans: 0, snacks: 0 };
-        let f = evolve(2, &st(90, 90), &h, None);
+        let f = evolve(2, &st(90, 90), &h, None, 0);
         assert_eq!(
             f,
             Form { stage: 3, branch: Branch::Good, personality: Personality::Playful }
@@ -399,7 +407,7 @@ mod tests {
 
     #[test]
     fn evolve_caps_stage_at_max() {
-        let f = evolve(MAX_STAGE, &st(50, 50), &History::default(), None);
+        let f = evolve(MAX_STAGE, &st(50, 50), &History::default(), None, 0);
         assert_eq!(f.stage, MAX_STAGE);
     }
 }

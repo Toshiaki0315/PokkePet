@@ -50,6 +50,8 @@ const GAUGES: ReadonlyArray<readonly [string, keyof StateView]> = [
   ["親密度", "affinity"],
   ["空腹度", "hunger"],
   ["汚れ度", "dirtiness"],
+  ["しつけ度", "discipline"],
+  ["体重", "weight"],
 ];
 
 const actions = (
@@ -62,6 +64,7 @@ const actions = (
     ? { name: "play", label: "撫でる", icon: "🤚" }
     : { name: "play", label: "遊ぶ", icon: "🎾" },
   { name: "clean", label: "掃除", icon: "🧹" },
+  { name: "scold", label: "しつけ", icon: "😠" },
 ];
 
 const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -154,10 +157,10 @@ export default function App() {
         setError(null);
         setView(next);
         setReaction((prev) => ({
-          name: petting ? "wobble" : "hop",
+          name: petting || action === "scold" ? "wobble" : "hop",
           id: (prev?.id ?? 0) + 1,
         }));
-        cry(petting ? "tap" : action === "clean" ? "neutral" : "eat", next);
+        cry(petting ? "tap" : action === "scold" ? "sad" : action === "clean" ? "neutral" : "eat", next);
       },
       (e) => setError(errorText(e)),
     );

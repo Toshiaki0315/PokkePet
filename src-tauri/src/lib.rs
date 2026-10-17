@@ -1,4 +1,5 @@
 pub mod calls;
+pub mod care;
 pub mod dex;
 pub mod diary;
 pub mod evolution;

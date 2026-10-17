@@ -37,6 +37,8 @@ const base: StateView = {
   affinity: 10,
   hunger: 80,
   dirtiness: 5,
+  weight: 50,
+  discipline: 0,
   stage: 2,
   branch: "normal",
   personality: "calm",
@@ -99,7 +101,7 @@ describe("App", () => {
     expect(screen.queryByText(/段階 \d/)).toBeNull();
   });
 
-  it.each([["ご飯", "feed"], ["おやつ", "snack"], ["掃除", "clean"]])("%s button calls performAction(%s)", async (label, action) => {
+  it.each([["ご飯", "feed"], ["おやつ", "snack"], ["掃除", "clean"], ["しつけ", "scold"]])("%s button calls performAction(%s)", async (label, action) => {
     render(<App />);
     await userEvent.click(await screen.findByRole("button", { name: label }));
     expect(api.performAction).toHaveBeenCalledWith(action);
@@ -191,7 +193,7 @@ describe("App", () => {
       render(<App />);
       await screen.findByRole("img");
       await konami();
-      expect(screen.getAllByRole("progressbar")).toHaveLength(4);
+      expect(screen.getAllByRole("progressbar")).toHaveLength(6);
       await konami();
       expect(screen.queryByRole("progressbar")).toBeNull();
     });
@@ -202,7 +204,7 @@ describe("App", () => {
       await userEvent.keyboard("{ArrowUp}{ArrowDown}{ArrowDown}{ArrowDown}");
       expect(screen.queryByRole("progressbar")).toBeNull();
       await userEvent.keyboard("{ArrowUp}{ArrowUp}{ArrowUp}{ArrowDown}{ArrowDown}");
-      expect(screen.getAllByRole("progressbar")).toHaveLength(4);
+      expect(screen.getAllByRole("progressbar")).toHaveLength(6);
     });
 
     it("saves the gauge switch through the settings API when the command is used", async () => {
@@ -227,7 +229,7 @@ describe("App", () => {
       await screen.findByRole("img");
       await waitFor(() => expect(api.onSettingsChanged).toHaveBeenCalled());
       emitSettings(gaugesOn);
-      expect(await screen.findAllByRole("progressbar")).toHaveLength(4);
+      expect(await screen.findAllByRole("progressbar")).toHaveLength(6);
     });
   });
 
@@ -298,6 +300,7 @@ describe("App", () => {
       ["noon", "おひるだね"],
       ["evening", "こんばんは"],
       ["drowsy", "ねむくなってきた…"],
+      ["selfish", "ねえねえ、かまって！"],
     ] as const)("shows a speech bubble for %s", async (bubble, text) => {
       api.getState.mockResolvedValue(withExpression({ bubble }));
       render(<App />);
@@ -346,7 +349,7 @@ describe("App", () => {
       await screen.findByRole("img");
       expect(screen.queryByText(/段階 \d/)).toBeNull();
       await konami();
-      expect(screen.getAllByRole("progressbar")).toHaveLength(4);
+      expect(screen.getAllByRole("progressbar")).toHaveLength(6);
       expect(screen.queryByText(/段階 \d/)).toBeNull();
     });
 
@@ -358,7 +361,7 @@ describe("App", () => {
       expect(within(display).getByRole("img")).toBeInTheDocument();
       expect(within(display).getByRole("status")).toHaveTextContent("たのしい！");
       expect(within(display).queryByRole("button")).toBeNull();
-      expect(within(controls).getAllByRole("button")).toHaveLength(4);
+      expect(within(controls).getAllByRole("button")).toHaveLength(5);
       expect(within(controls).queryByRole("img")).toBeNull();
       expect(within(controls).queryByRole("status")).toBeNull();
     });
@@ -367,7 +370,7 @@ describe("App", () => {
       enableGauges();
       render(<App />);
       const display = await screen.findByRole("region", { name: "画面" });
-      expect(within(display).getAllByRole("progressbar")).toHaveLength(4);
+      expect(within(display).getAllByRole("progressbar")).toHaveLength(6);
       expect(display).toHaveClass("compact"); // ゲージ分の高さを確保するためキャラを小さくする
     });
 
@@ -815,7 +818,7 @@ describe("App", () => {
       const names = within(screen.getByRole("group", { name: "ボタン" }))
         .getAllByRole("button")
         .map((b) => b.getAttribute("aria-label"));
-      expect(names).toEqual(["ご飯", "おやつ", "遊ぶ", "掃除"]);
+      expect(names).toEqual(["ご飯", "おやつ", "遊ぶ", "掃除", "しつけ"]);
     });
 
     it("makes the pet hop like the other care buttons", async () => {
@@ -1282,5 +1285,21 @@ describe("sound tuning", () => {
     api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, soundVolume: 90, soundPitch: -2 });
     render(<App />);
     await waitFor(() => expect(sound.useSound).toHaveBeenLastCalledWith(true, { volume: 90, pitch: -2 }));
+  });
+});
+
+describe("care quality", () => {
+  it("shows the discipline and weight gauges when the gauges are on", async () => {
+    api.getSettings.mockResolvedValue(gaugesOn);
+    api.getState.mockResolvedValue({ ...base, discipline: 30, weight: 62 });
+    render(<App />);
+    expect(await screen.findByRole("progressbar", { name: "しつけ度" })).toHaveAttribute("aria-valuenow", "30");
+    expect(screen.getByRole("progressbar", { name: "体重" })).toHaveAttribute("aria-valuenow", "62");
+  });
+
+  it("scolding makes the pet cry sadly", async () => {
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "しつけ" }));
+    await waitFor(() => expect(sound.play).toHaveBeenCalledWith("sad", { personality: "calm", stage: 2 }));
   });
 });

@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::expression::LOW_MAX;
+use crate::expression::{HIGH_MIN, LOW_MAX};
 
 pub const PARAM_MAX: u8 = 100;
 const AFFINITY_LOSS: u8 = 1;
@@ -42,6 +42,11 @@ impl Status {
     /// 世話が足りていない状態か（おなかがすいている、またはご機嫌が低い）。
     pub fn is_neglected(&self) -> bool {
         self.hunger <= LOW_MAX || self.mood <= LOW_MAX
+    }
+
+    /// おなかもご機嫌も十分満たされている（どちらも「高い」）。わがままを言い出せる状態。
+    pub fn is_content(&self) -> bool {
+        self.hunger >= HIGH_MIN && self.mood >= HIGH_MIN
     }
 
     /// ほったらかしにされて、親密度が少し下がる。
@@ -196,6 +201,13 @@ mod tests {
         let mut s = Status::new(50, 50, 50, DIRTY_THRESHOLD - 2);
         s.tick();
         assert_eq!(s.mood, 49);
+    }
+
+    #[test]
+    fn content_means_both_full_and_cheerful() {
+        assert!(Status::new(70, 50, 70, 0).is_content());
+        assert!(!Status::new(69, 50, 90, 0).is_content());
+        assert!(!Status::new(90, 50, 69, 0).is_content());
     }
 
     #[test]
