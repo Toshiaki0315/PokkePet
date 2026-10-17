@@ -39,6 +39,12 @@ pub enum Bubble {
     Rest,
     /// 席を離れていた飼い主が戻ってきた（「おかえり」）。
     WelcomeBack,
+    /// Mac の電池が少ない。
+    BatteryLow,
+    /// インターネットにつながっていない。
+    Offline,
+    /// 季節のできごと（言うことは `StateView::event` に入っている）。
+    Event,
     /// 時間帯のあいさつ（ほかに伝えることがないときだけ）。
     Morning,
     Noon,

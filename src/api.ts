@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 export type Branch = "poor" | "normal" | "good" | "legend";
 export type Personality = "calm" | "playful" | "gluttonous" | "tidy";
 export type Level = "low" | "mid" | "high";
-export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping" | "morning" | "noon" | "evening" | "drowsy" | "selfish" | "sick" | "dying" | "rest" | "welcomeback";
+export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping" | "morning" | "noon" | "evening" | "drowsy" | "selfish" | "sick" | "dying" | "rest" | "welcomeback" | "batterylow" | "offline" | "event";
 export type Chronotype = "morning" | "night" | "neutral";
 export type PlayAction = "play" | "pet";
 export type ActionName = "feed" | "snack" | "play" | "clean" | "scold" | "cure";
@@ -40,6 +40,16 @@ export interface StateView {
   sleeping: boolean;
   /** 電源ボタンで寝かされている（おやすみ時間とは関係なく）。もう一度押すと起こせる */
   forcedSleep: boolean;
+  /** Mac の電池が少ない（電源につながっていないとき） */
+  batteryLow: boolean;
+  /** Mac が充電中 */
+  charging: boolean;
+  /** インターネットにつながっていない */
+  offline: boolean;
+  /** Mac がダークモード */
+  darkMode: boolean;
+  /** 今日の季節のできごと（ない日は null） */
+  event: { emoji: string; message: string } | null;
   /** ペットの名前（未設定なら null） */
   name: string | null;
   /** 孵化の演出が終わったのに、まだ名前がない */
@@ -125,6 +135,8 @@ export interface Settings {
   launchAtLogin: boolean;
   /** 作業に寄り添う: Mac を操作している時間（操作の有無だけ）を、いっしょにいた時間として数える */
   companionEnabled: boolean;
+  /** Mac の状態（電池・ネット・ダークモード）にペットが反応する */
+  systemReactions: boolean;
   /** 長く休憩なしで作業しているとき、「ちょっと休もうよ」と声をかける */
   breakReminder: boolean;
   /** 操作する時間帯から生活リズムを学んで、おやすみ時間を自動で合わせる */

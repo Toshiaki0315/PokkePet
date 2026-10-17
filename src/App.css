@@ -223,3 +223,10 @@ body { overflow: hidden; user-select: none; }
 .gauges.peek .gauge { display: grid; grid-template-columns: 1fr; gap: 2px; font-size: 13px; font-weight: 700; line-height: 1.25; }
 .gauges.peek .gauge progress { height: 12px; }
 .name-prompt .note { font-weight: 400; font-size: 11px; color: #555; }
+
+/* 季節のできごとの飾りと、充電中のしるし(名前の帯の左端) */
+.titlebar .charm, .titlebar .charging { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); font-size: 16px; line-height: 1; }
+.titlebar .charm + .charging { left: 28px; }
+
+/* Mac がダークモードのときは、画面も少し夜らしく */
+.container[data-dark="true"] .screen { filter: brightness(0.82) saturate(0.95); }

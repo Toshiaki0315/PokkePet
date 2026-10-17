@@ -1,6 +1,6 @@
 //! おやすみ時間（ローカル時刻）。この間はキャラが眠り、状態の減りがゆっくりになる。
 
-use chrono::{Local, Offset, TimeZone};
+use chrono::{DateTime, Datelike, Local, Offset, TimeZone};
 
 /// 既定のおやすみ時間（開始・終了の時）。
 pub const DEFAULT_SLEEP_START_HOUR: u8 = 23;
@@ -26,6 +26,12 @@ const DAY_SECS: u64 = 24 * 60 * 60;
 pub fn local_hour(unix_secs: u64, utc_offset_secs: i32) -> u8 {
     let local = i128::from(unix_secs) + i128::from(utc_offset_secs);
     (local.rem_euclid(i128::from(DAY_SECS)) / 3600) as u8
+}
+
+/// `unix_secs`（UTC）の、UTC からの差 `utc_offset_secs` のローカル時刻での（月, 日）。
+pub fn local_month_day(unix_secs: u64, utc_offset_secs: i32) -> (u32, u32) {
+    let local = i64::try_from(unix_secs).unwrap_or(0).saturating_add(i64::from(utc_offset_secs));
+    DateTime::from_timestamp(local, 0).map_or((1, 1), |dt| (dt.month(), dt.day()))
 }
 
 /// `unix_secs`（UTC）が、UTC からの差 `utc_offset_secs` のローカル時刻でおやすみ時間か。
@@ -62,6 +68,16 @@ mod tests {
 
     fn window(start_hour: u8, end_hour: u8) -> SleepWindow {
         SleepWindow { start_hour, end_hour }
+    }
+
+    #[test]
+    fn the_local_date_follows_the_offset() {
+        // 2026-01-01 00:00:00 UTC
+        let new_year = 1_767_225_600;
+        assert_eq!(local_month_day(new_year, 0), (1, 1));
+        assert_eq!(local_month_day(new_year - 1, 0), (12, 31));
+        assert_eq!(local_month_day(new_year - 1, 9 * 3600), (1, 1), "already the new year in Tokyo");
+        assert_eq!(local_month_day(new_year, -3600), (12, 31));
     }
 
     #[test]

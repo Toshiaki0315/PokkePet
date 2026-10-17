@@ -21,7 +21,7 @@ vi.mock("./sound", () => ({
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 const unlisten = vi.fn();
 
@@ -101,6 +101,7 @@ describe("Settings dialog", () => {
 
   it.each([
     ["作業に寄り添う", "companionEnabled"],
+    ["Mac の状態に反応", "systemReactions"],
     ["休憩の声かけ", "breakReminder"],
     ["おやすみ時間を自動で合わせる", "autoSleep"],
   ] as const)("shows and saves the %s switch", async (name, key) => {

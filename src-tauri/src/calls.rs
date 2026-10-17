@@ -27,7 +27,7 @@ impl Call {
             Bubble::Selfish => Some(Call::Selfish),
             Bubble::Sick => Some(Call::Sick),
             Bubble::Dying => Some(Call::Dying),
-            Bubble::Happy | Bubble::Welcome | Bubble::Sleeping | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy | Bubble::Rest | Bubble::WelcomeBack => None,
+            Bubble::Happy | Bubble::Welcome | Bubble::Sleeping | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy | Bubble::Rest | Bubble::WelcomeBack | Bubble::BatteryLow | Bubble::Offline | Bubble::Event => None,
         }
     }
 
@@ -99,7 +99,7 @@ mod tests {
         assert_eq!(Call::from_bubble(Some(Bubble::Selfish)), Some(Call::Selfish));
         assert_eq!(Call::from_bubble(Some(Bubble::Sick)), Some(Call::Sick));
         assert_eq!(Call::from_bubble(Some(Bubble::Dying)), Some(Call::Dying));
-        for other in [Bubble::Happy, Bubble::Welcome, Bubble::Sleeping, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy, Bubble::Rest, Bubble::WelcomeBack] {
+        for other in [Bubble::Happy, Bubble::Welcome, Bubble::Sleeping, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy, Bubble::Rest, Bubble::WelcomeBack, Bubble::BatteryLow, Bubble::Offline, Bubble::Event] {
             assert_eq!(Call::from_bubble(Some(other)), None);
         }
         assert_eq!(Call::from_bubble(None), None);
