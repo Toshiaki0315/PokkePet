@@ -6,6 +6,7 @@ import {
   graduate,
   playMinigame,
   setName,
+  togglePower,
   getSettings,
   getState,
   onPopupVisibility,
@@ -30,6 +31,7 @@ import { Grave } from "./Grave";
 import { MiniGame } from "./MiniGame";
 import { NamePrompt } from "./NamePrompt";
 import { useHiddenCommand } from "./hiddenCommand";
+import { useHeldKey } from "./heldKey";
 import { HatchSequence } from "./hatch";
 import {
   cryForGesture,
@@ -97,6 +99,9 @@ export default function App() {
   useListener(onPopupVisibility, setPopupOpen);
 
   // 隠しコマンドでゲージ表示を切り替える。
+  // ⌘P を押している間だけ、画面の上にゲージを重ねて見せる。
+  const peekGauges = useHeldKey("p", true);
+
   useHiddenCommand(GAUGE_COMMAND, () => {
     saveSettings({ ...settings, showGauges: !settings.showGauges }).then(
       setSettings,
@@ -228,6 +233,17 @@ export default function App() {
     );
   };
 
+  // 電源ボタン: ペットを無理やり寝かせる（寝ている間に押すと起こす）。
+  const power = () => {
+    togglePower().then(
+      (next) => {
+        setError(null);
+        setView(next);
+      },
+      (e) => setError(errorText(e)),
+    );
+  };
+
   const bury = () => {
     buryPet().then(
       (next) => {
@@ -276,6 +292,17 @@ export default function App() {
       }
     >
       <div className="device">
+        <button
+          type="button"
+          className="power"
+          aria-label="電源"
+          aria-pressed={view.forcedSleep}
+          title={view.forcedSleep ? "電源（起こす）" : "電源（寝かせる）"}
+          disabled={view.stage <= 1 || view.dead || (view.sleeping && !view.forcedSleep)}
+          onClick={power}
+        >
+          ⏻
+        </button>
         <section
           className={`screen${settings.showGauges ? " compact" : ""}`}
           aria-label="画面"
@@ -352,8 +379,8 @@ export default function App() {
               </div>
             )}
           </div>
-          {settings.showGauges && (
-            <div className="gauges">
+          {(settings.showGauges || peekGauges) && (
+            <div className={settings.showGauges ? "gauges" : "gauges peek"}>
               {GAUGES.map(([label, key]) => (
                 <label key={key} className="gauge">
                   <span>{label}</span>

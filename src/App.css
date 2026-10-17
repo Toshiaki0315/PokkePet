@@ -132,7 +132,7 @@ body { overflow: hidden; user-select: none; }
 @media (prefers-reduced-motion: reduce) { .sprite.sleeping { animation: none; } }
 
 /* --- 名前 --- */
-.screen > .name { position: absolute; top: 5px; right: 6px; margin: 0; font-size: 10px; font-weight: 700; color: #3b3f55; background: rgba(255, 255, 255, 0.75); padding: 1px 6px; border-radius: 8px; z-index: 2; }
+.screen > .name { position: absolute; top: 5px; right: 6px; margin: 0; font-size: 15px; font-weight: 700; color: #3b3f55; background: rgba(255, 255, 255, 0.78); padding: 2px 10px; border-radius: 10px; z-index: 2; }
 .screen > .name-prompt { position: absolute; inset: 0; z-index: 4; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; background: rgba(255, 255, 255, 0.88); color: #222; }
 .name-prompt p { margin: 0; font-weight: 700; font-size: 13px; }
 .name-prompt input { width: 140px; padding: 6px 8px; border: 1px solid #0004; border-radius: 8px; font-size: 14px; text-align: center; user-select: text; }
@@ -208,3 +208,13 @@ body { overflow: hidden; user-select: none; }
 .sick-mark { position: absolute; left: 6px; top: 4px; z-index: 1; font-size: 22px; line-height: 1; animation: sick-wiggle 1.6s ease-in-out infinite; pointer-events: none; }
 @keyframes sick-wiggle { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
 @media (prefers-reduced-motion: reduce) { .sick-mark { animation: none; } }
+
+/* 電源ボタン(本体の右上の縁): 押すとペットを無理やり寝かせる */
+.power { position: absolute; top: 4px; right: 20px; width: 22px; height: 16px; padding: 0; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.45); background: rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.9); font-size: 11px; line-height: 1; cursor: pointer; }
+.power:hover:not(:disabled) { background: rgba(255, 255, 255, 0.32); }
+.power[aria-pressed="true"] { background: #ffe58a; color: #5a4300; border-color: #ffe58a; }
+.power:disabled { opacity: 0.35; cursor: default; }
+.power:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+
+/* ⌘P を押している間だけ、画面の下に重ねて出すゲージ */
+.gauges.peek { position: absolute; left: 0; right: 0; bottom: 0; z-index: 4; background: rgba(255, 255, 255, 0.93); box-shadow: 0 -2px 6px rgba(0, 0, 0, 0.15); }

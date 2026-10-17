@@ -47,6 +47,11 @@ impl Rng {
         z ^ (z >> 31)
     }
 
+    /// コイン投げ（true か false を半々で）。
+    pub fn next_bool(&mut self) -> bool {
+        self.next_u64() >> 63 == 0
+    }
+
     /// 答えの手をランダムに選ぶ。
     pub fn next_side(&mut self) -> Side {
         if self.next_u64() >> 63 == 0 {
@@ -59,6 +64,16 @@ impl Rng {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn coin_flips_are_reproducible_and_land_both_ways() {
+        let flips = |seed| {
+            let mut rng = Rng::new(seed);
+            (0..64).map(|_| rng.next_bool()).collect::<Vec<_>>()
+        };
+        assert_eq!(flips(5), flips(5));
+        assert!(flips(5).contains(&true) && flips(5).contains(&false));
+    }
 
     #[test]
     fn sides_are_parsed_from_their_names() {

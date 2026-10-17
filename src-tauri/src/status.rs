@@ -33,6 +33,7 @@ const WIN_MOOD: u8 = 10;
 const WIN_AFFINITY: u8 = 3;
 const PET_MOOD: u8 = 10;
 const PET_AFFINITY: u8 = 3;
+const BEDTIME_MOOD: u8 = 15;
 const STROKE_MOOD: u8 = 2;
 const STROKE_AFFINITY: u8 = 1;
 /// 汚れ度がこの値以上だと、ティックごとのご機嫌低下が大きくなる。
@@ -100,6 +101,11 @@ impl Status {
         self.affinity = raise(self.affinity, PET_AFFINITY);
     }
 
+    /// 無理やり寝かしつけた。ぐっすり眠れてご機嫌になるか、寝たくなくてご機嫌が悪くなるか（`good` で決まる）。
+    pub fn put_to_bed(&mut self, good: bool) {
+        self.mood = if good { raise(self.mood, BEDTIME_MOOD) } else { self.mood.saturating_sub(BEDTIME_MOOD) };
+    }
+
     /// マウスでなでられた。ほんの少しだけご機嫌と親密度が上がる。
     pub fn stroke(&mut self) {
         self.mood = raise(self.mood, STROKE_MOOD);
@@ -148,6 +154,20 @@ mod tests {
         s.feed();
         assert_eq!((s.hunger, s.mood, s.affinity), (90, 55, 52));
         assert_eq!(s.dirtiness, 50);
+    }
+
+    #[test]
+    fn being_put_to_bed_either_cheers_the_pet_up_or_upsets_it() {
+        let mut happy = base();
+        happy.put_to_bed(true);
+        assert_eq!(happy.mood, 65);
+        let mut grumpy = base();
+        grumpy.put_to_bed(false);
+        assert_eq!(grumpy.mood, 35);
+        let (mut top, mut bottom) = (Status::new(95, 50, 50, 0), Status::new(5, 50, 50, 0));
+        top.put_to_bed(true);
+        bottom.put_to_bed(false);
+        assert_eq!((top.mood, bottom.mood), (100, 0));
     }
 
     #[test]

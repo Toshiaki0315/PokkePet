@@ -37,6 +37,8 @@ export interface StateView {
   hatching: boolean;
   /** おやすみ時間中（ローカル時刻） */
   sleeping: boolean;
+  /** 電源ボタンで寝かされている（おやすみ時間とは関係なく）。もう一度押すと起こせる */
+  forcedSleep: boolean;
   /** ペットの名前（未設定なら null） */
   name: string | null;
   /** 孵化の演出が終わったのに、まだ名前がない */
@@ -80,6 +82,11 @@ export function setName(name: string): Promise<StateView> {
 }
 
 /** 旅立ちを見送り、次の世代の卵を迎える。 */
+/** 電源ボタン。ペットを無理やり寝かせる（ご機嫌が上がるか下がるかはランダム）。寝ている間にもう一度押すと起こす。 */
+export function togglePower(): Promise<StateView> {
+  return invoke<StateView>("toggle_power");
+}
+
 /** 亡くなったペットを見送り、新しい卵を迎える。 */
 export function buryPet(): Promise<StateView> {
   return invoke<StateView>("bury_pet");
