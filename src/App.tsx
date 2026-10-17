@@ -395,14 +395,15 @@ export default function App() {
               type="button"
               className="power"
               aria-label="電源"
-              aria-pressed={view.forcedSleep}
-              title={view.forcedSleep ? "電源（起こす）" : "電源（寝かせる）"}
-              disabled={
-                view.out ||
-                view.stage <= 1 ||
-                view.dead ||
-                (view.sleeping && !view.forcedSleep)
+              aria-pressed={view.sleeping}
+              title={
+                view.sleeping
+                  ? view.forcedSleep
+                    ? "電源（起こす）"
+                    : "電源（無理やり起こす。不機嫌になります）"
+                  : "電源（寝かせる）"
               }
+              disabled={view.out || view.stage <= 1 || view.dead}
               onClick={power}
             >
               ⏻

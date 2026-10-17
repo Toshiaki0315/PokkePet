@@ -36,6 +36,9 @@ const WIN_AFFINITY: u8 = 3;
 const PET_MOOD: u8 = 10;
 const PET_AFFINITY: u8 = 3;
 const BEDTIME_MOOD: u8 = 15;
+/// 眠っているのを無理やり起こされたとき: ご機嫌が大きく下がり、親密度も少し下がる。
+pub const WOKEN_MOOD_LOSS: u8 = 20;
+pub const WOKEN_AFFINITY_LOSS: u8 = 3;
 const STROKE_MOOD: u8 = 2;
 const STROKE_AFFINITY: u8 = 1;
 /// 汚れ度がこの値以上だと、ティックごとのご機嫌低下が大きくなる。
@@ -114,6 +117,12 @@ impl Status {
         self.mood = if good { raise(self.mood, BEDTIME_MOOD) } else { self.mood.saturating_sub(BEDTIME_MOOD) };
     }
 
+    /// 眠っているのを無理やり起こされた。不機嫌になり、少し嫌われる。
+    pub fn woken_up(&mut self) {
+        self.mood = self.mood.saturating_sub(WOKEN_MOOD_LOSS);
+        self.affinity = self.affinity.saturating_sub(WOKEN_AFFINITY_LOSS);
+    }
+
     /// マウスでなでられた。ほんの少しだけご機嫌と親密度が上がる。
     pub fn stroke(&mut self) {
         self.mood = raise(self.mood, STROKE_MOOD);
@@ -162,6 +171,16 @@ mod tests {
         s.feed();
         assert_eq!((s.hunger, s.mood, s.affinity), (90, 55, 52));
         assert_eq!(s.dirtiness, 50);
+    }
+
+    #[test]
+    fn being_woken_up_makes_the_pet_grumpy_and_a_little_less_fond() {
+        let mut s = base();
+        s.woken_up();
+        assert_eq!((s.mood, s.affinity, s.hunger, s.dirtiness), (30, 47, 50, 50));
+        let mut low = Status::new(5, 2, 50, 0);
+        low.woken_up();
+        assert_eq!((low.mood, low.affinity), (0, 0));
     }
 
     #[test]
