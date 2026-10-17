@@ -292,22 +292,24 @@ export default function App() {
       }
     >
       <div className="device">
-        <button
-          type="button"
-          className="power"
-          aria-label="電源"
-          aria-pressed={view.forcedSleep}
-          title={view.forcedSleep ? "電源（起こす）" : "電源（寝かせる）"}
-          disabled={view.stage <= 1 || view.dead || (view.sleeping && !view.forcedSleep)}
-          onClick={power}
-        >
-          ⏻
-        </button>
         <section
           className={`screen${settings.showGauges ? " compact" : ""}`}
           aria-label="画面"
         >
-          {view.name && <p className="name">{view.name}</p>}
+          <div className="titlebar">
+            {view.name && <p className="name">{view.name}</p>}
+            <button
+              type="button"
+              className="power"
+              aria-label="電源"
+              aria-pressed={view.forcedSleep}
+              title={view.forcedSleep ? "電源（起こす）" : "電源（寝かせる）"}
+              disabled={view.stage <= 1 || view.dead || (view.sleeping && !view.forcedSleep)}
+              onClick={power}
+            >
+              ⏻
+            </button>
+          </div>
           {view.graduating && stayedGeneration !== view.generation && (
             <Farewell
               name={view.name}

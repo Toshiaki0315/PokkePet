@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings, StateView } from "./api";
@@ -369,7 +369,8 @@ describe("App", () => {
       const controls = screen.getByRole("group", { name: "ボタン" });
       expect(within(display).getByRole("img")).toBeInTheDocument();
       expect(within(display).getByRole("status")).toHaveTextContent("たのしい！");
-      expect(within(display).queryByRole("button")).toBeNull();
+      // 画面の中のボタンは、上の帯の電源ボタンだけ
+      expect(within(display).getAllByRole("button").map((b) => b.getAttribute("aria-label"))).toEqual(["電源"]);
       expect(within(controls).getAllByRole("button")).toHaveLength(5);
       expect(within(controls).queryByRole("img")).toBeNull();
       expect(within(controls).queryByRole("status")).toBeNull();
@@ -504,6 +505,17 @@ describe("App", () => {
       expect(api.ackHatch).toHaveBeenCalledTimes(1);
       await waitFor(() => expect(screen.getByRole("img")).toHaveAttribute("alt", expect.stringContaining("stage 2")));
       expect(screen.queryByTestId("hatch-flash")).toBeNull();
+    });
+
+    it("the newborn has its eyes open even if it hatches at night", async () => {
+      api.getState.mockResolvedValue({ ...hatching, sleeping: true });
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      showPopup(true);
+      await tick(HATCH_SHAKE_MS + HATCH_FLASH_MS + 40);
+      await waitFor(() => expect(screen.getByRole("img")).toHaveAttribute("alt", expect.stringContaining("stage 2")));
+      expect(screen.getByRole("img").getAttribute("src")).not.toContain("-sleep");
     });
 
     it("taps while the egg shakes and cheers when the newborn appears", async () => {
@@ -1426,5 +1438,38 @@ describe("hold cmd+p to peek at the gauges", () => {
     const bar = await screen.findByRole("progressbar", { name: "ご機嫌" });
     fireEvent.keyDown(window, { key: "p", metaKey: true });
     expect(bar.closest(".gauges")).not.toHaveClass("peek");
+  });
+});
+
+describe("title bar and closed eyes", () => {
+  it("puts the power button at the right end of the title bar, after the name", async () => {
+    api.getState.mockResolvedValue({ ...base, name: "ごま" });
+    render(<App />);
+    const bar = (await screen.findByText("ごま")).closest(".titlebar") as HTMLElement;
+    expect(bar.lastElementChild).toBe(screen.getByRole("button", { name: "電源" }));
+    expect(bar.firstElementChild).toHaveTextContent("ごま");
+  });
+
+  it("keeps the title bar (with the power button) even for an unnamed pet", async () => {
+    render(<App />);
+    const button = await screen.findByRole("button", { name: "電源" });
+    expect(button.closest(".titlebar")).not.toBeNull();
+    expect(document.querySelector(".titlebar .name")).toBeNull();
+  });
+
+  it("shows the eyes-closed sprite while the pet sleeps and the open-eyed one when awake", async () => {
+    api.getState.mockResolvedValue({ ...base, stage: 5, personality: "playful", branch: "good", sleeping: true });
+    render(<App />);
+    expect(await screen.findByRole("img")).toHaveAttribute("src", "/sprites/5-good-playful-sleep.png");
+    cleanup();
+    api.getState.mockResolvedValue({ ...base, stage: 5, personality: "playful", branch: "good", sleeping: false });
+    render(<App />);
+    expect(await screen.findByRole("img")).toHaveAttribute("src", "/sprites/5-good-playful.png");
+  });
+
+  it("an egg looks the same asleep or awake", async () => {
+    api.getState.mockResolvedValue({ ...base, stage: 1, sleeping: true });
+    render(<App />);
+    expect(await screen.findByRole("img")).toHaveAttribute("src", "/sprites/egg.png");
   });
 });

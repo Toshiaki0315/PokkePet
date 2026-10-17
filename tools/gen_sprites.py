@@ -116,7 +116,7 @@ def egg():
     return c.image()
 
 
-def creature(stage, branch, personality):
+def creature(stage, branch, personality, asleep=False):
     body_c, belly_c, accent = PALETTE[personality]
     if branch == "poor":
         body_c = mix(body_c, GRAY, 0.45)
@@ -196,7 +196,7 @@ def creature(stage, branch, personality):
     c.outline()
 
     # --- 表情 -------------------------------------------------------------
-    face(c, personality, branch, stage, cx, cy, rx, ry)
+    face(c, personality, branch, stage, cx, cy, rx, ry, asleep)
 
     # --- 分岐の演出 -------------------------------------------------------
     if branch in GOOD_LIKE and stage >= 5:
@@ -299,14 +299,18 @@ def accessory(c, personality, stage, cx, cy, rx, ry, top):
         c.polygon([(lx, ly + 1), (lx + 2, ly - 2), (lx + 4, ly + 1)], LEAF)
 
 
-def face(c, personality, branch, stage, cx, cy, rx, ry):
+def face(c, personality, branch, stage, cx, cy, rx, ry, asleep=False):
     ex = max(2.2, rx * 0.42)
     ey = cy - ry * 0.12
     big = stage >= 6
     for sx in (-1, 1):
         x = round(cx - 0.5 + sx * ex)
         y = round(ey)
-        if branch in GOOD_LIKE:  # にっこり ^ ^
+        if asleep:  # 目を閉じる（下にふくらむ ∪ の線。「にっこり ^ ^」の逆）
+            half = 2 if big else 1
+            for dx in range(-half, half + 1):
+                c.set(x + dx, y + (0 if abs(dx) == half else 1), DARK)
+        elif branch in GOOD_LIKE:  # にっこり ^ ^
             for dx, dy in ((-2, 1), (-1, 0), (0, 0), (1, 0), (2, 1)):
                 c.set(x + dx, y + dy, DARK)
             if big:
@@ -330,7 +334,10 @@ def face(c, personality, branch, stage, cx, cy, rx, ry):
                 c.set(x + sx, brow_y + 1, DARK)
                 c.set(x, y + h // 2 + 1, TEAR)  # なみだ
     mx, my = round(cx - 0.5), round(cy + ry * 0.42)
-    if branch in GOOD_LIKE:  # 口をあけて笑う
+    if asleep:  # ねむっているので、口はちいさく閉じる
+        for dx in range(-1, 2):
+            c.set(mx + dx, my, DARK)
+    elif branch in GOOD_LIKE:  # 口をあけて笑う
         for dx in range(-2, 3):
             c.set(mx + dx, my, DARK)
         for dx in range(-1, 2):
@@ -367,6 +374,11 @@ def all_sprites():
                 yield f"{stage}-{branch}-{personality}.png", creature(stage, branch, personality)
     for personality in PERSONALITIES:
         yield f"10-{HIDDEN_BRANCH}-{personality}.png", creature(10, HIDDEN_BRANCH, personality)
+    # ねむっているときの絵（目を閉じている）。卵は目がないので、同じ絵を使う。
+    for stage in range(2, 11):
+        for branch in BRANCHES + ([HIDDEN_BRANCH] if stage == 10 else []):
+            for personality in PERSONALITIES:
+                yield f"{stage}-{branch}-{personality}-sleep.png", creature(stage, branch, personality, asleep=True)
 
 
 def contact_sheet(sprites, path, scale=3):
