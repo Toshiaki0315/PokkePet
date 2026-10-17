@@ -8,6 +8,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::care::{Care, SICK_MOOD_LOSS};
+use crate::companion::{Companion, Observation};
 use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
 use crate::dex::form_key;
 use crate::diary::{self, DiaryEntry, DiaryEvent, DAY_SECS};
@@ -77,6 +78,9 @@ pub struct GameState {
     /// お世話の質（体重・しつけ度・お世話ミス・わがまま）。
     #[serde(default)]
     pub care: Care,
+    /// Mac を操作している時間（いっしょにいた時間）と、生活リズム。
+    #[serde(default)]
+    pub companion: Companion,
     /// 亡くなっている（きびしいモードで、病気や衰弱を放置した）。新しい卵を迎えるまで、時間は止まる。
     #[serde(default)]
     pub dead: bool,
@@ -170,6 +174,7 @@ impl GameState {
             born_unix: now_unix,
             anniversaries: 0,
             care: Care::default(),
+            companion: Companion::default(),
             dead: false,
             forced_sleep_until: None,
             strict: false,
@@ -195,6 +200,19 @@ impl GameState {
         self.remember(farewell);
         self.start_next_generation(Some(self.form.personality));
         Ok(())
+    }
+
+    /// Mac の操作を観測する。操作している時間は、いっしょにいた時間として数え、30 分ごとに親密度が少し上がる
+    /// （孵化したペットだけ。亡くなっているときは何もしない）。
+    pub fn observe_activity(&mut self, now_unix: u64, idle_secs: u64, local_hour: u8) -> Observation {
+        if self.dead {
+            return Observation::default();
+        }
+        let obs = self.companion.observe(now_unix, idle_secs, local_hour);
+        if self.form.stage >= 2 {
+            self.status.affinity = self.status.affinity.saturating_add(obs.affinity_gain).min(100);
+        }
+        obs
     }
 
     /// 電源ボタンで寝かされている最中か。
@@ -1333,6 +1351,42 @@ mod tests {
         run_ticks(&mut dead, crate::care::FATAL_TICKS);
         assert!(dead.toggle_power(true).is_err());
         assert!(dead.forced_sleep_until.is_none());
+    }
+
+    #[test]
+    fn working_alongside_the_pet_raises_its_affinity_but_not_an_eggs_or_a_dead_pets() {
+        let hatched = |secs: u64| {
+            let mut s = hatched_state();
+            s.status.affinity = 10;
+            s.observe_activity(1_000, 0, 9);
+            for i in 1..=secs / 10 {
+                s.observe_activity(1_000 + i * 10, 0, 9);
+            }
+            s
+        };
+        assert_eq!(hatched(crate::companion::AFFINITY_EVERY_SECS).status.affinity, 11);
+        assert_eq!(hatched(10).status.affinity, 10);
+        let mut egg = new_state();
+        egg.observe_activity(1_000, 0, 9);
+        egg.observe_activity(1_000 + 60, 0, 9);
+        assert_eq!(egg.status.affinity, 0);
+        assert_eq!(egg.companion.total_secs, 60, "the time together still counts");
+        let mut dead = doomed_state();
+        run_ticks(&mut dead, crate::care::FATAL_TICKS);
+        let before = dead.clone();
+        assert_eq!(dead.observe_activity(9_999, 0, 9), Observation::default());
+        assert_eq!(dead, before);
+    }
+
+    #[test]
+    fn the_affinity_gained_while_working_stops_at_the_maximum() {
+        let mut s = hatched_state();
+        s.status.affinity = 100;
+        s.observe_activity(1_000, 0, 9);
+        for i in 1..=(crate::companion::AFFINITY_EVERY_SECS / 10) {
+            s.observe_activity(1_000 + i * 10, 0, 9);
+        }
+        assert_eq!(s.status.affinity, 100);
     }
 
     #[test]

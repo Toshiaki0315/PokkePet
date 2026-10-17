@@ -4,7 +4,8 @@ import { listen } from "@tauri-apps/api/event";
 export type Branch = "poor" | "normal" | "good" | "legend";
 export type Personality = "calm" | "playful" | "gluttonous" | "tidy";
 export type Level = "low" | "mid" | "high";
-export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping" | "morning" | "noon" | "evening" | "drowsy" | "selfish" | "sick" | "dying";
+export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping" | "morning" | "noon" | "evening" | "drowsy" | "selfish" | "sick" | "dying" | "rest" | "welcomeback";
+export type Chronotype = "morning" | "night" | "neutral";
 export type PlayAction = "play" | "pet";
 export type ActionName = "feed" | "snack" | "play" | "clean" | "scold" | "cure";
 
@@ -122,6 +123,12 @@ export interface Settings {
   soundPitch: number;
   /** ログイン時にアプリを自動で起動する */
   launchAtLogin: boolean;
+  /** 作業に寄り添う: Mac を操作している時間（操作の有無だけ）を、いっしょにいた時間として数える */
+  companionEnabled: boolean;
+  /** 長く休憩なしで作業しているとき、「ちょっと休もうよ」と声をかける */
+  breakReminder: boolean;
+  /** 操作する時間帯から生活リズムを学んで、おやすみ時間を自動で合わせる */
+  autoSleep: boolean;
   /** きびしいモード: 病気や衰弱を放っておくと、お別れがある */
   strictMode: boolean;
   /** おやすみ時間の開始・終了（0〜23時）。同じ値ならおやすみなし */
@@ -181,6 +188,10 @@ export interface DiaryEntry {
 export interface DiaryView {
   /** いっしょに過ごした日数（生まれた日が 1 日目） */
   daysTogether: number;
+  /** いっしょに作業した時間の合計（分） */
+  togetherMinutes: number;
+  /** 生活リズムから学んだ朝型・夜型（まだ学べていなければ null） */
+  chronotype: Chronotype | null;
   /** 新しい順 */
   entries: DiaryEntry[];
 }

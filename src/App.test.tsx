@@ -311,6 +311,8 @@ describe("App", () => {
       ["selfish", "ねえねえ、かまって！"],
       ["sick", "きもちわるい…"],
       ["dying", "たすけて…もう、げんかい…"],
+      ["rest", "ちょっと休もうよ"],
+      ["welcomeback", "おかえり！"],
     ] as const)("shows a speech bubble for %s", async (bubble, text) => {
       api.getState.mockResolvedValue(withExpression({ bubble }));
       render(<App />);

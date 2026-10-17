@@ -12,3 +12,5 @@
   .diary li { background: #34343b; border-color: #fff2; }
   .diary time { color: #999; }
 }
+
+.diary .together { margin: 0 0 10px; font-size: 13px; opacity: 0.8; }

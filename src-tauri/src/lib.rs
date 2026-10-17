@@ -1,5 +1,6 @@
 pub mod calls;
 pub mod care;
+pub mod companion;
 pub mod dex;
 pub mod diary;
 pub mod evolution;
@@ -7,10 +8,12 @@ pub mod expression;
 pub mod game;
 pub mod minigame;
 pub mod paths;
+pub mod rhythm;
 pub mod service;
 pub mod settings;
 pub mod sleep;
 pub mod status;
+pub mod system;
 
 mod shell;
 
