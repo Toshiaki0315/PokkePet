@@ -4,7 +4,7 @@ use std::ops::RangeInclusive;
 
 use serde::{Deserialize, Serialize};
 
-use crate::status::Status;
+use crate::status::{Status, DIRTY_THRESHOLD};
 
 pub const WEIGHT_START: u8 = 50;
 pub const WEIGHT_MIN: u8 = 20;
@@ -22,6 +22,14 @@ pub const MISS_TICKS: u32 = 30;
 const MISS_PENALTY: i16 = 1;
 const MISS_PENALTY_MAX: i16 = 8;
 const WEIGHT_PENALTY: i16 = 10;
+
+/// 同じ放置の中でお世話ミスがこの回数に達すると、病気になる。
+pub const SICK_AFTER_MISSES: u32 = 3;
+/// 病気のあいだ、ティックごとに余分に下がるご機嫌。
+pub const SICK_MOOD_LOSS: u8 = 1;
+const CURE_MOOD_LOSS: u8 = 5;
+const SICK_WEIGHT_LOSS: u8 = 2;
+const WRONG_CURE_MOOD_LOSS: u8 = 10;
 
 pub const DISCIPLINE_MAX: u8 = 100;
 const SCOLD_GAIN: u8 = 15;
@@ -56,6 +64,15 @@ pub struct Care {
     /// 世話が必要な状態が続いているティック数。
     #[serde(default)]
     need_ticks: u32,
+    /// いまの放置（世話が必要な状態が続いている間）で数えたお世話ミス。
+    #[serde(default)]
+    episode_misses: u32,
+    /// 病気か。治療するまで、ご機嫌が下がり続け、放っておくとお世話ミスも増える。
+    #[serde(default)]
+    pub sick: bool,
+    /// 病気を放っているティック数。
+    #[serde(default)]
+    sick_ticks: u32,
     /// わがままを言っている間の、残りのティック数（0 なら言っていない）。
     #[serde(default)]
     selfish_left: u32,
@@ -63,7 +80,7 @@ pub struct Care {
 
 impl Default for Care {
     fn default() -> Self {
-        Self { weight: WEIGHT_START, discipline: 0, misses: 0, recent_misses: 0, need_ticks: 0, selfish_left: 0 }
+        Self { weight: WEIGHT_START, discipline: 0, misses: 0, recent_misses: 0, need_ticks: 0, episode_misses: 0, sick: false, sick_ticks: 0, selfish_left: 0 }
     }
 }
 
@@ -87,6 +104,7 @@ impl Care {
             return;
         }
         self.count_misses(status);
+        self.count_sickness();
         if tick_count.is_multiple_of(WEIGHT_DRIFT_TICKS) {
             self.weight = match self.weight.cmp(&WEIGHT_START) {
                 std::cmp::Ordering::Less => self.weight + 1,
@@ -98,16 +116,60 @@ impl Care {
     }
 
     fn count_misses(&mut self, status: &Status) {
-        if !status.is_neglected() {
+        if !status.is_neglected() && status.dirtiness < DIRTY_THRESHOLD {
             self.need_ticks = 0;
+            self.episode_misses = 0;
             return;
         }
         self.need_ticks += 1;
         if self.need_ticks >= MISS_TICKS {
             self.need_ticks = 0;
-            self.misses += 1;
-            self.recent_misses += 1;
+            self.add_miss();
+            self.episode_misses += 1;
+            // 放置が続いたとき、または部屋が汚れたままのとき、具合が悪くなる。
+            if self.episode_misses >= SICK_AFTER_MISSES || status.dirtiness >= DIRTY_THRESHOLD {
+                self.fall_sick();
+            }
         }
+    }
+
+    fn add_miss(&mut self) {
+        self.misses += 1;
+        self.recent_misses += 1;
+    }
+
+    fn fall_sick(&mut self) {
+        if !self.sick {
+            self.sick = true;
+            self.sick_ticks = 0;
+            self.weight = self.weight.saturating_sub(SICK_WEIGHT_LOSS).max(WEIGHT_MIN);
+        }
+    }
+
+    /// 病気を放っておくと、その間もお世話ミスが増える。
+    fn count_sickness(&mut self) {
+        if !self.sick {
+            return;
+        }
+        self.sick_ticks += 1;
+        if self.sick_ticks >= MISS_TICKS {
+            self.sick_ticks = 0;
+            self.add_miss();
+        }
+    }
+
+    /// 治療する（注射）。病気のときだけ治る（注射は痛いので機嫌は少し下がる）。
+    /// 病気でないのに治療すると、機嫌が大きく下がるだけ。治ったかを返す。
+    pub fn cure(&mut self, status: &mut Status) -> bool {
+        if self.sick {
+            self.sick = false;
+            self.sick_ticks = 0;
+            self.episode_misses = 0;
+            status.mood = status.mood.saturating_sub(CURE_MOOD_LOSS);
+            return true;
+        }
+        status.mood = status.mood.saturating_sub(WRONG_CURE_MOOD_LOSS);
+        false
     }
 
     fn update_selfish(&mut self, status: &Status, tick_count: u32) {
@@ -319,6 +381,79 @@ mod tests {
         let mut c = Care { misses: 5, recent_misses: 3, ..Care::default() };
         c.evolved();
         assert_eq!((c.misses, c.recent_misses), (5, 0));
+    }
+
+    fn dirty() -> Status {
+        Status::new(80, 50, 80, DIRTY_THRESHOLD)
+    }
+
+    fn neglect(c: &mut Care, status: &Status, ticks: u32) {
+        for i in 1..=ticks {
+            c.tick(status, i, true);
+        }
+    }
+
+    #[test]
+    fn a_need_left_for_a_long_time_makes_the_pet_sick() {
+        let mut c = Care::default();
+        neglect(&mut c, &hungry(), MISS_TICKS * (SICK_AFTER_MISSES - 1));
+        assert!(!c.sick);
+        neglect(&mut c, &hungry(), MISS_TICKS);
+        assert!(c.sick);
+        assert!(c.weight < WEIGHT_START, "being ill takes weight off");
+    }
+
+    #[test]
+    fn answering_the_need_resets_the_run_towards_sickness() {
+        let mut c = Care::default();
+        neglect(&mut c, &hungry(), MISS_TICKS * (SICK_AFTER_MISSES - 1));
+        neglect(&mut c, &content(), 1); // 世話をした
+        neglect(&mut c, &hungry(), MISS_TICKS * (SICK_AFTER_MISSES - 1));
+        assert!(!c.sick);
+    }
+
+    #[test]
+    fn a_dirty_room_counts_as_neglect_and_makes_the_pet_sick_at_the_first_miss() {
+        let mut c = Care::default();
+        neglect(&mut c, &dirty(), MISS_TICKS - 1);
+        assert_eq!((c.misses, c.sick), (0, false));
+        neglect(&mut c, &dirty(), 1);
+        assert_eq!((c.misses, c.sick), (1, true));
+    }
+
+    #[test]
+    fn an_untreated_illness_keeps_adding_care_misses() {
+        let mut c = Care { sick: true, ..Care::default() };
+        neglect(&mut c, &content(), MISS_TICKS * 2);
+        assert_eq!(c.misses, 2);
+        assert!(c.sick);
+    }
+
+    #[test]
+    fn being_ill_only_happens_once_until_cured() {
+        let mut c = Care::default();
+        c.fall_sick();
+        c.fall_sick();
+        assert_eq!(c.weight, 48);
+    }
+
+    #[test]
+    fn a_shot_cures_an_ill_pet_but_costs_some_mood() {
+        let mut c = Care { sick: true, ..Care::default() };
+        let mut s = Status::new(50, 50, 50, 0);
+        assert!(c.cure(&mut s));
+        assert_eq!((c.sick, s.mood), (false, 45));
+        // 治ったあとは、また放置が続くまで病気にならない
+        neglect(&mut c, &hungry(), MISS_TICKS * (SICK_AFTER_MISSES - 1));
+        assert!(!c.sick);
+    }
+
+    #[test]
+    fn a_shot_for_a_healthy_pet_only_upsets_it() {
+        let mut c = Care::default();
+        let mut s = Status::new(50, 50, 50, 0);
+        assert!(!c.cure(&mut s));
+        assert_eq!(s.mood, 40);
     }
 
     #[test]

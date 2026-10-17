@@ -25,6 +25,7 @@ impl FromStr for Action {
             "play" => Ok(Action::Play),
             "clean" => Ok(Action::Clean),
             "scold" => Ok(Action::Scold),
+            "cure" => Ok(Action::Cure),
             other => Err(format!("unknown action: {other}")),
         }
     }
@@ -49,6 +50,10 @@ pub struct StateView {
     /// 体重とお世話の質（しつけ度）。
     pub weight: u8,
     pub discipline: u8,
+    /// 画面に出るうんちの数（汚れ度から。0〜4）。
+    pub poops: u8,
+    /// 病気か。
+    pub sick: bool,
     pub stage: u8,
     pub branch: Branch,
     pub personality: Personality,
@@ -107,6 +112,7 @@ pub fn tray_title(view: &StateView) -> Option<&'static str> {
         Bubble::Sleeping => Some("💤"),
         Bubble::Welcome => Some("🥚"),
         // あいさつはメニューバーには出さない（落ち着いて見えるように）。
+        Bubble::Sick => Some("🤒"),
         Bubble::Selfish => Some("💬"),
         Bubble::Happy | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy => None,
     }
@@ -271,6 +277,11 @@ fn time_seed() -> u64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos() as u64)
 }
 
+/// 汚れ度から、画面に出すうんちの数を決める（25 ごとに 1 つ、最大 4 つ）。
+fn poops(dirtiness: u8) -> u8 {
+    dirtiness.div_ceil(25).min(4)
+}
+
 fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
     let sleeping = is_sleeping(s.last_unix, utc_offset, window);
     let mut expression = express(&s.status);
@@ -278,6 +289,9 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
         expression.bubble = Some(Bubble::Sleeping);
     }
     // 世話が必要なとき以外は、時間帯のあいさつ（卵・おやすみ中は言わない）。
+    if !sleeping && s.form.stage >= 2 && s.care.sick {
+        expression.bubble = Some(Bubble::Sick);
+    }
     if !sleeping && s.form.stage >= 2 && s.care.is_selfish() && matches!(expression.bubble, None | Some(Bubble::Happy)) {
         expression.bubble = Some(Bubble::Selfish);
     }
@@ -294,6 +308,8 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
         dirtiness: s.status.dirtiness,
         weight: s.care.weight,
         discipline: s.care.discipline,
+        poops: poops(s.status.dirtiness),
+        sick: s.care.sick,
         stage: s.form.stage,
         branch: s.form.branch,
         personality: s.form.personality,
@@ -339,6 +355,7 @@ mod tests {
         assert_eq!("play".parse::<Action>(), Ok(Action::Play));
         assert_eq!("clean".parse::<Action>(), Ok(Action::Clean));
         assert_eq!("scold".parse::<Action>(), Ok(Action::Scold));
+        assert_eq!("cure".parse::<Action>(), Ok(Action::Cure));
     }
 
     #[test]
@@ -358,6 +375,8 @@ mod tests {
                 dirtiness: 0,
                 weight: 50,
                 discipline: 0,
+                poops: 0,
+                sick: false,
                 stage: 1,
                 branch: Branch::Normal,
                 personality: Personality::Calm,
@@ -383,9 +402,9 @@ mod tests {
     fn view_reflects_expression_after_actions() {
         let s = svc("expr");
         s.perform(Action::Clean, 0).unwrap(); // 初回オープニングを終える
-        // 常駐中（2分おき）に 90 ティック進むと、空腹になって吹き出しが変わる。
+        // 常駐中（2分おき）に 60 ティック進むと、空腹になって吹き出しが変わる（まだ病気にはならない）。
         let mut v = s.snapshot();
-        for i in 1..=90u64 {
+        for i in 1..=60u64 {
             v = s.tick(i * u64::from(TICK_SECS)).unwrap().view;
         }
         assert_eq!(v.expression.hunger, Level::Low);
@@ -434,6 +453,39 @@ mod tests {
         let v = s.perform(Action::Scold, 700).unwrap();
         assert_eq!(v.discipline, 15);
         assert_ne!(v.expression.bubble, Some(Bubble::Selfish));
+    }
+
+    #[test]
+    fn the_number_of_poops_follows_the_dirtiness() {
+        for (dirtiness, shown) in [(0, 0), (1, 1), (25, 1), (26, 2), (50, 2), (51, 3), (75, 3), (76, 4), (100, 4)] {
+            assert_eq!(poops(dirtiness), shown, "dirtiness {dirtiness}");
+        }
+    }
+
+    fn sick_pet(name: &str, offset: i32) -> GameService {
+        let mut state = GameState::new(0);
+        state.step(crate::evolution::EGG_SECS);
+        state.ack_hatch();
+        state.intro_seen = true;
+        state.care.sick = true;
+        GameService::new(state, tmp(name)).with_utc_offset(offset)
+    }
+
+    #[test]
+    fn a_sick_pet_asks_for_a_shot_until_it_is_cured() {
+        let s = sick_pet("sick", NOON_AT_ZERO);
+        let v = s.snapshot();
+        assert!(v.sick);
+        assert_eq!(v.expression.bubble, Some(Bubble::Sick));
+        let v = s.perform(Action::Cure, 700).unwrap();
+        assert!(!v.sick);
+        assert_ne!(v.expression.bubble, Some(Bubble::Sick));
+    }
+
+    #[test]
+    fn a_sleeping_sick_pet_is_left_to_sleep() {
+        let s = sick_pet("sick-sleep", 0); // UTC の 0 時台はおやすみ中
+        assert_eq!(s.snapshot().expression.bubble, Some(Bubble::Sleeping));
     }
 
     #[test]
@@ -978,6 +1030,7 @@ mod tests {
     fn the_menu_bar_mark_follows_the_bubble() {
         assert_eq!(tray_title(&view_with(None)), None);
         assert_eq!(tray_title(&view_with(Some(Bubble::Selfish))), Some("💬"));
+        assert_eq!(tray_title(&view_with(Some(Bubble::Sick))), Some("🤒"));
         for quiet in [Bubble::Happy, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy] {
             assert_eq!(tray_title(&view_with(Some(quiet))), None);
         }

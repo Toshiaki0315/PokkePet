@@ -4,9 +4,9 @@ import { listen } from "@tauri-apps/api/event";
 export type Branch = "poor" | "normal" | "good";
 export type Personality = "calm" | "playful" | "gluttonous" | "tidy";
 export type Level = "low" | "mid" | "high";
-export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping" | "morning" | "noon" | "evening" | "drowsy" | "selfish";
+export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping" | "morning" | "noon" | "evening" | "drowsy" | "selfish" | "sick";
 export type PlayAction = "play" | "pet";
-export type ActionName = "feed" | "snack" | "play" | "clean" | "scold";
+export type ActionName = "feed" | "snack" | "play" | "clean" | "scold" | "cure";
 
 export interface StateView {
   mood: number;
@@ -17,6 +17,10 @@ export interface StateView {
   weight: number;
   /** しつけ度（0〜100） */
   discipline: number;
+  /** 画面に出るうんちの数（0〜4） */
+  poops: number;
+  /** 病気か（治療のボタンが出る） */
+  sick: boolean;
   stage: number;
   branch: Branch;
   personality: Personality;
