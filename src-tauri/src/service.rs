@@ -904,7 +904,7 @@ mod tests {
         assert_eq!(s.dex().discovered, 1);
         s.tick(u64::from(EGG_SECS)).unwrap();
         let d = s.dex();
-        assert_eq!((d.total, d.discovered), (109, 2));
+        assert_eq!((d.total, d.discovered), (113, 2));
         assert!(d.entries.iter().filter(|e| e.discovered).any(|e| e.stage == 2));
     }
 

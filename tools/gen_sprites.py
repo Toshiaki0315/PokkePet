@@ -17,6 +17,10 @@ from PIL import Image, ImageDraw, ImageFont
 
 SIZE = 32
 BRANCHES = ["poor", "normal", "good"]
+# かくしキャラ（最終段階だけ）。見た目は「good」を豪華にしたもの。
+HIDDEN_BRANCH = "legend"
+ALL_BRANCHES = BRANCHES + [HIDDEN_BRANCH]
+GOOD_LIKE = ("good", HIDDEN_BRANCH)
 PERSONALITIES = ["calm", "playful", "gluttonous", "tidy"]
 
 PALETTE = {
@@ -117,8 +121,11 @@ def creature(stage, branch, personality):
     if branch == "poor":
         body_c = mix(body_c, GRAY, 0.45)
         belly_c = mix(belly_c, GRAY, 0.3)
-    elif branch == "good":
+    elif branch in GOOD_LIKE:
         body_c = mix(body_c, WHITE, 0.1)
+    if branch == HIDDEN_BRANCH:
+        body_c = mix(body_c, GOLD, 0.22)
+        belly_c = mix(belly_c, WHITE, 0.4)
 
     rx = 4.2 + (stage - 2) * 0.72
     ry = rx * 0.9
@@ -132,7 +139,7 @@ def creature(stage, branch, personality):
     c = Canvas()
 
     # --- 背面パーツ -------------------------------------------------------
-    if branch == "good" and stage >= 10:  # 小さな羽
+    if branch in GOOD_LIKE and stage >= 10:  # 小さな羽
         for sx in (-1, 1):
             c.polygon([(cx + sx * rx * 0.7, cy - ry * 0.2), (cx + sx * (rx + 5), cy - ry * 0.9),
                        (cx + sx * (rx + 4), cy + ry * 0.2)], (250, 250, 255))
@@ -168,7 +175,16 @@ def creature(stage, branch, personality):
 
     # --- 小物・演出(輪郭を付ける前) ------------------------------------------
     accessory(c, personality, stage, cx, cy, rx, ry, top)
-    if branch == "good" and stage >= 8:  # 天使の輪
+    if branch == HIDDEN_BRANCH:  # 王冠（天使の輪の代わり）
+        crown_y = max(2, top - (7 if personality == "tidy" else 3))
+        hx = cx - 0.5
+        for dx in range(-3, 4):
+            c.set(hx + dx, crown_y + 2, GOLD)
+        for dx in (-3, 0, 3):
+            c.set(hx + dx, crown_y + 1, GOLD)
+            c.set(hx + dx, crown_y, GOLD)
+        c.set(hx, crown_y + 1, (230, 60, 80))
+    elif branch in GOOD_LIKE and stage >= 8:  # 天使の輪
         halo_y = max(1, top - (7 if personality == "tidy" else 3))
         hx = cx - 0.5
         for dx in range(-2, 3):
@@ -183,9 +199,12 @@ def creature(stage, branch, personality):
     face(c, personality, branch, stage, cx, cy, rx, ry)
 
     # --- 分岐の演出 -------------------------------------------------------
-    if branch == "good" and stage >= 5:
+    if branch in GOOD_LIKE and stage >= 5:
         for x, y in ((3, 7), (28, 11), (4, 19)):
             sparkle(c, x, y)
+        if branch == HIDDEN_BRANCH:  # まわりを星がかこむ
+            for x, y in ((8, 3), (24, 4), (29, 22), (2, 26)):
+                sparkle(c, x, y)
     if branch == "poor":
         if stage >= 3:  # 汗
             c.set(cx + rx * 0.7, cy - ry * 0.55, TEAR)
@@ -287,7 +306,7 @@ def face(c, personality, branch, stage, cx, cy, rx, ry):
     for sx in (-1, 1):
         x = round(cx - 0.5 + sx * ex)
         y = round(ey)
-        if branch == "good":  # にっこり ^ ^
+        if branch in GOOD_LIKE:  # にっこり ^ ^
             for dx, dy in ((-2, 1), (-1, 0), (0, 0), (1, 0), (2, 1)):
                 c.set(x + dx, y + dy, DARK)
             if big:
@@ -311,7 +330,7 @@ def face(c, personality, branch, stage, cx, cy, rx, ry):
                 c.set(x + sx, brow_y + 1, DARK)
                 c.set(x, y + h // 2 + 1, TEAR)  # なみだ
     mx, my = round(cx - 0.5), round(cy + ry * 0.42)
-    if branch == "good":  # 口をあけて笑う
+    if branch in GOOD_LIKE:  # 口をあけて笑う
         for dx in range(-2, 3):
             c.set(mx + dx, my, DARK)
         for dx in range(-1, 2):
@@ -346,18 +365,23 @@ def all_sprites():
         for branch in BRANCHES:
             for personality in PERSONALITIES:
                 yield f"{stage}-{branch}-{personality}.png", creature(stage, branch, personality)
+    for personality in PERSONALITIES:
+        yield f"10-{HIDDEN_BRANCH}-{personality}.png", creature(10, HIDDEN_BRANCH, personality)
 
 
 def contact_sheet(sprites, path, scale=3):
     names = dict(sprites)
     cell = SIZE * scale
-    cols = len(BRANCHES) * len(PERSONALITIES)
+    cols = len(ALL_BRANCHES) * len(PERSONALITIES)
     sheet = Image.new("RGBA", (cols * cell, 10 * cell), (235, 235, 240, 255))
     sheet.paste(names["egg.png"].resize((cell, cell), Image.NEAREST), (0, 0))
     for stage in range(2, 11):
-        for bi, branch in enumerate(BRANCHES):
+        for bi, branch in enumerate(ALL_BRANCHES):
             for pi, personality in enumerate(PERSONALITIES):
-                im = names[f"{stage}-{branch}-{personality}.png"].resize((cell, cell), Image.NEAREST)
+                key = f"{stage}-{branch}-{personality}.png"
+                if key not in names:  # かくしキャラは最終段階だけ
+                    continue
+                im = names[key].resize((cell, cell), Image.NEAREST)
                 sheet.alpha_composite(im, ((bi * 4 + pi) * cell, (stage - 1) * cell))
     sheet.save(path)
 
@@ -367,11 +391,11 @@ def labeled_catalog(sprites, path, scale=3):
     names = dict(sprites)
     cell = SIZE * scale
     left, top = 64, 56
-    cols = len(BRANCHES) * len(PERSONALITIES)
+    cols = len(ALL_BRANCHES) * len(PERSONALITIES)
     sheet = Image.new("RGBA", (left + cols * cell, top + 10 * cell), (245, 245, 248, 255))
     draw = ImageDraw.Draw(sheet)
     font = ImageFont.load_default()
-    for bi, branch in enumerate(BRANCHES):
+    for bi, branch in enumerate(ALL_BRANCHES):
         x0 = left + bi * len(PERSONALITIES) * cell
         draw.rectangle([x0, 0, x0 + len(PERSONALITIES) * cell - 2, 18], fill=(225, 228, 238, 255))
         draw.text((x0 + 6, 4), f"branch: {branch}", fill=DARK, font=font)
@@ -385,9 +409,12 @@ def labeled_catalog(sprites, path, scale=3):
             sheet.alpha_composite(im, (left, y))
             draw.text((left + cell + 8, y + cell // 2 - 5), "egg (shared by all branches/personalities)", fill=DARK, font=font)
             continue
-        for bi, branch in enumerate(BRANCHES):
+        for bi, branch in enumerate(ALL_BRANCHES):
             for pi, personality in enumerate(PERSONALITIES):
-                im = names[f"{stage}-{branch}-{personality}.png"].resize((cell, cell), Image.NEAREST)
+                key = f"{stage}-{branch}-{personality}.png"
+                if key not in names:  # かくしキャラは最終段階だけ
+                    continue
+                im = names[key].resize((cell, cell), Image.NEAREST)
                 sheet.alpha_composite(im, (left + (bi * len(PERSONALITIES) + pi) * cell, y))
     sheet.save(path)
 

@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-export type Branch = "poor" | "normal" | "good";
+export type Branch = "poor" | "normal" | "good" | "legend";
 export type Personality = "calm" | "playful" | "gluttonous" | "tidy";
 export type Level = "low" | "mid" | "high";
 export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping" | "morning" | "noon" | "evening" | "drowsy" | "selfish" | "sick";
@@ -134,7 +134,7 @@ export interface DexView {
   entries: DexEntry[];
 }
 
-/** 図鑑（全 109 種と発見済みの印）。 */
+/** 図鑑（全 113 種と発見済みの印）。 */
 export function getDex(): Promise<DexView> {
   return invoke<DexView>("get_dex");
 }

@@ -31,6 +31,11 @@ const CURE_MOOD_LOSS: u8 = 5;
 const SICK_WEIGHT_LOSS: u8 = 2;
 const WRONG_CURE_MOOD_LOSS: u8 = 10;
 
+/// かくしキャラに進化できる条件: お世話ミスの合計がこの回数以下。
+pub const LEGEND_MAX_MISSES: u32 = 2;
+/// 同じく、しつけ度がこの値以上。
+pub const LEGEND_MIN_DISCIPLINE: u8 = 60;
+
 pub const DISCIPLINE_MAX: u8 = 100;
 const SCOLD_GAIN: u8 = 15;
 /// しつけ度 10 ごとに、進化の評価が 1 上がる（最大 +10）。
@@ -210,6 +215,11 @@ impl Care {
         IDEAL_WEIGHT.contains(&self.weight)
     }
 
+    /// かくしキャラになれるお世話か: ミスがほとんどなく、しつけがよく、体重が適正。
+    pub fn is_legendary(&self) -> bool {
+        self.misses <= LEGEND_MAX_MISSES && self.discipline >= LEGEND_MIN_DISCIPLINE && self.weight_is_ideal()
+    }
+
     /// 進化の評価（ご機嫌と親密度の平均）への加減点。しつけ度で加点、ミスと体重の外れで減点。
     pub fn score_adjustment(&self) -> i16 {
         let bonus = i16::from(self.discipline / DISCIPLINE_PER_POINT);
@@ -374,6 +384,15 @@ mod tests {
         assert_eq!(Care { weight: 66, ..Care::default() }.score_adjustment(), -10);
         assert_eq!(Care { weight: 34, ..Care::default() }.score_adjustment(), -10);
         assert_eq!(Care { weight: 65, discipline: 100, recent_misses: 1, ..Care::default() }.score_adjustment(), 9);
+    }
+
+    #[test]
+    fn a_legendary_care_record_needs_few_misses_good_discipline_and_a_healthy_weight() {
+        let ok = Care { misses: 2, discipline: 60, ..Care::default() };
+        assert!(ok.is_legendary());
+        assert!(!Care { misses: 3, ..ok.clone() }.is_legendary());
+        assert!(!Care { discipline: 59, ..ok.clone() }.is_legendary());
+        assert!(!Care { weight: 70, ..ok }.is_legendary());
     }
 
     #[test]
