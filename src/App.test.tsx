@@ -708,13 +708,13 @@ describe("App", () => {
       expect(await screen.findByText("ごま")).toHaveClass("name");
     });
 
-    it("speaks with the name in the speech bubble", async () => {
+    it("does not put the pet's name in the speech bubble (it is obviously the pet speaking)", async () => {
       api.getState.mockResolvedValue({ ...base, name: "ごま", expression: { ...base.expression, bubble: "hungry" } });
       render(<App />);
-      expect(await screen.findByRole("status")).toHaveTextContent("ごま「おなかすいたよ…」");
+      expect((await screen.findByRole("status")).textContent).toBe("おなかすいたよ…");
     });
 
-    it("keeps the bubble unchanged for an unnamed pet", async () => {
+    it("shows the same bubble for an unnamed pet", async () => {
       api.getState.mockResolvedValue({ ...base, expression: { ...base.expression, bubble: "happy" } });
       render(<App />);
       expect((await screen.findByRole("status")).textContent).toBe("たのしい！");
