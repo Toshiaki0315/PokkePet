@@ -39,6 +39,8 @@ pub struct Settings {
     pub companion_enabled: bool,
     /// 長く休憩なしで作業しているとき、「ちょっと休もうよ」と声をかける。
     pub break_reminder: bool,
+    /// Mac の状態（電池・ネット・ダークモード）にペットが反応する。
+    pub system_reactions: bool,
     /// 操作する時間帯から生活リズムを学んで、おやすみ時間を自動で合わせる。
     pub auto_sleep: bool,
     /// おやすみ時間の開始・終了（0〜23時）。同じ値ならおやすみなし。
@@ -59,6 +61,7 @@ impl Default for Settings {
             launch_at_login: false,
             strict_mode: false,
             companion_enabled: true,
+            system_reactions: true,
             break_reminder: true,
             auto_sleep: true,
             sleep_start_hour: DEFAULT_SLEEP_START_HOUR,
@@ -311,12 +314,13 @@ mod tests {
     #[test]
     fn the_companion_features_are_on_by_default_and_can_be_turned_off() {
         let d = Settings::default();
-        assert!(d.companion_enabled && d.break_reminder && d.auto_sleep);
+        assert!(d.companion_enabled && d.break_reminder && d.auto_sleep && d.system_reactions);
         let p = tmp("companion");
         Settings { companion_enabled: false, break_reminder: false, auto_sleep: false, ..d }.save(&p).unwrap();
         let back = Settings::load(&p).unwrap();
         assert!(!back.companion_enabled && !back.break_reminder && !back.auto_sleep);
         let json = serde_json::to_value(Settings::default()).unwrap();
+        assert_eq!(json["systemReactions"], true);
         assert_eq!((json["companionEnabled"].as_bool(), json["breakReminder"].as_bool(), json["autoSleep"].as_bool()), (Some(true), Some(true), Some(true)));
     }
 

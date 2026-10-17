@@ -55,6 +55,11 @@ const base: StateView = {
   hatching: false,
   sleeping: false,
   forcedSleep: false,
+  batteryLow: false,
+  charging: false,
+  offline: false,
+  darkMode: false,
+  event: null,
   name: null,
   needsName: false,
   graduating: false,
@@ -313,6 +318,8 @@ describe("App", () => {
       ["dying", "たすけて…もう、げんかい…"],
       ["rest", "ちょっと休もうよ"],
       ["welcomeback", "おかえり！"],
+      ["batterylow", "でんち、すくないよ…"],
+      ["offline", "ネットが、つながらないよ…"],
     ] as const)("shows a speech bubble for %s", async (bubble, text) => {
       api.getState.mockResolvedValue(withExpression({ bubble }));
       render(<App />);
@@ -1529,5 +1536,41 @@ describe("hidden command: start over from an egg", () => {
     await screen.findByRole("img");
     await userEvent.keyboard("{ArrowUp}{ArrowUp}{ArrowDown}{ArrowDown}");
     expect(screen.queryByRole("dialog", { name: "やり直し" })).toBeNull();
+  });
+});
+
+describe("Mac state and seasonal events", () => {
+  it("says the event's own words in the bubble and shows its decoration in the title bar", async () => {
+    api.getState.mockResolvedValue({ ...base, event: { emoji: "🎃", message: "トリック・オア・トリート！" }, expression: { ...base.expression, bubble: "event" } });
+    render(<App />);
+    expect(await screen.findByRole("status")).toHaveTextContent("トリック・オア・トリート！");
+    expect(screen.getByRole("img", { name: "きょうのできごと" })).toHaveTextContent("🎃");
+  });
+
+  it("keeps the decoration even while a need is being shown, and says nothing without an event", async () => {
+    api.getState.mockResolvedValue({ ...base, event: { emoji: "🎄", message: "メリークリスマス！" }, expression: { ...base.expression, bubble: "hungry" } });
+    render(<App />);
+    expect(await screen.findByRole("status")).toHaveTextContent("おなかすいたよ…");
+    expect(screen.getByRole("img", { name: "きょうのできごと" })).toHaveTextContent("🎄");
+  });
+
+  it("has no decoration on an ordinary day", async () => {
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    expect(screen.queryByRole("img", { name: "きょうのできごと" })).toBeNull();
+    expect(screen.queryByRole("img", { name: "充電中" })).toBeNull();
+  });
+
+  it("shows a charging mark while the Mac is charging", async () => {
+    api.getState.mockResolvedValue({ ...base, charging: true });
+    render(<App />);
+    expect(await screen.findByRole("img", { name: "充電中" })).toHaveTextContent("⚡");
+  });
+
+  it("tells the style sheet when the Mac is in dark mode", async () => {
+    api.getState.mockResolvedValue({ ...base, darkMode: true });
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    expect(screen.getByRole("main")).toHaveAttribute("data-dark", "true");
   });
 });

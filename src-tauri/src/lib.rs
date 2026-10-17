@@ -3,6 +3,7 @@ pub mod care;
 pub mod companion;
 pub mod dex;
 pub mod diary;
+pub mod events;
 pub mod evolution;
 pub mod expression;
 pub mod game;

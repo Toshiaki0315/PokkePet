@@ -16,10 +16,12 @@ use crate::diary::DiaryView;
 use crate::game::GameState;
 use crate::minigame::Side;
 use crate::paths::data_dir;
-use crate::system::parse_hid_idle_secs;
+use crate::system::{parse_battery, parse_dark_mode, parse_hid_idle_secs, SystemInfo};
 use crate::service::{should_notify_graduation, should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
 use crate::settings::{Settings, SettingsService, POPUP_WIDTH};
 
+/// Mac の状態を読む間隔（ループの何回に 1 回か。10 秒 × 3 = 30 秒）。
+const SYSTEM_POLL_EVERY: u32 = 3;
 const LOOP_INTERVAL: Duration = Duration::from_secs(10);
 const STATE_EVENT: &str = "state-changed";
 const SETTINGS_EVENT: &str = "settings-changed";
@@ -199,6 +201,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.state::<GameService>().set_sleep_window(settings.sleep_window());
     app.state::<GameService>().set_strict(settings.strict_mode);
     app.state::<GameService>().set_auto_sleep(settings.auto_sleep);
+    app.state::<GameService>().set_events(true);
     let launch_at_login = settings.launch_at_login;
     apply_popup_size(app.handle(), &settings);
     app.manage(SettingsService::new(settings, settings_path));
@@ -361,6 +364,31 @@ fn read_idle_secs() -> Option<u64> {
     parse_hid_idle_secs(&String::from_utf8_lossy(&output.stdout))
 }
 
+/// 外部コマンドの標準出力（文字列）。実行できなければ None。
+fn command_output(program: &str, args: &[&str]) -> Option<String> {
+    let output = std::process::Command::new(program).args(args).output().ok()?;
+    Some(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Mac の状態（電池・ネット・ダークモード）を読む。どれも権限は要らない。
+fn read_system_info() -> SystemInfo {
+    SystemInfo {
+        battery: command_output("pmset", &["-g", "batt"]).as_deref().and_then(parse_battery),
+        online: std::process::Command::new("route").args(["-n", "get", "default"]).output().map_or(true, |o| o.status.success()),
+        dark_mode: command_output("defaults", &["read", "-g", "AppleInterfaceStyle"]).is_some_and(|out| parse_dark_mode(&out)),
+    }
+}
+
+/// Mac の状態を、30 秒ごとに読んでペットに伝える（設定「Mac の状態に反応」がオフなら、何も起きていない状態にする）。
+fn update_system_info(handle: &AppHandle, round: u32) {
+    if !round.is_multiple_of(SYSTEM_POLL_EVERY) {
+        return;
+    }
+    let reacting = handle.state::<SettingsService>().get().system_reactions;
+    let info = if reacting { read_system_info() } else { SystemInfo::default() };
+    handle.state::<GameService>().set_system(info);
+}
+
 fn notify_break(app: &AppHandle, name: Option<&str>) {
     let title = name.unwrap_or("PokkePet");
     if let Err(e) = app.notification().builder().title(title).body("ずっと作業してるね。ちょっと休もうよ").show() {
@@ -385,24 +413,29 @@ fn observe_companionship(handle: &AppHandle, popup_open: bool) {
 }
 
 fn spawn_loop(handle: AppHandle) {
-    std::thread::spawn(move || loop {
-        std::thread::sleep(LOOP_INTERVAL);
-        observe_companionship(&handle, popup_is_open(&handle));
-        let svc = handle.state::<GameService>();
-        match svc.tick(now_unix()) {
-            Ok(tick) => {
-                let _ = handle.emit(STATE_EVENT, tick.view.clone());
-                update_tray_title(&handle, &tick.view);
-                let popup_open = popup_is_open(&handle);
-                if should_notify_hatch(tick.hatched, popup_open) {
-                    notify_hatch(&handle);
+    std::thread::spawn(move || {
+        let mut round = 0u32;
+        loop {
+            std::thread::sleep(LOOP_INTERVAL);
+            round = round.wrapping_add(1);
+            update_system_info(&handle, round);
+            observe_companionship(&handle, popup_is_open(&handle));
+            let svc = handle.state::<GameService>();
+            match svc.tick(now_unix()) {
+                Ok(tick) => {
+                    let _ = handle.emit(STATE_EVENT, tick.view.clone());
+                    update_tray_title(&handle, &tick.view);
+                    let popup_open = popup_is_open(&handle);
+                    if should_notify_hatch(tick.hatched, popup_open) {
+                        notify_hatch(&handle);
+                    }
+                    if should_notify_graduation(tick.graduation_ready, popup_open) {
+                        notify_graduation(&handle, tick.view.name.as_deref());
+                    }
+                    notify_call_if_needed(&handle, &tick.view, popup_open);
                 }
-                if should_notify_graduation(tick.graduation_ready, popup_open) {
-                    notify_graduation(&handle, tick.view.name.as_deref());
-                }
-                notify_call_if_needed(&handle, &tick.view, popup_open);
+                Err(e) => eprintln!("tick failed: {e}"),
             }
-            Err(e) => eprintln!("tick failed: {e}"),
         }
     });
 }

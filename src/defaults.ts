@@ -10,6 +10,7 @@ export const DEFAULT_SETTINGS: Settings = {
   launchAtLogin: false,
   strictMode: false,
   companionEnabled: true,
+  systemReactions: true,
   breakReminder: true,
   autoSleep: true,
   sleepStartHour: 23,

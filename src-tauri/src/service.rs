@@ -15,8 +15,10 @@ use crate::dex::{build_view, DexView};
 use crate::diary::{self, DiaryView};
 use crate::game::{Action, GameState};
 use crate::minigame::{is_win, Rng, Side};
+use crate::events::{event_for, Event};
 use crate::rhythm::{chronotype, learned_sleep_window};
-use crate::sleep::{is_sleeping, local_hour, local_utc_offset, SleepWindow};
+use crate::system::SystemInfo;
+use crate::sleep::{is_sleeping, local_hour, local_month_day, local_utc_offset, SleepWindow};
 
 impl FromStr for Action {
     type Err = String;
@@ -74,6 +76,16 @@ pub struct StateView {
     pub sleeping: bool,
     /// 電源ボタンで寝かされている（おやすみ時間とは関係なく）。もう一度押すと起こせる。
     pub forced_sleep: bool,
+    /// Mac の電池が少ない（電源につながっていないとき）。
+    pub battery_low: bool,
+    /// Mac が充電中。
+    pub charging: bool,
+    /// インターネットにつながっていない。
+    pub offline: bool,
+    /// Mac がダークモード。
+    pub dark_mode: bool,
+    /// 今日の季節のできごと（ない日は null）。
+    pub event: Option<Event>,
     /// ペットの名前（未設定なら null）。
     pub name: Option<String>,
     /// 孵化の演出が終わったのに、まだ名前がない（名前を付けてもらう）。
@@ -127,8 +139,10 @@ pub fn tray_title(view: &StateView) -> Option<&'static str> {
         Bubble::Sick => Some("🤒"),
         Bubble::Dying => Some("🆘"),
         Bubble::Rest => Some("☕"),
+        Bubble::BatteryLow => Some("🪫"),
+        Bubble::Offline => Some("📡"),
         Bubble::Selfish => Some("💬"),
-        Bubble::Happy | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy | Bubble::WelcomeBack => None,
+        Bubble::Happy | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy | Bubble::WelcomeBack | Bubble::Event => None,
     }
 }
 
@@ -154,13 +168,17 @@ pub struct GameService {
     learned_sleep: Mutex<Option<SleepWindow>>,
     /// 学んだおやすみ時間を使うか（設定）。
     auto_sleep: AtomicBool,
+    /// Mac の状態（電池・ネット・ダークモード）。反応する設定がオフなら、何も起きていない状態にしておく。
+    system: Mutex<SystemInfo>,
+    /// 季節のできごとを出すか（アプリでは常にオン。テストでは、1970-01-01（お正月）の時刻を使うので、既定はオフ）。
+    events: AtomicBool,
     /// ミニゲームの乱数。
     rng: Mutex<Rng>,
 }
 
 impl GameService {
     pub fn new(state: GameState, path: PathBuf) -> Self {
-        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()), learned_sleep: Mutex::new(None), auto_sleep: AtomicBool::new(false), rng: Mutex::new(Rng::new(time_seed())) }
+        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()), learned_sleep: Mutex::new(None), auto_sleep: AtomicBool::new(false), system: Mutex::new(SystemInfo::default()), events: AtomicBool::new(false), rng: Mutex::new(Rng::new(time_seed())) }
     }
 
     /// 経過時間の倍率（動作確認用）。
@@ -213,6 +231,20 @@ impl GameService {
         *self.sleep.lock().unwrap_or_else(|e| e.into_inner()) = window;
     }
 
+    /// Mac の状態を知らせる。
+    pub fn set_system(&self, info: SystemInfo) {
+        *self.system.lock().unwrap_or_else(|e| e.into_inner()) = info;
+    }
+
+    /// 季節のできごと（お正月・ハロウィンなど）を出すようにする。
+    pub fn set_events(&self, on: bool) {
+        self.events.store(on, Ordering::Relaxed);
+    }
+
+    fn system_info(&self) -> SystemInfo {
+        *self.system.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// 学んだおやすみ時間を使うかどうか（設定）。
     pub fn set_auto_sleep(&self, on: bool) {
         self.auto_sleep.store(on, Ordering::Relaxed);
@@ -243,7 +275,7 @@ impl GameService {
     }
 
     fn view(&self, state: &GameState) -> StateView {
-        view_of(state, self.offset_at(state.last_unix), self.sleep_window())
+        view_of(state, self.offset_at(state.last_unix), self.sleep_window(), self.system_info(), self.events.load(Ordering::Relaxed))
     }
 
     pub fn snapshot(&self) -> StateView {
@@ -369,7 +401,13 @@ fn poops(stage: u8, dirtiness: u8) -> u8 {
     (dirtiness / 25).min(4)
 }
 
-fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
+/// 今日（ローカル時刻）の季節のできごと。
+fn event_for_today(unix: u64, utc_offset: i32) -> Option<Event> {
+    let (month, day) = local_month_day(unix, utc_offset);
+    event_for(month, day)
+}
+
+fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow, system: SystemInfo, events: bool) -> StateView {
     let forced_sleep = s.forced_asleep();
     let sleeping = forced_sleep || is_sleeping(s.last_unix, utc_offset, window);
     let mut expression = express(&s.status);
@@ -392,7 +430,15 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
             expression.bubble = Some(Bubble::Rest);
         } else if s.companion.is_welcoming_back(s.last_unix) {
             expression.bubble = Some(Bubble::WelcomeBack);
+        } else if system.battery_low() {
+            expression.bubble = Some(Bubble::BatteryLow);
+        } else if !system.online {
+            expression.bubble = Some(Bubble::Offline);
         }
+    }
+    let event = events.then(|| event_for_today(s.last_unix, utc_offset)).flatten();
+    if !sleeping && s.form.stage >= 2 && event.is_some() && matches!(expression.bubble, None | Some(Bubble::Happy)) {
+        expression.bubble = Some(Bubble::Event);
     }
     if !sleeping && s.form.stage >= 2 && expression.bubble.is_none() {
         expression.bubble = greeting(local_hour(s.last_unix, utc_offset), window);
@@ -419,6 +465,11 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
         hatching: s.hatching(),
         sleeping,
         forced_sleep,
+        battery_low: system.battery_low(),
+        charging: system.charging(),
+        offline: !system.online,
+        dark_mode: system.dark_mode,
+        event,
         name: s.name.clone(),
         needs_name: s.form.stage >= 2 && s.hatch_shown && s.name.is_none(),
         graduating: s.graduating(),
@@ -495,6 +546,11 @@ mod tests {
                 hatching: false,
                 sleeping: false,
                 forced_sleep: false,
+                battery_low: false,
+                charging: false,
+                offline: false,
+                dark_mode: false,
+                event: None,
                 name: None,
                 needs_name: false,
                 graduating: false,
@@ -716,6 +772,85 @@ mod tests {
         assert!(d.chronotype.is_some());
         let json = serde_json::to_value(&d).unwrap();
         assert_eq!(json["togetherMinutes"], 270);
+    }
+
+    fn system_with(battery: Option<crate::system::Battery>, online: bool, dark_mode: bool) -> SystemInfo {
+        SystemInfo { battery, online, dark_mode }
+    }
+
+    #[test]
+    fn the_pet_complains_about_a_low_battery_and_a_lost_connection() {
+        let s = grown_pet("system");
+        s.set_system(system_with(Some(crate::system::Battery { percent: 15, on_ac: false }), true, false));
+        let v = s.snapshot();
+        assert_eq!((v.battery_low, v.expression.bubble), (true, Some(Bubble::BatteryLow)));
+        s.set_system(system_with(None, false, false));
+        let v = s.snapshot();
+        assert_eq!((v.offline, v.battery_low, v.expression.bubble), (true, false, Some(Bubble::Offline)));
+        s.set_system(system_with(Some(crate::system::Battery { percent: 5, on_ac: false }), false, false));
+        assert_eq!(s.snapshot().expression.bubble, Some(Bubble::BatteryLow), "the battery is the bigger worry");
+    }
+
+    #[test]
+    fn being_plugged_in_or_in_the_dark_shows_up_in_the_view_without_a_bubble() {
+        let s = grown_pet("system-charging");
+        s.set_system(system_with(Some(crate::system::Battery { percent: 30, on_ac: true }), true, true));
+        let v = s.snapshot();
+        assert_eq!((v.charging, v.battery_low, v.dark_mode, v.offline), (true, false, true, false));
+        assert_eq!(v.expression.bubble, None);
+        let json = serde_json::to_value(&v).unwrap();
+        assert_eq!((json["charging"].as_bool(), json["darkMode"].as_bool(), json["batteryLow"].as_bool(), json["offline"].as_bool()), (Some(true), Some(true), Some(false), Some(false)));
+    }
+
+    #[test]
+    fn a_need_or_sleep_comes_before_the_system_remarks() {
+        let s = grown_pet("system-need");
+        s.lock().status = crate::status::Status::new(50, 50, 0, 0);
+        s.set_system(system_with(Some(crate::system::Battery { percent: 5, on_ac: false }), false, false));
+        assert_eq!(s.snapshot().expression.bubble, Some(Bubble::Hungry));
+        let asleep = grown_pet("system-asleep");
+        asleep.toggle_power(700).unwrap();
+        asleep.set_system(system_with(None, false, false));
+        assert_eq!(asleep.snapshot().expression.bubble, Some(Bubble::Sleeping));
+    }
+
+    #[test]
+    fn on_a_big_day_the_pet_says_so_and_wears_the_decoration() {
+        let s = grown_pet("event").with_utc_offset(15 * 3600); // 1970-01-01 15 時 = お正月
+        s.set_events(true);
+        let v = s.snapshot();
+        assert_eq!(v.expression.bubble, Some(Bubble::Event));
+        let event = v.event.unwrap();
+        assert_eq!((event.emoji, event.message), ("🎍", "あけましておめでとう！"));
+        let json = serde_json::to_value(&v).unwrap();
+        assert_eq!(json["event"]["emoji"], "🎍");
+        assert_eq!(json["event"]["message"], "あけましておめでとう！");
+    }
+
+    #[test]
+    fn events_stay_quiet_when_off_when_hungry_when_asleep_and_for_eggs() {
+        let off = grown_pet("event-off");
+        assert!(off.snapshot().event.is_none());
+        let hungry = grown_pet("event-hungry");
+        hungry.set_events(true);
+        hungry.lock().status = crate::status::Status::new(50, 50, 0, 0);
+        assert_eq!(hungry.snapshot().expression.bubble, Some(Bubble::Hungry));
+        assert!(hungry.snapshot().event.is_some(), "the decoration is still there");
+        let asleep = grown_pet("event-asleep");
+        asleep.set_events(true);
+        asleep.toggle_power(700).unwrap();
+        assert_eq!(asleep.snapshot().expression.bubble, Some(Bubble::Sleeping));
+        let egg = svc("event-egg");
+        egg.set_events(true);
+        assert_ne!(egg.snapshot().expression.bubble, Some(Bubble::Event));
+    }
+
+    #[test]
+    fn an_ordinary_day_has_no_event() {
+        let s = grown_pet("event-ordinary").with_utc_offset(15 * 3600);
+        s.set_events(true);
+        s.lock().last_unix = 100 * 86_400; // 1970-04-11
+        assert!(s.snapshot().event.is_none());
     }
 
     #[test]
@@ -1382,7 +1517,9 @@ mod tests {
         assert_eq!(tray_title(&view_with(Some(Bubble::Sick))), Some("🤒"));
         assert_eq!(tray_title(&view_with(Some(Bubble::Dying))), Some("🆘"));
         assert_eq!(tray_title(&view_with(Some(Bubble::Rest))), Some("☕"));
-        for quiet in [Bubble::Happy, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy, Bubble::WelcomeBack] {
+        assert_eq!(tray_title(&view_with(Some(Bubble::BatteryLow))), Some("🪫"));
+        assert_eq!(tray_title(&view_with(Some(Bubble::Offline))), Some("📡"));
+        for quiet in [Bubble::Happy, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy, Bubble::WelcomeBack, Bubble::Event] {
             assert_eq!(tray_title(&view_with(Some(quiet))), None);
         }
         assert_eq!(tray_title(&view_with(Some(Bubble::Hungry))), Some("🍙"));

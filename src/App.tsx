@@ -26,7 +26,7 @@ import type {
 } from "./api";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { Sprite } from "./SpriteView";
-import { BUBBLE_TEXT } from "./bubble";
+import { bubbleMessage } from "./bubble";
 import { Farewell } from "./Farewell";
 import { Grave } from "./Grave";
 import { ResetConfirm } from "./ResetConfirm";
@@ -304,6 +304,7 @@ export default function App() {
       data-hunger={view.expression.hunger}
       data-intro={view.intro}
       data-sleep={view.sleeping}
+      data-dark={view.darkMode}
       style={
         {
           "--body-color": settings.bodyColor,
@@ -318,6 +319,16 @@ export default function App() {
         >
           <div className="titlebar">
             {view.name && <p className="name">{view.name}</p>}
+            {view.event && (
+              <span className="charm" role="img" aria-label="きょうのできごと">
+                {view.event.emoji}
+              </span>
+            )}
+            {view.charging && (
+              <span className="charging" role="img" aria-label="充電中">
+                ⚡
+              </span>
+            )}
             <button
               type="button"
               className="power"
@@ -360,7 +371,7 @@ export default function App() {
             )}
             {view.expression.bubble && (
               <div className="bubble" role="status">
-                {BUBBLE_TEXT[view.expression.bubble]}
+                {bubbleMessage(view)}
               </div>
             )}
             {view.hatching && popupOpen ? (

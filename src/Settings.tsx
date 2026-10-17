@@ -110,6 +110,11 @@ export default function Settings() {
         </label>
         <p className="hint">1 時間半、休まずに作業していると、「ちょっと休もうよ」と言います。</p>
         <label className="row">
+          <input type="checkbox" checked={settings.systemReactions} onChange={(e) => patch({ systemReactions: e.target.checked })} />
+          Mac の状態に反応
+        </label>
+        <p className="hint">電池が少ない・充電中・ネットにつながっていない・ダークモード、に反応します（電池やネットの状態を読むだけです）。</p>
+        <label className="row">
           <input type="checkbox" checked={settings.autoSleep} disabled={!settings.companionEnabled} onChange={(e) => patch({ autoSleep: e.target.checked })} />
           おやすみ時間を自動で合わせる
         </label>
