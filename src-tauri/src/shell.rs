@@ -171,7 +171,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             match event.id.as_ref() {
                 "dex" => open_window(app, DEX_WINDOW, "PokkePet 図鑑", (640.0, 580.0)),
                 "diary" => open_window(app, DIARY_WINDOW, "PokkePet 思い出", (460.0, 560.0)),
-                "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 770.0)),
+                "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 850.0)),
                 "quit" => app.exit(0),
                 _ => {}
             }

@@ -4,6 +4,7 @@ import type { Settings } from "./api";
 export const DEFAULT_SETTINGS: Settings = {
   showGauges: false,
   notifyCalls: true,
+  soundEnabled: true,
   sleepStartHour: 23,
   sleepEndHour: 7,
   bodyColor: "#4b5fb8",

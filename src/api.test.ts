@@ -47,7 +47,7 @@ describe("api", () => {
   });
 
   it("saveSettings invokes save_settings with the settings", async () => {
-    const settings = { showGauges: false, notifyCalls: true, sleepStartHour: 23, sleepEndHour: 7, bodyColor: "#112233", buttonColor: "#445566" };
+    const settings = { showGauges: false, notifyCalls: true, soundEnabled: true, sleepStartHour: 23, sleepEndHour: 7, bodyColor: "#112233", buttonColor: "#445566" };
     invoke.mockResolvedValue(settings);
     await expect(saveSettings(settings)).resolves.toEqual(settings);
     expect(invoke).toHaveBeenCalledWith("save_settings", { settings });

@@ -1,7 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { StateView } from "./api";
-import { gesturesFor, IDLE_GESTURE_MS, IDLE_MAX_MS, IDLE_MIN_MS, useIdleGesture } from "./idle";
+import { cryForGesture, gesturesFor, IDLE_CRY_CHANCE, IDLE_CRY_COOLDOWN_MS, IDLE_GESTURE_MS, IDLE_MAX_MS, IDLE_MIN_MS, useIdleGesture } from "./idle";
 
 const KINDS = ["bounce", "walk", "look"] as const;
 
@@ -154,5 +154,29 @@ describe("gesturesFor", () => {
   it("moves more often than before", () => {
     expect(IDLE_MIN_MS).toBeLessThanOrEqual(3000);
     expect(IDLE_MAX_MS).toBeLessThanOrEqual(6500);
+  });
+});
+
+describe("cryForGesture", () => {
+  it("cheers while dancing, bouncing and spinning", () => {
+    for (const g of ["dance", "bounce", "spin"]) expect(cryForGesture(g)).toBe("happy");
+  });
+
+  it("sighs sadly when sighing", () => {
+    expect(cryForGesture("sigh")).toBe("sad");
+  });
+
+  it("only taps when an egg rocks", () => {
+    expect(cryForGesture("rock")).toBe("tap");
+  });
+
+  it("makes an ordinary cry for the calm moves", () => {
+    for (const g of ["walk", "look", "stretch", "nod"]) expect(cryForGesture(g)).toBe("neutral");
+  });
+
+  it("does not cry all the time: only now and then, and not again right away", () => {
+    expect(IDLE_CRY_CHANCE).toBeGreaterThan(0);
+    expect(IDLE_CRY_CHANCE).toBeLessThanOrEqual(0.5);
+    expect(IDLE_CRY_COOLDOWN_MS).toBeGreaterThanOrEqual(15_000);
   });
 });

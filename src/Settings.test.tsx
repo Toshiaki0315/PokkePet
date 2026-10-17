@@ -16,7 +16,7 @@ vi.mock("./api", () => api);
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showGauges: false, notifyCalls: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 let emitState: (v: { name: string | null }) => void;
 const unlisten = vi.fn();
@@ -66,6 +66,20 @@ describe("Settings dialog", () => {
     render(<Settings />);
     await userEvent.click(await screen.findByRole("checkbox", { name: "ゲージを表示" }));
     expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, showGauges: true });
+  });
+
+  it("shows and saves the sound switch", async () => {
+    render(<Settings />);
+    const box = await screen.findByRole("checkbox", { name: "鳴き声を鳴らす" });
+    expect(box).toBeChecked();
+    await userEvent.click(box);
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, soundEnabled: false });
+  });
+
+  it("starts with the sound on until the saved settings arrive", () => {
+    api.getSettings.mockReturnValue(new Promise(() => {}));
+    render(<Settings />);
+    expect(screen.getByRole("checkbox", { name: "鳴き声を鳴らす" })).toBeChecked();
   });
 
   it("shows and saves the call-notification switch", async () => {

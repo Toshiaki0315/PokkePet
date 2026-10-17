@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import { ackHatch, graduate, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
 import type { ActionName, MiniGameReport, Settings, Side, StateView } from "./api";
@@ -10,7 +10,9 @@ import { MiniGame } from "./MiniGame";
 import { NamePrompt } from "./NamePrompt";
 import { useHiddenCommand } from "./hiddenCommand";
 import { HatchSequence } from "./hatch";
-import { gesturesFor, useIdleGesture } from "./idle";
+import { cryForGesture, gesturesFor, IDLE_CRY_CHANCE, IDLE_CRY_COOLDOWN_MS, useIdleGesture } from "./idle";
+import { useSound } from "./sound";
+import type { CryKind } from "./sound";
 import { useListener } from "./useListener";
 import "./App.css";
 
@@ -65,12 +67,40 @@ export default function App() {
     popupOpen && view !== null && !view.sleeping && !view.intro && !view.hatching && view.expression.hunger !== "low" && reaction === null,
   );
 
+  // 鳴き声（設定でオフにできる）。声は、そのときのペットの性格と段階で決まる。
+  const play = useSound(settings.soundEnabled);
+  const cry = (kind: CryKind, who: StateView) => play(kind, { personality: who.personality, stage: who.stage });
+  const latest = useRef({ view, cry });
+  useEffect(() => {
+    latest.current = { view, cry };
+  });
+  const lastIdleCry = useRef(0);
+
+  // ポップアップを開いたときのあいさつ。おやすみ中は鳴かない。
+  useEffect(() => {
+    const { view: current, cry: speak } = latest.current;
+    if (!popupOpen || !current || current.sleeping) return;
+    const e = current.expression;
+    speak(e.hunger === "low" || e.mood === "low" ? "sad" : e.mood === "high" ? "happy" : "neutral", current);
+  }, [popupOpen]);
+
+  // しぐさに合わせて、ときどき鳴く（短い間隔では鳴かない）。
+  useEffect(() => {
+    const { view: current, cry: speak } = latest.current;
+    if (!idle || !current) return;
+    const now = Date.now();
+    if (Math.random() >= IDLE_CRY_CHANCE || now - lastIdleCry.current < IDLE_CRY_COOLDOWN_MS) return;
+    lastIdleCry.current = now;
+    speak(cryForGesture(idle), current);
+  }, [idle]);
+
   const act = (action: ActionName, petting: boolean) =>
     performAction(action).then(
       (next) => {
         setError(null);
         setView(next);
         setReaction((prev) => ({ name: petting ? "wobble" : "hop", id: (prev?.id ?? 0) + 1 }));
+        cry(petting ? "tap" : action === "clean" ? "neutral" : "eat", next);
       },
       (e) => setError(errorText(e)),
     );
@@ -82,6 +112,7 @@ export default function App() {
         setError(null);
         setView(report.view);
         setReaction((prev) => ({ name: "hop", id: (prev?.id ?? 0) + 1 }));
+        cry(report.win ? "happy" : "sad", report.view);
         return report;
       },
       (e) => {
@@ -147,7 +178,7 @@ export default function App() {
               </div>
             )}
             {view.hatching && popupOpen ? (
-              <HatchSequence view={view} onDone={finishHatch} />
+              <HatchSequence view={view} onDone={finishHatch} onCry={(kind) => cry(kind, view)} />
             ) : (
               <Sprite
                 key={reaction?.id}

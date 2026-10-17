@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings, StateView } from "./api";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { HATCH_FLASH_MS, HATCH_SHAKE_MS } from "./hatch";
-import { IDLE_MIN_MS } from "./idle";
+import { IDLE_CRY_COOLDOWN_MS, IDLE_MAX_MS, IDLE_MIN_MS } from "./idle";
 
 const api = vi.hoisted(() => ({
   getState: vi.fn(),
@@ -20,6 +20,14 @@ const api = vi.hoisted(() => ({
   onPopupVisibility: vi.fn(),
 }));
 vi.mock("./api", () => api);
+
+const sound = vi.hoisted(() => ({ play: vi.fn(), useSound: vi.fn() }));
+vi.mock("./sound", () => ({
+  useSound: (enabled: boolean) => {
+    sound.useSound(enabled);
+    return sound.play;
+  },
+}));
 
 import App from "./App";
 
@@ -479,6 +487,17 @@ describe("App", () => {
       expect(api.ackHatch).toHaveBeenCalledTimes(1);
       await waitFor(() => expect(screen.getByRole("img")).toHaveAttribute("alt", expect.stringContaining("stage 2")));
       expect(screen.queryByTestId("hatch-flash")).toBeNull();
+    });
+
+    it("taps while the egg shakes and cheers when the newborn appears", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      showPopup(true);
+      expect(sound.play).toHaveBeenCalledWith("tap", { personality: "calm", stage: 2 });
+      expect(sound.play).not.toHaveBeenCalledWith("hatch", expect.anything());
+      await tick(HATCH_SHAKE_MS + 10);
+      expect(sound.play).toHaveBeenCalledWith("hatch", { personality: "calm", stage: 2 });
     });
 
     it("plays the sequence only once", async () => {
@@ -1018,6 +1037,172 @@ describe("App", () => {
       expect(screen.getByRole("img")).toHaveClass("shake");
       expect(screen.getByRole("img").parentElement).not.toHaveClass("breathing");
       vi.useRealTimers();
+    });
+  });
+
+  describe("sound", () => {
+    const calmVoice = { personality: "calm", stage: 2 };
+
+    it("follows the sound setting", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      expect(sound.useSound).toHaveBeenLastCalledWith(true);
+    });
+
+    it("is switched off by the setting", async () => {
+      api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, soundEnabled: false });
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(sound.useSound).toHaveBeenLastCalledWith(false));
+    });
+
+    it.each([["ご飯"], ["おやつ"]])("munches when given %s", async (label) => {
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: label }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("eat", calmVoice));
+    });
+
+    it("gives an ordinary cry when the room is cleaned", async () => {
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "掃除" }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("neutral", calmVoice));
+    });
+
+    it("taps when an egg is stroked", async () => {
+      const egg = { ...base, stage: 1, playAction: "pet" } as StateView;
+      api.getState.mockResolvedValue(egg);
+      api.performAction.mockResolvedValue(egg);
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "撫でる" }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("tap", { personality: "calm", stage: 1 }));
+    });
+
+    it("uses the voice of the pet as it is after the action", async () => {
+      api.performAction.mockResolvedValue({ ...base, stage: 5, personality: "playful" });
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "ご飯" }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("eat", { personality: "playful", stage: 5 }));
+    });
+
+    it("stays quiet when the action fails", async () => {
+      api.performAction.mockRejectedValue(new Error("x"));
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "ご飯" }));
+      await screen.findByRole("alert");
+      expect(sound.play).not.toHaveBeenCalled();
+    });
+
+    it("cheers when the mini game is won and sighs when it is lost", async () => {
+      api.playMinigame.mockResolvedValueOnce({ view: base, win: true, answer: "left" }).mockResolvedValueOnce({ view: base, win: false, answer: "right" });
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "遊ぶ" }));
+      const dialog = await screen.findByRole("dialog", { name: "どっちの手？" });
+      await userEvent.click(within(dialog).getByRole("button", { name: "左の手" }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("happy", calmVoice));
+      await userEvent.click(await within(dialog).findByRole("button", { name: "もういちど" }));
+      await userEvent.click(within(dialog).getByRole("button", { name: "左の手" }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("sad", calmVoice));
+    });
+
+    describe("greeting when the popup is opened", () => {
+      const open = async (state: StateView) => {
+        api.getState.mockResolvedValue(state);
+        render(<App />);
+        await screen.findByRole("img");
+        await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+        act(() => emitVisible(true));
+      };
+
+      it("is cheerful for a happy pet", async () => {
+        await open(withExpression({ mood: "high", bubble: "happy" }));
+        expect(sound.play).toHaveBeenCalledWith("happy", calmVoice);
+      });
+
+      it("is ordinary for an ordinary pet", async () => {
+        await open(base);
+        expect(sound.play).toHaveBeenCalledWith("neutral", calmVoice);
+      });
+
+      it("is sad for a gloomy pet", async () => {
+        await open(withExpression({ mood: "low", bubble: "gloomy" }));
+        expect(sound.play).toHaveBeenCalledWith("sad", calmVoice);
+      });
+
+      it("is sad for a hungry pet, even when its mood is fine", async () => {
+        await open(withExpression({ mood: "high", hunger: "low", bubble: "hungry" }));
+        expect(sound.play).toHaveBeenCalledWith("sad", calmVoice);
+      });
+
+      it("is silent while the pet sleeps", async () => {
+        await open({ ...base, sleeping: true, expression: { ...base.expression, bubble: "sleeping" } });
+        expect(sound.play).not.toHaveBeenCalled();
+      });
+
+      it("says nothing when the popup is closed", async () => {
+        await open(base);
+        sound.play.mockClear();
+        act(() => emitVisible(false));
+        expect(sound.play).not.toHaveBeenCalled();
+      });
+
+      it("greets again every time the popup is opened", async () => {
+        await open(base);
+        act(() => emitVisible(false));
+        act(() => emitVisible(true));
+        expect(sound.play).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    describe("idle cries", () => {
+      beforeEach(() => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        vi.setSystemTime(new Date("2026-10-17T12:00:00"));
+        vi.spyOn(Math, "random").mockReturnValue(0);
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+      });
+      const openAndWait = async () => {
+        render(<App />);
+        await screen.findByRole("img");
+        await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+        act(() => emitVisible(true));
+        sound.play.mockClear(); // あいさつは別のテストで確認する
+      };
+      const advance = async (ms: number) => {
+        await act(async () => {
+          vi.advanceTimersByTime(ms);
+        });
+      };
+
+      it("sometimes cries along with a gesture", async () => {
+        await openAndWait();
+        await advance(IDLE_MIN_MS + 10);
+        expect(sound.play).toHaveBeenCalledWith("happy", calmVoice); // bounce → happy
+      });
+
+      it("usually stays quiet during a gesture", async () => {
+        vi.spyOn(Math, "random").mockReturnValue(0.99);
+        await openAndWait();
+        await advance(IDLE_MAX_MS + 10);
+        expect(sound.play).not.toHaveBeenCalled();
+      });
+
+      it("does not cry again within the cooldown", async () => {
+        await openAndWait();
+        await advance(IDLE_MIN_MS + 10);
+        for (let elapsed = 0; elapsed < 8000; elapsed += 500) await advance(500); // 次のしぐさが何度か始まる
+        expect(sound.play).toHaveBeenCalledTimes(1);
+      });
+
+      it("cries again once the cooldown has passed", async () => {
+        await openAndWait();
+        await advance(IDLE_MIN_MS + 10);
+        // 一度にまとめて進めると、途中のしぐさが画面に反映されないので、少しずつ進める。
+        for (let elapsed = 0; elapsed < IDLE_CRY_COOLDOWN_MS + IDLE_MAX_MS; elapsed += 500) await advance(500);
+        expect(sound.play.mock.calls.length).toBeGreaterThanOrEqual(2);
+      });
     });
   });
 });

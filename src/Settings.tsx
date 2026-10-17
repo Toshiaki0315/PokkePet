@@ -98,6 +98,15 @@ export default function Settings() {
       </fieldset>
 
       <fieldset>
+        <legend>サウンド</legend>
+        <label className="row">
+          <input type="checkbox" checked={settings.soundEnabled} onChange={(e) => patch({ soundEnabled: e.target.checked })} />
+          鳴き声を鳴らす
+        </label>
+        <p className="hint">ポップアップを開いている間に、お世話やしぐさに合わせて鳴きます（おやすみ中は鳴きません）。</p>
+      </fieldset>
+
+      <fieldset>
         <legend>通知</legend>
         <label className="row">
           <input type="checkbox" checked={settings.notifyCalls} onChange={(e) => patch({ notifyCalls: e.target.checked })} />

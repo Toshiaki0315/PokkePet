@@ -18,6 +18,8 @@ pub struct Settings {
     pub show_gauges: bool,
     /// お世話の呼びかけ（空腹・汚れ・つまらない）をmacOSの通知で知らせる。
     pub notify_calls: bool,
+    /// 鳴き声（サウンド）を鳴らす。
+    pub sound_enabled: bool,
     /// おやすみ時間の開始・終了（0〜23時）。同じ値ならおやすみなし。
     pub sleep_start_hour: u8,
     pub sleep_end_hour: u8,
@@ -30,6 +32,7 @@ impl Default for Settings {
         Self {
             show_gauges: false,
             notify_calls: true,
+            sound_enabled: true,
             sleep_start_hour: DEFAULT_SLEEP_START_HOUR,
             sleep_end_hour: DEFAULT_SLEEP_END_HOUR,
             body_color: DEFAULT_BODY_COLOR.to_string(),
@@ -234,11 +237,29 @@ mod tests {
     }
 
     #[test]
+    fn sound_is_on_by_default_and_can_be_turned_off() {
+        assert!(Settings::default().sound_enabled);
+        let p = tmp("sound");
+        Settings { sound_enabled: false, ..Settings::default() }.save(&p).unwrap();
+        assert!(!Settings::load(&p).unwrap().sound_enabled);
+    }
+
+    #[test]
+    fn older_settings_files_get_the_sound_on() {
+        let p = tmp("older-sound");
+        fs::write(&p, r##"{"showGauges": true, "notifyCalls": false}"##).unwrap();
+        let s = Settings::load(&p).unwrap();
+        assert!(s.sound_enabled);
+        assert!(!s.notify_calls);
+    }
+
+    #[test]
     fn serializes_with_camel_case_keys() {
         let json = serde_json::to_value(Settings::default()).unwrap();
         assert!(json.get("showStage").is_none());
         assert_eq!(json["showGauges"], false);
         assert_eq!(json["notifyCalls"], true);
+        assert_eq!(json["soundEnabled"], true);
         assert_eq!(json["sleepStartHour"], 23);
         assert_eq!(json["sleepEndHour"], 7);
         assert_eq!(json["bodyColor"], "#4b5fb8");
