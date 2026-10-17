@@ -58,6 +58,14 @@ pub fn stroke_pet(app: AppHandle, svc: State<GameService>) -> Result<StateView, 
     Ok(view)
 }
 
+/// 亡くなったペットを見送り、新しい卵を迎える。
+#[tauri::command]
+pub fn bury_pet(app: AppHandle, svc: State<GameService>) -> Result<StateView, String> {
+    let view = svc.bury()?;
+    update_tray_title(&app, &view);
+    Ok(view)
+}
+
 /// ミニゲーム「どっちの手？」。`guess` は "left" か "right"。
 #[tauri::command]
 pub fn play_minigame(app: AppHandle, svc: State<GameService>, gate: State<Mutex<CallGate>>, guess: String) -> Result<MiniGameReport, String> {
@@ -113,6 +121,7 @@ pub fn save_settings(app: AppHandle, svc: State<SettingsService>, game: State<Ga
     let saved = svc.update(settings)?;
     apply_launch_at_login(&app, saved.launch_at_login);
     game.set_sleep_window(saved.sleep_window()); // おやすみ時間の変更をすぐ反映する
+    game.set_strict(saved.strict_mode);
     let _ = app.emit(SETTINGS_EVENT, saved.clone());
     let _ = app.emit(STATE_EVENT, game.snapshot());
     Ok(saved)
@@ -159,6 +168,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         Settings::default()
     });
     app.state::<GameService>().set_sleep_window(settings.sleep_window());
+    app.state::<GameService>().set_strict(settings.strict_mode);
     let launch_at_login = settings.launch_at_login;
     app.manage(SettingsService::new(settings, settings_path));
     apply_launch_at_login(app.handle(), launch_at_login);

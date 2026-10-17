@@ -26,6 +26,8 @@ pub enum DiaryEvent {
     CareMilestone { count: u32 },
     /// いっしょに過ごして丸 `days` 日が経った（記念日）。
     Anniversary { days: u32 },
+    /// 病気や衰弱で亡くなった（きびしいモード）。
+    Died { name: Option<String>, personality: Personality },
     /// 旅立ちを見送った（世代交代）。
     Graduated { name: Option<String>, personality: Personality },
 }

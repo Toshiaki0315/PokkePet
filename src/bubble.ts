@@ -12,6 +12,7 @@ export const BUBBLE_TEXT: Record<BubbleKind, string> = {
   drowsy: "ねむくなってきた…",
   selfish: "ねえねえ、かまって！",
   sick: "きもちわるい…",
+  dying: "たすけて…もう、げんかい…",
   welcome: "卵が届いたよ！撫でてあげてね",
 };
 

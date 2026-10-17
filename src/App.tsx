@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
 import {
   ackHatch,
+  buryPet,
   graduate,
   playMinigame,
   setName,
@@ -25,6 +26,7 @@ import { DEFAULT_SETTINGS } from "./defaults";
 import { Sprite } from "./SpriteView";
 import { bubbleText } from "./bubble";
 import { Farewell } from "./Farewell";
+import { Grave } from "./Grave";
 import { MiniGame } from "./MiniGame";
 import { NamePrompt } from "./NamePrompt";
 import { useHiddenCommand } from "./hiddenCommand";
@@ -226,6 +228,16 @@ export default function App() {
     );
   };
 
+  const bury = () => {
+    buryPet().then(
+      (next) => {
+        setError(null);
+        setView(next);
+      },
+      (e) => setError(errorText(e)),
+    );
+  };
+
   const submitName = (name: string) => {
     setName(name).then(
       (next) => {
@@ -276,6 +288,7 @@ export default function App() {
               onStay={() => setStayedGeneration(view.generation)}
             />
           )}
+          {view.dead && <Grave name={view.name} onBury={bury} />}
           {gameOpen && (
             <MiniGame onPlay={playGame} onClose={() => setGameOpen(false)} />
           )}

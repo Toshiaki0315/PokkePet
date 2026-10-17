@@ -121,6 +121,15 @@ export default function Settings() {
       </fieldset>
 
       <fieldset>
+        <legend>ゲーム</legend>
+        <label className="row">
+          <input type="checkbox" checked={settings.strictMode} onChange={(e) => patch({ strictMode: e.target.checked })} />
+          きびしいモード
+        </label>
+        <p className="hint">病気を治さずに放っておいたり、おなかもご機嫌もゼロのまま長く放置すると、お別れ（死）があります。ふだんは、こまめにお世話すれば心配いりません。</p>
+      </fieldset>
+
+      <fieldset>
         <legend>起動</legend>
         <label className="row">
           <input type="checkbox" checked={settings.launchAtLogin} onChange={(e) => patch({ launchAtLogin: e.target.checked })} />

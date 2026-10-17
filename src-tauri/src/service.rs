@@ -54,6 +54,10 @@ pub struct StateView {
     pub poops: u8,
     /// 病気か。
     pub sick: bool,
+    /// 命が危ない（きびしいモードで、もう限界が近い）。
+    pub danger: bool,
+    /// 亡くなっている（きびしいモード）。新しい卵を迎えるまで操作できない。
+    pub dead: bool,
     pub stage: u8,
     pub branch: Branch,
     pub personality: Personality,
@@ -102,6 +106,9 @@ pub fn tray_title(view: &StateView) -> Option<&'static str> {
     if view.hatching {
         return Some("🐣");
     }
+    if view.dead {
+        return Some("🪦");
+    }
     if view.graduating {
         return Some("👋");
     }
@@ -113,6 +120,7 @@ pub fn tray_title(view: &StateView) -> Option<&'static str> {
         Bubble::Welcome => Some("🥚"),
         // あいさつはメニューバーには出さない（落ち着いて見えるように）。
         Bubble::Sick => Some("🤒"),
+        Bubble::Dying => Some("🆘"),
         Bubble::Selfish => Some("💬"),
         Bubble::Happy | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy => None,
     }
@@ -248,6 +256,21 @@ impl GameService {
         Ok(self.view(&state))
     }
 
+    /// きびしいモード（お別れがある）か。設定から与える。
+    pub fn set_strict(&self, strict: bool) {
+        self.lock().strict = strict;
+    }
+
+    /// 亡くなったペットを見送り、新しい卵を迎える。
+    pub fn bury(&self) -> Result<StateView, String> {
+        let mut state = self.lock();
+        let mut next = state.clone();
+        next.bury()?;
+        next.save(&self.path).map_err(|e| e.to_string())?;
+        *state = next;
+        Ok(self.view(&state))
+    }
+
     /// 孵化の演出を見せたことを記録して保存する。
     pub fn ack_hatch(&self) -> io::Result<StateView> {
         let mut state = self.lock();
@@ -290,7 +313,10 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
     }
     // 世話が必要なとき以外は、時間帯のあいさつ（卵・おやすみ中は言わない）。
     if !sleeping && s.form.stage >= 2 && s.care.sick {
-        expression.bubble = Some(Bubble::Sick);
+        expression.bubble = Some(if s.strict && s.care.in_danger() { Bubble::Dying } else { Bubble::Sick });
+    }
+    if s.dead {
+        expression.bubble = None;
     }
     if !sleeping && s.form.stage >= 2 && s.care.is_selfish() && matches!(expression.bubble, None | Some(Bubble::Happy)) {
         expression.bubble = Some(Bubble::Selfish);
@@ -310,6 +336,8 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
         discipline: s.care.discipline,
         poops: poops(s.status.dirtiness),
         sick: s.care.sick,
+        danger: s.strict && !s.dead && s.care.in_danger(),
+        dead: s.dead,
         stage: s.form.stage,
         branch: s.form.branch,
         personality: s.form.personality,
@@ -377,6 +405,8 @@ mod tests {
                 discipline: 0,
                 poops: 0,
                 sick: false,
+                danger: false,
+                dead: false,
                 stage: 1,
                 branch: Branch::Normal,
                 personality: Personality::Calm,
@@ -486,6 +516,57 @@ mod tests {
     fn a_sleeping_sick_pet_is_left_to_sleep() {
         let s = sick_pet("sick-sleep", 0); // UTC の 0 時台はおやすみ中
         assert_eq!(s.snapshot().expression.bubble, Some(Bubble::Sleeping));
+    }
+
+    fn doomed_service(name: &str) -> GameService {
+        let mut state = GameState::new(0);
+        state.step(crate::evolution::EGG_SECS);
+        state.ack_hatch();
+        state.intro_seen = true;
+        state.care.sick = true;
+        let s = GameService::new(state, tmp(name)).with_utc_offset(NOON_AT_ZERO);
+        s.set_strict(true);
+        s
+    }
+
+    #[test]
+    fn a_pet_close_to_the_end_cries_for_help_but_only_in_strict_mode() {
+        let s = doomed_service("danger");
+        assert_eq!(s.snapshot().expression.bubble, Some(Bubble::Sick));
+        assert!(!s.snapshot().danger);
+        s.lock().care.fatal_ticks = crate::care::DANGER_TICKS;
+        let v = s.snapshot();
+        assert_eq!((v.danger, v.expression.bubble), (true, Some(Bubble::Dying)));
+        s.set_strict(false);
+        let v = s.snapshot();
+        assert_eq!((v.danger, v.expression.bubble), (false, Some(Bubble::Sick)));
+    }
+
+    #[test]
+    fn a_dead_pet_shows_the_grave_and_can_be_buried_into_a_new_egg() {
+        let s = doomed_service("grave");
+        s.lock().care.fatal_ticks = crate::care::FATAL_TICKS - 1;
+        let tick = s.tick(u64::from(TICK_SECS) * 2).unwrap();
+        assert!(tick.view.dead);
+        assert_eq!(tick.view.expression.bubble, None);
+        assert_eq!(tray_title(&tick.view), Some("🪦"));
+        assert!(!tick.view.danger);
+        let json = serde_json::to_value(&tick.view).unwrap();
+        assert_eq!((json["dead"].as_bool(), json["danger"].as_bool()), (Some(true), Some(false)));
+        let v = s.bury().unwrap();
+        assert!(!v.dead);
+        assert_eq!((v.generation, v.stage), (2, 1));
+        assert!(s.bury().is_err(), "nothing to bury now");
+    }
+
+    #[test]
+    fn burying_returns_an_error_when_saving_fails() {
+        let bad = tmp("bury-bad").parent().unwrap().join("no/such/dir/save.json");
+        let mut state = GameState::new(0);
+        state.dead = true;
+        let s = GameService::new(state, bad);
+        assert!(s.bury().is_err());
+        assert!(s.snapshot().dead, "the pet stays as it was");
     }
 
     #[test]
@@ -1031,6 +1112,7 @@ mod tests {
         assert_eq!(tray_title(&view_with(None)), None);
         assert_eq!(tray_title(&view_with(Some(Bubble::Selfish))), Some("💬"));
         assert_eq!(tray_title(&view_with(Some(Bubble::Sick))), Some("🤒"));
+        assert_eq!(tray_title(&view_with(Some(Bubble::Dying))), Some("🆘"));
         for quiet in [Bubble::Happy, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy] {
             assert_eq!(tray_title(&view_with(Some(quiet))), None);
         }

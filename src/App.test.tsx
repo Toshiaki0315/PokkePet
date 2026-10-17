@@ -13,6 +13,7 @@ const api = vi.hoisted(() => ({
   onStateChanged: vi.fn(),
   ackHatch: vi.fn(),
   graduate: vi.fn(),
+  buryPet: vi.fn(),
   playMinigame: vi.fn(),
   setName: vi.fn(),
   getSettings: vi.fn(),
@@ -41,6 +42,8 @@ const base: StateView = {
   discipline: 0,
   poops: 0,
   sick: false,
+  danger: false,
+  dead: false,
   stage: 2,
   branch: "normal",
   personality: "calm",
@@ -304,6 +307,7 @@ describe("App", () => {
       ["drowsy", "ねむくなってきた…"],
       ["selfish", "ねえねえ、かまって！"],
       ["sick", "きもちわるい…"],
+      ["dying", "たすけて…もう、げんかい…"],
     ] as const)("shows a speech bubble for %s", async (bubble, text) => {
       api.getState.mockResolvedValue(withExpression({ bubble }));
       render(<App />);
@@ -1329,5 +1333,37 @@ describe("poop and sickness", () => {
     await userEvent.click(screen.getByRole("button", { name: "治療" }));
     expect(api.performAction).toHaveBeenCalledWith("cure");
     await waitFor(() => expect(sound.play).toHaveBeenCalledWith("sad", { personality: "calm", stage: 2 }));
+  });
+});
+
+describe("strict mode: the end", () => {
+  it("shows the grave for a dead pet and lets you welcome a new egg", async () => {
+    api.getState.mockResolvedValue({ ...base, dead: true, name: "ごま" });
+    api.buryPet.mockResolvedValue({ ...base, stage: 1, generation: 2 });
+    render(<App />);
+    expect(await screen.findByRole("dialog", { name: "お別れ" })).toHaveTextContent("ごまは天国へ旅立ちました");
+    await userEvent.click(screen.getByRole("button", { name: "新しい卵を迎える" }));
+    expect(api.buryPet).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "お別れ" })).toBeNull());
+  });
+
+  it("does not show the grave for a living pet", async () => {
+    render(<App />);
+    await screen.findByRole("img");
+    expect(screen.queryByRole("dialog", { name: "お別れ" })).toBeNull();
+  });
+
+  it("an unnamed pet's grave still reads well", async () => {
+    api.getState.mockResolvedValue({ ...base, dead: true });
+    render(<App />);
+    expect(await screen.findByRole("dialog", { name: "お別れ" })).toHaveTextContent("天国へ旅立ちました");
+  });
+
+  it("shows the error when welcoming a new egg fails", async () => {
+    api.getState.mockResolvedValue({ ...base, dead: true });
+    api.buryPet.mockRejectedValue(new Error("save failed"));
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "新しい卵を迎える" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("save failed");
   });
 });
