@@ -8,7 +8,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::care::{Care, SICK_MOOD_LOSS};
-use crate::companion::{Companion, Observation};
+use crate::companion::{Awake, Companion, Observation};
 use crate::daylog::{day_number, month_day, DayStats};
 use crate::genome::{record_ancestor, Ancestor, EggCode, Genome};
 use crate::souvenirs::{self, SouvenirBook, OUTING_MIN_SECS};
@@ -239,11 +239,16 @@ impl GameState {
     /// Mac の操作を観測する。操作している時間は、いっしょにいた時間として数え、30 分ごとに親密度が少し上がる
     /// （孵化したペットだけ。亡くなっているときは何もしない）。
     pub fn observe_activity(&mut self, now_unix: u64, idle_secs: u64, local_hour: u8) -> Observation {
+        self.observe_activity_with(now_unix, idle_secs, local_hour, Awake::ALWAYS)
+    }
+
+    /// `observe_activity` に、ペットが起きているかを加えたもの（眠っている間は、おでかけにならない）。
+    pub fn observe_activity_with(&mut self, now_unix: u64, idle_secs: u64, local_hour: u8, awake: Awake) -> Observation {
         if self.dead {
             return Observation::default();
         }
         let before = self.companion.total_secs;
-        let obs = self.companion.observe(now_unix, idle_secs, local_hour);
+        let obs = self.companion.observe_with(now_unix, idle_secs, local_hour, awake);
         self.today.together_secs += self.companion.total_secs - before;
         if self.form.stage >= 2 {
             self.status.affinity = self.status.affinity.saturating_add(obs.affinity_gain).min(100);
