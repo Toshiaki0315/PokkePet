@@ -16,7 +16,7 @@ vi.mock("./api", () => api);
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showStage: true, showGauges: false, notifyCalls: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showGauges: false, notifyCalls: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 let emitState: (v: { name: string | null }) => void;
 const unlisten = vi.fn();
@@ -42,7 +42,7 @@ const colorInput = (name: string) => screen.getByLabelText(name) as HTMLInputEle
 describe("Settings dialog", () => {
   it("shows the saved settings", async () => {
     render(<Settings />);
-    await waitFor(() => expect(screen.getByRole("checkbox", { name: "段階を表示" })).toBeChecked());
+    await waitFor(() => expect(screen.getByRole("checkbox", { name: "ゲージを表示" })).not.toBeChecked());
     expect(screen.getByRole("checkbox", { name: "ゲージを表示" })).not.toBeChecked();
     expect(colorInput("本体の色").value).toBe("#112233");
     expect(colorInput("ボタンの色").value).toBe("#445566");
@@ -51,15 +51,15 @@ describe("Settings dialog", () => {
   it("starts from the default settings until the saved ones arrive", () => {
     api.getSettings.mockReturnValue(new Promise(() => {}));
     render(<Settings />);
-    expect(screen.getByRole("checkbox", { name: "段階を表示" })).not.toBeChecked();
+    expect(screen.getByRole("checkbox", { name: "ゲージを表示" })).not.toBeChecked();
     expect(screen.getByRole("checkbox", { name: "お世話の呼びかけを通知" })).toBeChecked(); // 既定はオン
     expect(colorInput("本体の色").value).toBe(DEFAULT_SETTINGS.bodyColor);
   });
 
-  it("saves the stage switch", async () => {
+  it("has no switch for the stage number any more", async () => {
     render(<Settings />);
-    await userEvent.click(await screen.findByRole("checkbox", { name: "段階を表示" }));
-    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, showStage: false });
+    await screen.findByRole("checkbox", { name: "ゲージを表示" });
+    expect(screen.queryByRole("checkbox", { name: "段階を表示" })).toBeNull();
   });
 
   it("saves the gauge switch", async () => {
@@ -78,7 +78,7 @@ describe("Settings dialog", () => {
 
   it("saves a new body colour and a new button colour", async () => {
     render(<Settings />);
-    await screen.findByRole("checkbox", { name: "段階を表示" });
+    await screen.findByRole("checkbox", { name: "ゲージを表示" });
     fireEvent.change(colorInput("本体の色"), { target: { value: "#aabbcc" } });
     await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith({ ...custom, bodyColor: "#aabbcc" }));
     fireEvent.change(colorInput("ボタンの色"), { target: { value: "#ddeeff" } });
@@ -122,7 +122,7 @@ describe("Settings dialog", () => {
 
   it("follows settings-changed events (e.g. the hidden command in the main window)", async () => {
     render(<Settings />);
-    await screen.findByRole("checkbox", { name: "段階を表示" });
+    await screen.findByRole("checkbox", { name: "ゲージを表示" });
     await waitFor(() => expect(api.onSettingsChanged).toHaveBeenCalled());
     emit({ ...custom, showGauges: true });
     await waitFor(() => expect(screen.getByRole("checkbox", { name: "ゲージを表示" })).toBeChecked());
@@ -208,7 +208,7 @@ describe("Settings dialog", () => {
 
     it("offers every hour of the day", async () => {
       render(<Settings />);
-      await screen.findByRole("checkbox", { name: "段階を表示" });
+      await screen.findByRole("checkbox", { name: "ゲージを表示" });
       const options = Array.from(select("おやすみ開始").options).map((o) => o.textContent);
       expect(options).toHaveLength(24);
       expect(options[0]).toBe("0時");

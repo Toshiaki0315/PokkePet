@@ -42,7 +42,7 @@ const base: StateView = {
   generation: 1,
 };
 const withExpression = (e: Partial<StateView["expression"]>): StateView => ({ ...base, expression: { ...base.expression, ...e } });
-const gaugesOn: Settings = { ...DEFAULT_SETTINGS, showStage: true, showGauges: true };
+const gaugesOn: Settings = { ...DEFAULT_SETTINGS, showGauges: true };
 const enableGauges = () => api.getSettings.mockResolvedValue(gaugesOn);
 const konami = async () => {
   await userEvent.keyboard("{ArrowUp}{ArrowUp}{ArrowDown}{ArrowDown}");
@@ -83,11 +83,11 @@ describe("App", () => {
     }
   });
 
-  it("shows the stage (with the gauges) and the sprite", async () => {
+  it("shows the sprite, and never the stage number (the design tells the stage)", async () => {
     enableGauges();
     render(<App />);
-    expect(await screen.findByText("段階 2 / 10")).toBeInTheDocument();
-    expect(screen.getByRole("img")).toHaveAttribute("alt", "stage 2 normal calm");
+    expect(await screen.findByRole("img")).toHaveAttribute("alt", "stage 2 normal calm");
+    expect(screen.queryByText(/段階 \d/)).toBeNull();
   });
 
   it.each([["ご飯", "feed"], ["おやつ", "snack"], ["掃除", "clean"]])("%s button calls performAction(%s)", async (label, action) => {
@@ -196,21 +196,13 @@ describe("App", () => {
       expect(screen.getAllByRole("progressbar")).toHaveLength(4);
     });
 
-    it("saves both switches through the settings API when the command is used", async () => {
+    it("saves the gauge switch through the settings API when the command is used", async () => {
       render(<App />);
       await screen.findByRole("img");
       await konami();
-      await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, showStage: true, showGauges: true }));
+      await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, showGauges: true }));
       await konami();
-      await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith({ ...DEFAULT_SETTINGS, showStage: false, showGauges: false }));
-    });
-
-    it("turns both off when only one of them was on", async () => {
-      api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, showStage: true });
-      render(<App />);
-      await screen.findByText("段階 2 / 10");
-      await konami();
-      await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, showStage: false, showGauges: false }));
+      await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith({ ...DEFAULT_SETTINGS, showGauges: false }));
     });
 
     it("shows an error when saving the settings fails", async () => {
@@ -221,20 +213,12 @@ describe("App", () => {
       expect(await screen.findByRole("alert")).toHaveTextContent("disk full");
     });
 
-    it("shows the stage and the gauges independently according to the settings", async () => {
-      api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, showStage: true });
-      render(<App />);
-      expect(await screen.findByText("段階 2 / 10")).toBeInTheDocument();
-      expect(screen.queryByRole("progressbar")).toBeNull();
-    });
-
     it("follows settings-changed events from the settings dialog", async () => {
       render(<App />);
       await screen.findByRole("img");
       await waitFor(() => expect(api.onSettingsChanged).toHaveBeenCalled());
       emitSettings(gaugesOn);
       expect(await screen.findAllByRole("progressbar")).toHaveLength(4);
-      expect(screen.getByText("段階 2 / 10")).toBeInTheDocument();
     });
   });
 
@@ -344,14 +328,13 @@ describe("App", () => {
   });
 
   describe("device layout", () => {
-    it("hides the stage label together with the gauges and toggles it with the hidden command", async () => {
+    it("never shows a stage label, with or without the gauges", async () => {
       render(<App />);
       await screen.findByRole("img");
-      expect(screen.queryByText("段階 2 / 10")).toBeNull();
+      expect(screen.queryByText(/段階 \d/)).toBeNull();
       await konami();
-      expect(screen.getByText("段階 2 / 10")).toBeInTheDocument();
-      await konami();
-      expect(screen.queryByText("段階 2 / 10")).toBeNull();
+      expect(screen.getAllByRole("progressbar")).toHaveLength(4);
+      expect(screen.queryByText(/段階 \d/)).toBeNull();
     });
 
     it("keeps the screen (character, bubble) apart from the buttons", async () => {
@@ -367,12 +350,11 @@ describe("App", () => {
       expect(within(controls).queryByRole("status")).toBeNull();
     });
 
-    it("shows the gauges and the stage label on the screen when enabled", async () => {
+    it("shows the gauges on the screen when enabled", async () => {
       enableGauges();
       render(<App />);
       const display = await screen.findByRole("region", { name: "画面" });
       expect(within(display).getAllByRole("progressbar")).toHaveLength(4);
-      expect(within(display).getByText("段階 2 / 10")).toBeInTheDocument();
       expect(display).toHaveClass("compact"); // ゲージ分の高さを確保するためキャラを小さくする
     });
 
@@ -979,18 +961,11 @@ describe("App", () => {
       expect(screen.getByRole("dialog", { name: "旅立ち" })).toBeInTheDocument();
     });
 
-    it("shows the generation next to the stage from the second generation on", async () => {
-      localStorage.clear();
+    it("does not put the generation on the screen either", async () => {
       enableGauges();
-      api.getState.mockResolvedValue({ ...base, generation: 2 });
+      api.getState.mockResolvedValue({ ...base, generation: 3 });
       render(<App />);
-      expect(await screen.findByText("2代目")).toBeInTheDocument();
-    });
-
-    it("does not mention the generation for the first pet", async () => {
-      enableGauges();
-      render(<App />);
-      await screen.findByText("段階 2 / 10");
+      await screen.findByRole("img");
       expect(screen.queryByText(/代目/)).toBeNull();
     });
   });

@@ -62,10 +62,6 @@ export default function Settings() {
       <fieldset>
         <legend>表示</legend>
         <label className="row">
-          <input type="checkbox" checked={settings.showStage} onChange={(e) => patch({ showStage: e.target.checked })} />
-          段階を表示
-        </label>
-        <label className="row">
           <input type="checkbox" checked={settings.showGauges} onChange={(e) => patch({ showGauges: e.target.checked })} />
           ゲージを表示
         </label>

@@ -41,13 +41,13 @@ describe("api", () => {
   });
 
   it("getSettings invokes get_settings", async () => {
-    invoke.mockResolvedValue({ showStage: false });
-    await expect(getSettings()).resolves.toEqual({ showStage: false });
+    invoke.mockResolvedValue({ showGauges: false });
+    await expect(getSettings()).resolves.toEqual({ showGauges: false });
     expect(invoke).toHaveBeenCalledWith("get_settings");
   });
 
   it("saveSettings invokes save_settings with the settings", async () => {
-    const settings = { showStage: true, showGauges: false, notifyCalls: true, sleepStartHour: 23, sleepEndHour: 7, bodyColor: "#112233", buttonColor: "#445566" };
+    const settings = { showGauges: false, notifyCalls: true, sleepStartHour: 23, sleepEndHour: 7, bodyColor: "#112233", buttonColor: "#445566" };
     invoke.mockResolvedValue(settings);
     await expect(saveSettings(settings)).resolves.toEqual(settings);
     expect(invoke).toHaveBeenCalledWith("save_settings", { settings });
@@ -56,13 +56,13 @@ describe("api", () => {
   it("onSettingsChanged listens to settings-changed and forwards the payload", async () => {
     const unlisten = vi.fn();
     listen.mockImplementation((_name: string, cb: (e: { payload: unknown }) => void) => {
-      cb({ payload: { showStage: true } });
+      cb({ payload: { showGauges: true } });
       return Promise.resolve(unlisten);
     });
     const handler = vi.fn();
     const off = await onSettingsChanged(handler);
     expect(listen).toHaveBeenCalledWith("settings-changed", expect.any(Function));
-    expect(handler).toHaveBeenCalledWith({ showStage: true });
+    expect(handler).toHaveBeenCalledWith({ showGauges: true });
     expect(off).toBe(unlisten);
   });
 

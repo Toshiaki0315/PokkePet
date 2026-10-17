@@ -5,6 +5,7 @@ pub mod evolution;
 pub mod expression;
 pub mod game;
 pub mod minigame;
+pub mod paths;
 pub mod service;
 pub mod settings;
 pub mod sleep;

@@ -14,6 +14,7 @@ use crate::dex::DexView;
 use crate::diary::DiaryView;
 use crate::game::GameState;
 use crate::minigame::Side;
+use crate::paths::data_dir;
 use crate::service::{should_notify_graduation, should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
 use crate::settings::{Settings, SettingsService};
 
@@ -111,7 +112,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "macos")]
     app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-    let dir = app.path().app_data_dir()?;
+    // 開発版は別フォルダ（インストールしたアプリのセーブを上書き・流用しない）。
+    let dir = data_dir(&app.path().app_data_dir()?, cfg!(debug_assertions));
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("save.json");
     let state = GameState::load(&path, now_unix()).unwrap_or_else(|e| {

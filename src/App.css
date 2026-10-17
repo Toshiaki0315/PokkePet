@@ -69,7 +69,6 @@ body { overflow: hidden; user-select: none; }
 }
 .screen > * { position: relative; z-index: 1; }
 
-.stage { align-self: flex-start; flex: none; margin: 5px 0 0 6px; font-size: 10px; font-weight: 700; color: #3b3f55; background: rgba(255, 255, 255, 0.75); padding: 1px 6px; border-radius: 8px; }
 
 .stage-area { flex: 1 1 auto; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 6px; }
 .sprite { width: 128px; height: 128px; flex: none; image-rendering: pixelated; }
@@ -169,4 +168,3 @@ body { overflow: hidden; user-select: none; }
 .farewell .title { font-size: 15px; font-weight: 700; }
 .farewell button { padding: 6px 12px; border-radius: 10px; border: 1px solid #0003; background: #fff; color: inherit; cursor: pointer; font-size: 12px; }
 .farewell button:hover { background: #fff6dd; }
-.screen > .generation { position: absolute; top: 24px; left: 6px; margin: 0; font-size: 10px; font-weight: 700; color: #3b3f55; background: rgba(255, 255, 255, 0.75); padding: 1px 6px; border-radius: 8px; z-index: 2; }

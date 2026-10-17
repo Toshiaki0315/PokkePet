@@ -15,7 +15,6 @@ pub const DEFAULT_BUTTON_COLOR: &str = "#f280a8";
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Settings {
-    pub show_stage: bool,
     pub show_gauges: bool,
     /// お世話の呼びかけ（空腹・汚れ・つまらない）をmacOSの通知で知らせる。
     pub notify_calls: bool,
@@ -29,7 +28,6 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            show_stage: false,
             show_gauges: false,
             notify_calls: true,
             sleep_start_hour: DEFAULT_SLEEP_START_HOUR,
@@ -138,9 +136,9 @@ mod tests {
     }
 
     #[test]
-    fn defaults_hide_stage_and_gauges_and_use_the_blue_pink_scheme() {
+    fn defaults_hide_the_gauges_and_use_the_blue_pink_scheme() {
         let s = Settings::default();
-        assert_eq!((s.show_stage, s.show_gauges), (false, false));
+        assert!(!s.show_gauges);
         assert_eq!((s.body_color.as_str(), s.button_color.as_str()), ("#4b5fb8", "#f280a8"));
         assert_eq!(s.validate(), Ok(()));
     }
@@ -176,7 +174,7 @@ mod tests {
     #[test]
     fn older_settings_files_get_call_notifications_on() {
         let p = tmp("older");
-        fs::write(&p, r##"{"showStage": true, "bodyColor": "#010203"}"##).unwrap();
+        fs::write(&p, r##"{"showGauges": true, "bodyColor": "#010203"}"##).unwrap();
         assert!(Settings::load(&p).unwrap().notify_calls);
     }
 
@@ -215,7 +213,7 @@ mod tests {
     #[test]
     fn older_settings_files_get_the_default_sleep_hours() {
         let p = tmp("older-sleep");
-        fs::write(&p, r##"{"showStage": true}"##).unwrap();
+        fs::write(&p, r##"{"showGauges": true}"##).unwrap();
         assert_eq!(Settings::load(&p).unwrap().sleep_window(), SleepWindow::default());
     }
 
@@ -227,9 +225,18 @@ mod tests {
     }
 
     #[test]
+    fn settings_files_from_when_the_stage_could_be_shown_still_load() {
+        let p = tmp("old-stage");
+        fs::write(&p, r##"{"showStage": true, "showGauges": true, "bodyColor": "#010203"}"##).unwrap();
+        let s = Settings::load(&p).unwrap();
+        assert!(s.show_gauges);
+        assert_eq!(s.body_color, "#010203");
+    }
+
+    #[test]
     fn serializes_with_camel_case_keys() {
         let json = serde_json::to_value(Settings::default()).unwrap();
-        assert_eq!(json["showStage"], false);
+        assert!(json.get("showStage").is_none());
         assert_eq!(json["showGauges"], false);
         assert_eq!(json["notifyCalls"], true);
         assert_eq!(json["sleepStartHour"], 23);
@@ -275,7 +282,7 @@ mod tests {
     #[test]
     fn save_then_load_roundtrips_and_leaves_no_temp_file() {
         let p = tmp("roundtrip");
-        let s = Settings { show_stage: true, show_gauges: true, ..with_colors("#112233", "#445566") };
+        let s = Settings { show_gauges: true, ..with_colors("#112233", "#445566") };
         s.save(&p).unwrap();
         assert_eq!(Settings::load(&p).unwrap(), s);
         assert!(!p.with_extension("json.tmp").exists());
@@ -310,7 +317,7 @@ mod tests {
     fn service_update_keeps_current_settings_when_saving_fails() {
         let bad = tmp("svc-save").parent().unwrap().join("no/such/dir/settings.json");
         let svc = SettingsService::new(Settings::default(), bad);
-        assert!(svc.update(Settings { show_stage: true, ..Settings::default() }).is_err());
+        assert!(svc.update(Settings { show_gauges: true, ..Settings::default() }).is_err());
         assert_eq!(svc.get(), Settings::default());
     }
 

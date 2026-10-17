@@ -14,7 +14,7 @@ import { useIdleGesture } from "./idle";
 import { useListener } from "./useListener";
 import "./App.css";
 
-// 隠しコマンド: ↑ ↑ ↓ ↓ で段階とゲージの表示を切り替える。
+// 隠しコマンド: ↑ ↑ ↓ ↓ でゲージの表示を切り替える。
 const GAUGE_COMMAND = ["ArrowUp", "ArrowUp", "ArrowDown", "ArrowDown"] as const;
 
 const GAUGES: ReadonlyArray<readonly [string, keyof StateView]> = [
@@ -59,10 +59,9 @@ export default function App() {
   useListener(onSettingsChanged, setSettings);
   useListener(onPopupVisibility, setPopupOpen);
 
-  // 隠しコマンドは段階表示とゲージ表示をまとめて切り替える（どちらかがオンならオフにする）。
+  // 隠しコマンドでゲージ表示を切り替える。
   useHiddenCommand(GAUGE_COMMAND, () => {
-    const next = !(settings.showStage || settings.showGauges);
-    saveSettings({ ...settings, showStage: next, showGauges: next }).then(setSettings, (e) => setError(errorText(e)));
+    saveSettings({ ...settings, showGauges: !settings.showGauges }).then(setSettings, (e) => setError(errorText(e)));
   });
 
   const idle = useIdleGesture(
@@ -139,8 +138,6 @@ export default function App() {
     >
       <div className="device">
         <section className={`screen${settings.showGauges ? " compact" : ""}`} aria-label="画面">
-          {settings.showStage && <p className="stage">段階 {view.stage} / 10</p>}
-          {settings.showStage && view.generation > 1 && <p className="generation">{view.generation}代目</p>}
           {view.name && <p className="name">{view.name}</p>}
           {view.graduating && stayedGeneration !== view.generation && (
             <Farewell name={view.name} onSeeOff={seeOff} onStay={() => setStayedGeneration(view.generation)} />
