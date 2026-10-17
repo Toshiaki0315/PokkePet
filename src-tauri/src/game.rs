@@ -309,6 +309,7 @@ impl GameState {
     /// - おやすみ時間で眠っているペットは、無理やり起こす（ご機嫌が大きく下がり、親密度も少し下がる）。
     ///   `WOKEN_AWAKE_SECS` のあいだ起きていて、そのあとまだ夜なら、また眠る。
     /// - 寝かされている最中に押すと起こす（おやすみ時間のあいだなら、無理やり起こしたことになる）。
+    ///
     /// 卵と、亡くなったペットには使えない。
     pub fn toggle_power_in(&mut self, good: bool, scheduled_sleep: bool) -> Result<(), String> {
         if self.dead || self.form.stage <= 1 {
