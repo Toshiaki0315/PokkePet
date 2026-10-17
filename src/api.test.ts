@@ -5,7 +5,7 @@ const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
-import { ackHatch, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
+import { ackHatch, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
 
 const view = { mood: 1, affinity: 2, hunger: 3, dirtiness: 4, stage: 1, branch: "normal", personality: "calm" };
 
@@ -83,6 +83,12 @@ describe("api", () => {
     expect(listen).toHaveBeenCalledWith("popup-visibility", expect.any(Function));
     expect(handler).toHaveBeenCalledWith(true);
     expect(off).toBe(unlisten);
+  });
+
+  it("strokePet invokes stroke_pet", async () => {
+    invoke.mockResolvedValue(view);
+    await expect(strokePet()).resolves.toEqual(view);
+    expect(invoke).toHaveBeenCalledWith("stroke_pet");
   });
 
   it("setName invokes set_name with the name", async () => {

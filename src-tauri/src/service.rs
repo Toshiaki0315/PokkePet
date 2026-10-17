@@ -205,6 +205,17 @@ impl GameService {
         Ok(self.view(&state))
     }
 
+    /// マウスでなでられた。おやすみ中は起こさないので何も変わらない。
+    pub fn stroke(&self, now_unix: u64) -> io::Result<StateView> {
+        let mut state = self.lock();
+        state.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix), self.sleep_window());
+        if !self.view(&state).sleeping {
+            state.stroke();
+            state.save(&self.path)?;
+        }
+        Ok(self.view(&state))
+    }
+
     /// 名前を付けて（または付け直して）保存する。
     pub fn set_name(&self, raw: &str) -> Result<StateView, String> {
         let mut state = self.lock();
@@ -361,6 +372,33 @@ mod tests {
         }
         assert_eq!(v.expression.hunger, Level::Low);
         assert_eq!(v.expression.bubble, Some(Bubble::Hungry));
+    }
+
+    #[test]
+    fn stroking_cheers_the_pet_up_without_counting_as_care() {
+        let s = svc("stroke");
+        let before = s.snapshot();
+        let v = s.stroke(0).unwrap();
+        assert_eq!((v.mood, v.affinity), (before.mood + 2, before.affinity + 1));
+        assert!(v.intro, "stroking does not end the opening");
+        assert_eq!(s.snapshot().mood, v.mood);
+    }
+
+    #[test]
+    fn stroking_returns_an_error_when_saving_fails() {
+        let bad = tmp("stroke-bad").parent().unwrap().join("no/such/dir/save.json");
+        let s = GameService::new(GameState::new(0), bad);
+        assert!(s.stroke(0).is_err());
+    }
+
+    #[test]
+    fn a_sleeping_pet_is_not_cheered_by_stroking() {
+        let s = svc("stroke-sleep");
+        s.set_sleep_window(SleepWindow { start_hour: 0, end_hour: 24 });
+        let before = s.snapshot();
+        let v = s.stroke(0).unwrap();
+        assert!(v.sleeping);
+        assert_eq!(v.mood, before.mood);
     }
 
     #[test]

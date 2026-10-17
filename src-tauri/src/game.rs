@@ -247,6 +247,11 @@ impl GameState {
         }
     }
 
+    /// マウスでなでられた。お世話の回数には数えず、オープニングも終わらせない。
+    pub fn stroke(&mut self) {
+        self.status.stroke();
+    }
+
     /// これまでのお世話の回数（ご飯・おやつ・遊ぶ・掃除。卵を撫でるのは含めない）。
     fn care_total(&self) -> u32 {
         let h = &self.history;

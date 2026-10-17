@@ -9,6 +9,7 @@ import { IDLE_CRY_COOLDOWN_MS, IDLE_MAX_MS, IDLE_MIN_MS } from "./idle";
 const api = vi.hoisted(() => ({
   getState: vi.fn(),
   performAction: vi.fn(),
+  strokePet: vi.fn(),
   onStateChanged: vi.fn(),
   ackHatch: vi.fn(),
   graduate: vi.fn(),
@@ -1204,5 +1205,54 @@ describe("App", () => {
         expect(sound.play.mock.calls.length).toBeGreaterThanOrEqual(2);
       });
     });
+  });
+});
+
+describe("stroking the character", () => {
+  const stroked = { ...base, mood: 52 };
+
+  it("clicking the character cheers it up: the state is updated, hearts float and it cries happily", async () => {
+    api.strokePet.mockResolvedValue(stroked);
+    render(<App />);
+    await userEvent.click(await screen.findByRole("img"));
+    expect(api.strokePet).toHaveBeenCalledTimes(1);
+    expect(await screen.findByTestId("hearts")).toBeInTheDocument();
+    expect(sound.play).toHaveBeenCalledWith("happy", { personality: "calm", stage: 2 });
+  });
+
+  it("rubbing the character also counts", async () => {
+    api.strokePet.mockResolvedValue(stroked);
+    render(<App />);
+    const sprite = await screen.findByRole("img");
+    fireEvent.mouseMove(sprite, { clientX: 0, clientY: 0 });
+    fireEvent.mouseMove(sprite, { clientX: 100, clientY: 0 });
+    await waitFor(() => expect(api.strokePet).toHaveBeenCalledTimes(1));
+  });
+
+  it("the hearts disappear when their animation ends", async () => {
+    api.strokePet.mockResolvedValue(stroked);
+    render(<App />);
+    await userEvent.click(await screen.findByRole("img"));
+    const hearts = await screen.findByTestId("hearts");
+    for (const name of ["animationend", "webkitAnimationEnd"]) fireEvent(hearts, new Event(name, { bubbles: true }));
+    await waitFor(() => expect(screen.queryByTestId("hearts")).toBeNull());
+  });
+
+  it("a sleeping character is not woken by a cry or hearts", async () => {
+    const asleep = { ...base, sleeping: true };
+    api.getState.mockResolvedValue(asleep);
+    api.strokePet.mockResolvedValue(asleep);
+    render(<App />);
+    await userEvent.click(await screen.findByRole("img"));
+    await waitFor(() => expect(api.strokePet).toHaveBeenCalled());
+    expect(screen.queryByTestId("hearts")).toBeNull();
+    expect(sound.play).not.toHaveBeenCalled();
+  });
+
+  it("shows the error when stroking fails", async () => {
+    api.strokePet.mockRejectedValue(new Error("save failed"));
+    render(<App />);
+    await userEvent.click(await screen.findByRole("img"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("save failed");
   });
 });

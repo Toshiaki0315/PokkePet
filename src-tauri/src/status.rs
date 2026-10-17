@@ -30,6 +30,8 @@ const WIN_MOOD: u8 = 10;
 const WIN_AFFINITY: u8 = 3;
 const PET_MOOD: u8 = 10;
 const PET_AFFINITY: u8 = 3;
+const STROKE_MOOD: u8 = 2;
+const STROKE_AFFINITY: u8 = 1;
 /// 汚れ度がこの値以上だと、ティックごとのご機嫌低下が大きくなる。
 pub const DIRTY_THRESHOLD: u8 = 70;
 
@@ -80,6 +82,12 @@ impl Status {
         self.affinity = raise(self.affinity, PET_AFFINITY);
     }
 
+    /// マウスでなでられた。ほんの少しだけご機嫌と親密度が上がる。
+    pub fn stroke(&mut self) {
+        self.mood = raise(self.mood, STROKE_MOOD);
+        self.affinity = raise(self.affinity, STROKE_AFFINITY);
+    }
+
     pub fn clean(&mut self) {
         self.dirtiness = 0;
     }
@@ -122,6 +130,16 @@ mod tests {
         s.feed();
         assert_eq!((s.hunger, s.mood, s.affinity), (90, 55, 52));
         assert_eq!(s.dirtiness, 50);
+    }
+
+    #[test]
+    fn stroking_raises_mood_and_affinity_a_little_and_saturates() {
+        let mut s = base();
+        s.stroke();
+        assert_eq!((s.mood, s.affinity, s.hunger, s.dirtiness), (52, 51, 50, 50));
+        let mut full = Status::new(99, 100, 50, 0);
+        full.stroke();
+        assert_eq!((full.mood, full.affinity), (100, 100));
     }
 
     #[test]

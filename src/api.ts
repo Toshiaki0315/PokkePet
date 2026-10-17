@@ -52,6 +52,11 @@ export function performAction(action: ActionName): Promise<StateView> {
   return invoke<StateView>("perform_action", { action });
 }
 
+/** マウスでなでた。ほんの少しご機嫌が上がる（おやすみ中は変わらない）。 */
+export function strokePet(): Promise<StateView> {
+  return invoke<StateView>("stroke_pet");
+}
+
 /** ポップアップが開いた(true)/閉じた(false)ことの通知。 */
 export function onPopupVisibility(handler: (visible: boolean) => void): Promise<() => void> {
   return listen<boolean>("popup-visibility", (event) => handler(event.payload));

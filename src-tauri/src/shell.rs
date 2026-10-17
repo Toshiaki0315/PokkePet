@@ -49,6 +49,14 @@ pub fn perform_action(app: AppHandle, svc: State<GameService>, gate: State<Mutex
     Ok(view)
 }
 
+/// マウスでなでられた。
+#[tauri::command]
+pub fn stroke_pet(app: AppHandle, svc: State<GameService>) -> Result<StateView, String> {
+    let view = svc.stroke(now_unix()).map_err(|e| e.to_string())?;
+    update_tray_title(&app, &view);
+    Ok(view)
+}
+
 /// ミニゲーム「どっちの手？」。`guess` は "left" か "right"。
 #[tauri::command]
 pub fn play_minigame(app: AppHandle, svc: State<GameService>, gate: State<Mutex<CallGate>>, guess: String) -> Result<MiniGameReport, String> {

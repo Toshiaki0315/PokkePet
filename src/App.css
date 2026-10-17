@@ -184,3 +184,14 @@ body { overflow: hidden; user-select: none; }
 @media (prefers-reduced-motion: reduce) {
   .sprite-wrap.breathing, .sprite.dance, .sprite.spin, .sprite.nod, .sprite.sigh { animation: none; }
 }
+
+/* なでると、ハートが浮かぶ */
+.petting-area { position: relative; display: inline-flex; cursor: pointer; }
+.hearts { position: absolute; inset: 0; pointer-events: none; animation: hearts-life 1.1s linear forwards; }
+.hearts i { position: absolute; bottom: 55%; font-style: normal; color: #f2557f; font-size: 18px; opacity: 0; animation: heart-up 1.1s ease-out forwards; }
+.hearts i:nth-child(1) { left: 18%; }
+.hearts i:nth-child(2) { left: 46%; animation-delay: 0.15s; font-size: 22px; }
+.hearts i:nth-child(3) { left: 72%; animation-delay: 0.3s; }
+@keyframes hearts-life { from, to { opacity: 1; } }
+@keyframes heart-up { 0% { opacity: 0; transform: translateY(0) scale(0.6); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-46px) scale(1.1); } }
+@media (prefers-reduced-motion: reduce) { .hearts i { animation-duration: 0.01s; } }

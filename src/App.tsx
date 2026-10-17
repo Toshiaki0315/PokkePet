@@ -1,7 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import type { CSSProperties } from "react";
-import { ackHatch, graduate, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings } from "./api";
-import type { ActionName, MiniGameReport, Settings, Side, StateView } from "./api";
+import {
+  ackHatch,
+  graduate,
+  playMinigame,
+  setName,
+  getSettings,
+  getState,
+  onPopupVisibility,
+  onSettingsChanged,
+  onStateChanged,
+  performAction,
+  saveSettings,
+  strokePet,
+} from "./api";
+import type {
+  ActionName,
+  MiniGameReport,
+  Settings,
+  Side,
+  StateView,
+} from "./api";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { Sprite } from "./SpriteView";
 import { bubbleText } from "./bubble";
@@ -10,9 +29,16 @@ import { MiniGame } from "./MiniGame";
 import { NamePrompt } from "./NamePrompt";
 import { useHiddenCommand } from "./hiddenCommand";
 import { HatchSequence } from "./hatch";
-import { cryForGesture, gesturesFor, IDLE_CRY_CHANCE, IDLE_CRY_COOLDOWN_MS, useIdleGesture } from "./idle";
+import {
+  cryForGesture,
+  gesturesFor,
+  IDLE_CRY_CHANCE,
+  IDLE_CRY_COOLDOWN_MS,
+  useIdleGesture,
+} from "./idle";
 import { useSound } from "./sound";
 import type { CryKind } from "./sound";
+import { usePetting } from "./petting";
 import { useListener } from "./useListener";
 import "./App.css";
 
@@ -26,11 +52,15 @@ const GAUGES: ReadonlyArray<readonly [string, keyof StateView]> = [
   ["汚れ度", "dirtiness"],
 ];
 
-const actions = (view: StateView): ReadonlyArray<{ name: ActionName; label: string; icon: string }> => [
+const actions = (
+  view: StateView,
+): ReadonlyArray<{ name: ActionName; label: string; icon: string }> => [
   { name: "feed", label: "ご飯", icon: "🍙" },
   { name: "snack", label: "おやつ", icon: "🍪" },
   // 卵の間は「撫でる」。送るアクションは同じ "play" で、効果の違いは Rust 側が決める。
-  view.playAction === "pet" ? { name: "play", label: "撫でる", icon: "🤚" } : { name: "play", label: "遊ぶ", icon: "🎾" },
+  view.playAction === "pet"
+    ? { name: "play", label: "撫でる", icon: "🤚" }
+    : { name: "play", label: "遊ぶ", icon: "🎾" },
   { name: "clean", label: "掃除", icon: "🧹" },
 ];
 
@@ -41,7 +71,10 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
   // ボタンを押したときのキャラの反応。id を変えて同じ演出でも再生し直す。
-  const [reaction, setReaction] = useState<{ name: "wobble" | "hop"; id: number } | null>(null);
+  const [reaction, setReaction] = useState<{
+    name: "wobble" | "hop";
+    id: number;
+  } | null>(null);
   // ポップアップが開いている間だけ孵化の演出を再生する（Rust が表示/非表示を通知する）。
   const [popupOpen, setPopupOpen] = useState(false);
   const [namingLater, setNamingLater] = useState(false);
@@ -59,17 +92,27 @@ export default function App() {
 
   // 隠しコマンドでゲージ表示を切り替える。
   useHiddenCommand(GAUGE_COMMAND, () => {
-    saveSettings({ ...settings, showGauges: !settings.showGauges }).then(setSettings, (e) => setError(errorText(e)));
+    saveSettings({ ...settings, showGauges: !settings.showGauges }).then(
+      setSettings,
+      (e) => setError(errorText(e)),
+    );
   });
 
   const idle = useIdleGesture(
     view ? gesturesFor(view) : [],
-    popupOpen && view !== null && !view.sleeping && !view.intro && !view.hatching && view.expression.hunger !== "low" && reaction === null,
+    popupOpen &&
+      view !== null &&
+      !view.sleeping &&
+      !view.intro &&
+      !view.hatching &&
+      view.expression.hunger !== "low" &&
+      reaction === null,
   );
 
   // 鳴き声（設定でオフにできる）。声は、そのときのペットの性格と段階で決まる。
   const play = useSound(settings.soundEnabled);
-  const cry = (kind: CryKind, who: StateView) => play(kind, { personality: who.personality, stage: who.stage });
+  const cry = (kind: CryKind, who: StateView) =>
+    play(kind, { personality: who.personality, stage: who.stage });
   const latest = useRef({ view, cry });
   useEffect(() => {
     latest.current = { view, cry };
@@ -81,7 +124,14 @@ export default function App() {
     const { view: current, cry: speak } = latest.current;
     if (!popupOpen || !current || current.sleeping) return;
     const e = current.expression;
-    speak(e.hunger === "low" || e.mood === "low" ? "sad" : e.mood === "high" ? "happy" : "neutral", current);
+    speak(
+      e.hunger === "low" || e.mood === "low"
+        ? "sad"
+        : e.mood === "high"
+          ? "happy"
+          : "neutral",
+      current,
+    );
   }, [popupOpen]);
 
   // しぐさに合わせて、ときどき鳴く（短い間隔では鳴かない）。
@@ -89,7 +139,11 @@ export default function App() {
     const { view: current, cry: speak } = latest.current;
     if (!idle || !current) return;
     const now = Date.now();
-    if (Math.random() >= IDLE_CRY_CHANCE || now - lastIdleCry.current < IDLE_CRY_COOLDOWN_MS) return;
+    if (
+      Math.random() >= IDLE_CRY_CHANCE ||
+      now - lastIdleCry.current < IDLE_CRY_COOLDOWN_MS
+    )
+      return;
     lastIdleCry.current = now;
     speak(cryForGesture(idle), current);
   }, [idle]);
@@ -99,7 +153,10 @@ export default function App() {
       (next) => {
         setError(null);
         setView(next);
-        setReaction((prev) => ({ name: petting ? "wobble" : "hop", id: (prev?.id ?? 0) + 1 }));
+        setReaction((prev) => ({
+          name: petting ? "wobble" : "hop",
+          id: (prev?.id ?? 0) + 1,
+        }));
         cry(petting ? "tap" : action === "clean" ? "neutral" : "eat", next);
       },
       (e) => setError(errorText(e)),
@@ -120,6 +177,22 @@ export default function App() {
         throw e;
       },
     );
+
+  // マウスでなでられたとき: ハートを浮かべて喜ぶ。おやすみ中は起こさない。
+  const [hearts, setHearts] = useState<number | null>(null);
+  const petting = usePetting(() => {
+    strokePet().then(
+      (next) => {
+        setError(null);
+        setView(next);
+        if (next.sleeping) return;
+        setHearts((prev) => (prev ?? 0) + 1);
+        setReaction((prev) => ({ name: "hop", id: (prev?.id ?? 0) + 1 }));
+        cry("happy", next);
+      },
+      (e) => setError(errorText(e)),
+    );
+  });
 
   const seeOff = () => {
     graduate().then(
@@ -161,16 +234,35 @@ export default function App() {
       data-hunger={view.expression.hunger}
       data-intro={view.intro}
       data-sleep={view.sleeping}
-      style={{ "--body-color": settings.bodyColor, "--button-color": settings.buttonColor } as CSSProperties}
+      style={
+        {
+          "--body-color": settings.bodyColor,
+          "--button-color": settings.buttonColor,
+        } as CSSProperties
+      }
     >
       <div className="device">
-        <section className={`screen${settings.showGauges ? " compact" : ""}`} aria-label="画面">
+        <section
+          className={`screen${settings.showGauges ? " compact" : ""}`}
+          aria-label="画面"
+        >
           {view.name && <p className="name">{view.name}</p>}
           {view.graduating && stayedGeneration !== view.generation && (
-            <Farewell name={view.name} onSeeOff={seeOff} onStay={() => setStayedGeneration(view.generation)} />
+            <Farewell
+              name={view.name}
+              onSeeOff={seeOff}
+              onStay={() => setStayedGeneration(view.generation)}
+            />
           )}
-          {gameOpen && <MiniGame onPlay={playGame} onClose={() => setGameOpen(false)} />}
-          {view.needsName && !namingLater && <NamePrompt onSubmit={submitName} onLater={() => setNamingLater(true)} />}
+          {gameOpen && (
+            <MiniGame onPlay={playGame} onClose={() => setGameOpen(false)} />
+          )}
+          {view.needsName && !namingLater && (
+            <NamePrompt
+              onSubmit={submitName}
+              onLater={() => setNamingLater(true)}
+            />
+          )}
           <div className="stage-area">
             {view.expression.bubble && (
               <div className="bubble" role="status">
@@ -178,15 +270,37 @@ export default function App() {
               </div>
             )}
             {view.hatching && popupOpen ? (
-              <HatchSequence view={view} onDone={finishHatch} onCry={(kind) => cry(kind, view)} />
-            ) : (
-              <Sprite
-                key={reaction?.id}
+              <HatchSequence
                 view={view}
-                breathing={!view.sleeping}
-                extraClass={reaction?.name ?? (view.intro ? "appear" : (idle ?? undefined))}
-                onAnimationEnd={() => setReaction(null)}
+                onDone={finishHatch}
+                onCry={(kind) => cry(kind, view)}
               />
+            ) : (
+              <div className="petting-area" {...petting}>
+                {hearts !== null && (
+                  <span
+                    key={`hearts-${hearts}`}
+                    className="hearts"
+                    data-testid="hearts"
+                    aria-hidden="true"
+                    onAnimationEnd={() => setHearts(null)}
+                  >
+                    <i>♥</i>
+                    <i>♥</i>
+                    <i>♥</i>
+                  </span>
+                )}
+                <Sprite
+                  key={reaction?.id}
+                  view={view}
+                  breathing={!view.sleeping}
+                  extraClass={
+                    reaction?.name ??
+                    (view.intro ? "appear" : (idle ?? undefined))
+                  }
+                  onAnimationEnd={() => setReaction(null)}
+                />
+              </div>
             )}
           </div>
           {settings.showGauges && (
@@ -194,7 +308,13 @@ export default function App() {
               {GAUGES.map(([label, key]) => (
                 <label key={key} className="gauge">
                   <span>{label}</span>
-                  <progress aria-label={label} role="progressbar" aria-valuenow={Number(view[key])} max={100} value={Number(view[key])} />
+                  <progress
+                    aria-label={label}
+                    role="progressbar"
+                    aria-valuenow={Number(view[key])}
+                    max={100}
+                    value={Number(view[key])}
+                  />
                 </label>
               ))}
             </div>
@@ -203,7 +323,15 @@ export default function App() {
         <div className="controls" role="group" aria-label="ボタン">
           {actions(view).map(({ name, label, icon }) => (
             <div key={label} className="control">
-              <button type="button" aria-label={label} onClick={() => (name === "play" && view.playAction === "play" ? setGameOpen(true) : act(name, name === "play"))}>
+              <button
+                type="button"
+                aria-label={label}
+                onClick={() =>
+                  name === "play" && view.playAction === "play"
+                    ? setGameOpen(true)
+                    : act(name, name === "play")
+                }
+              >
                 <span aria-hidden="true">{icon}</span>
               </button>
               <span className="caption" aria-hidden="true">
