@@ -17,7 +17,7 @@ use crate::game::GameState;
 use crate::minigame::Side;
 use crate::paths::data_dir;
 use crate::service::{should_notify_graduation, should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
-use crate::settings::{Settings, SettingsService};
+use crate::settings::{Settings, SettingsService, POPUP_WIDTH};
 
 const LOOP_INTERVAL: Duration = Duration::from_secs(10);
 const STATE_EVENT: &str = "state-changed";
@@ -122,9 +122,19 @@ pub fn save_settings(app: AppHandle, svc: State<SettingsService>, game: State<Ga
     apply_launch_at_login(&app, saved.launch_at_login);
     game.set_sleep_window(saved.sleep_window()); // おやすみ時間の変更をすぐ反映する
     game.set_strict(saved.strict_mode);
+    apply_popup_size(&app, &saved);
     let _ = app.emit(SETTINGS_EVENT, saved.clone());
     let _ = app.emit(STATE_EVENT, game.snapshot());
     Ok(saved)
+}
+
+/// ポップアップの高さを設定（ゲージの表示）に合わせる。位置は上端を保つので、下に伸び縮みする。
+fn apply_popup_size(app: &AppHandle, settings: &Settings) {
+    if let Some(window) = app.get_webview_window("main")
+        && let Err(e) = window.set_size(tauri::LogicalSize::new(POPUP_WIDTH, settings.popup_height()))
+    {
+        eprintln!("failed to resize the popup: {e}");
+    }
 }
 
 /// ログイン時の自動起動を設定に合わせる。開発版は（開発用のバイナリを登録してしまうので）何もしない。
@@ -170,6 +180,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.state::<GameService>().set_sleep_window(settings.sleep_window());
     app.state::<GameService>().set_strict(settings.strict_mode);
     let launch_at_login = settings.launch_at_login;
+    apply_popup_size(app.handle(), &settings);
     app.manage(SettingsService::new(settings, settings_path));
     apply_launch_at_login(app.handle(), launch_at_login);
 
@@ -210,7 +221,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             match event.id.as_ref() {
                 "dex" => open_window(app, DEX_WINDOW, "PokkePet 図鑑", (640.0, 580.0)),
                 "diary" => open_window(app, DIARY_WINDOW, "PokkePet 思い出", (460.0, 560.0)),
-                "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 1010.0)),
+                "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 760.0)),
                 "quit" => app.exit(0),
                 _ => {}
             }

@@ -9,6 +9,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::sleep::{SleepWindow, DEFAULT_SLEEP_END_HOUR, DEFAULT_SLEEP_START_HOUR};
 
+/// ポップアップの大きさ（論理ピクセル）。ゲージを出すときは縦に広げる。
+pub const POPUP_WIDTH: f64 = 320.0;
+pub const POPUP_HEIGHT: f64 = 380.0;
+pub const POPUP_HEIGHT_WITH_GAUGES: f64 = 470.0;
 pub const DEFAULT_SOUND_VOLUME: u8 = 50;
 pub const SOUND_VOLUME_MAX: u8 = 100;
 pub const SOUND_PITCH_RANGE: std::ops::RangeInclusive<i8> = -2..=2;
@@ -69,6 +73,11 @@ impl Settings {
         }
         check_color("bodyColor", &self.body_color)?;
         check_color("buttonColor", &self.button_color)
+    }
+
+    /// ポップアップの高さ。ゲージを出さないときは、空きが大きくならないよう低くする。
+    pub fn popup_height(&self) -> f64 {
+        if self.show_gauges { POPUP_HEIGHT_WITH_GAUGES } else { POPUP_HEIGHT }
     }
 
     /// ゲームに渡すおやすみ時間。
@@ -282,6 +291,12 @@ mod tests {
         Settings { sound_volume: 80, sound_pitch: -1, launch_at_login: true, ..d }.save(&p).unwrap();
         let back = Settings::load(&p).unwrap();
         assert_eq!((back.sound_volume, back.sound_pitch, back.launch_at_login), (80, -1, true));
+    }
+
+    #[test]
+    fn the_popup_is_taller_only_while_the_gauges_are_shown() {
+        assert_eq!(Settings::default().popup_height(), POPUP_HEIGHT);
+        assert_eq!(Settings { show_gauges: true, ..Settings::default() }.popup_height(), POPUP_HEIGHT_WITH_GAUGES);
     }
 
     #[test]

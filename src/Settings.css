@@ -1,4 +1,4 @@
-.settings { box-sizing: border-box; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; color: #222; background: #f6f6f9; min-height: 100%; user-select: none; }
+.settings { box-sizing: border-box; padding: 20px 22px; display: flex; flex-direction: column; gap: 14px; color: #222; background: #f6f6f9; height: 100%; overflow-y: auto; user-select: none; }
 .settings h1 { margin: 0; font-size: 18px; }
 .settings fieldset { border: 1px solid #0002; border-radius: 10px; padding: 10px 14px 12px; display: grid; gap: 8px; }
 .settings legend { padding: 0 6px; font-weight: 700; font-size: 13px; }
