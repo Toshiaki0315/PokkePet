@@ -286,7 +286,7 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evolution::{EGG_SECS, STAGE_SECS};
+    use crate::evolution::{secs_until_graduation, stage_secs, EGG_SECS};
     use crate::expression::{Bubble, Level};
     use crate::game::TICK_SECS;
     use std::fs;
@@ -385,7 +385,7 @@ mod tests {
     fn hatching_is_reported_until_acknowledged_and_persisted() {
         let p = tmp("hatch");
         let s = GameService::new(GameState::new(0), p.clone());
-        let Tick { view: v, evolutions: evo, .. } = s.tick(u64::from(STAGE_SECS)).unwrap();
+        let Tick { view: v, evolutions: evo, .. } = s.tick(u64::from(EGG_SECS)).unwrap();
         assert_eq!((evo, v.hatching), (1, true));
         let v = s.ack_hatch().unwrap();
         assert!(!v.hatching);
@@ -628,7 +628,7 @@ mod tests {
 
     fn elder_service(name: &str) -> GameService {
         let mut state = GameState::new(0);
-        state.step(EGG_SECS + STAGE_SECS * 9);
+        state.step(secs_until_graduation());
         state.intro_seen = true;
         GameService::new(state, tmp(name)).with_utc_offset(NOON_AT_ZERO)
     }
@@ -665,7 +665,7 @@ mod tests {
     fn the_farewell_is_saved() {
         let p = tmp("grad-save");
         let mut state = GameState::new(0);
-        state.step(EGG_SECS + STAGE_SECS * 9);
+        state.step(secs_until_graduation());
         let s = GameService::new(state, p.clone()).with_utc_offset(NOON_AT_ZERO);
         s.graduate().unwrap();
         let saved = GameState::load(&p, 0).unwrap();
@@ -676,7 +676,7 @@ mod tests {
     fn a_failure_to_save_the_farewell_leaves_the_pet_as_it_was() {
         let bad = tmp("grad-bad").parent().unwrap().join("no/such/dir/save.json");
         let mut state = GameState::new(0);
-        state.step(EGG_SECS + STAGE_SECS * 9);
+        state.step(secs_until_graduation());
         let s = GameService::new(state, bad).with_utc_offset(NOON_AT_ZERO);
         assert!(s.graduate().is_err());
         assert!(s.snapshot().graduating);
@@ -685,7 +685,7 @@ mod tests {
     #[test]
     fn the_tick_that_makes_the_pet_ready_to_leave_says_so_once() {
         let mut state = GameState::new(0);
-        state.step(EGG_SECS + STAGE_SECS * 9 - 1); // あと 1 秒
+        state.step(secs_until_graduation() - 1); // あと 1 秒
         let s = GameService::new(state, tmp("grad-tick")).with_utc_offset(NOON_AT_ZERO);
         let first = s.tick(1).unwrap();
         assert!(first.graduation_ready);
@@ -765,7 +765,7 @@ mod tests {
     fn play_action_is_pet_only_while_an_egg() {
         let s = svc("play-action");
         assert_eq!(s.snapshot().play_action, PlayAction::Pet);
-        let Tick { view: v, .. } = s.tick(u64::from(STAGE_SECS)).unwrap();
+        let Tick { view: v, .. } = s.tick(u64::from(EGG_SECS)).unwrap();
         assert_eq!(v.play_action, PlayAction::Play);
     }
 
@@ -822,7 +822,7 @@ mod tests {
     #[test]
     fn tick_advances_time_and_reports_evolutions() {
         let s = svc("tick");
-        let Tick { view: v, evolutions: evo, .. } = s.tick(u64::from(STAGE_SECS)).unwrap();
+        let Tick { view: v, evolutions: evo, .. } = s.tick(u64::from(EGG_SECS)).unwrap();
         assert_eq!((v.stage, evo), (2, 1));
     }
 
@@ -840,14 +840,14 @@ mod tests {
         let s = svc("hatched-flag");
         let t = s.tick(u64::from(EGG_SECS)).unwrap();
         assert_eq!((t.evolutions, t.hatched), (1, true));
-        let t = s.tick(u64::from(EGG_SECS) + u64::from(STAGE_SECS)).unwrap();
+        let t = s.tick(u64::from(EGG_SECS) + u64::from(stage_secs(2))).unwrap();
         assert_eq!((t.evolutions, t.hatched), (1, false));
     }
 
     #[test]
     fn tick_reports_the_hatch_after_a_long_absence_too() {
         let s = svc("hatched-long");
-        let t = s.tick(u64::from(EGG_SECS) + u64::from(STAGE_SECS) * 3).unwrap();
+        let t = s.tick(u64::from(EGG_SECS) + 3 * u64::from(stage_secs(2))).unwrap();
         assert_eq!(t.evolutions, 4);
         assert!(t.hatched);
     }

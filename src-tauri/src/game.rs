@@ -352,7 +352,8 @@ impl GameState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::evolution::{EGG_SECS, STAGE_SECS};
+    use crate::evolution::{secs_until_graduation, stage_secs, EGG_SECS, HOUR_SECS};
+    const DAY: u32 = 24 * HOUR_SECS;
     use std::path::PathBuf;
 
     fn new_state() -> GameState {
@@ -404,7 +405,7 @@ mod tests {
     fn each_evolution_is_remembered_with_the_new_form() {
         let mut s = new_state();
         s.step(EGG_SECS);
-        s.step(STAGE_SECS);
+        s.step(stage_secs(2));
         let last = s.diary.last().unwrap();
         assert_eq!(last.event, DiaryEvent::Evolved { stage: 3, branch: s.form.branch, personality: s.form.personality });
     }
@@ -412,7 +413,7 @@ mod tests {
     #[test]
     fn evolutions_skipped_during_a_long_absence_are_all_remembered() {
         let mut s = new_state();
-        s.step(EGG_SECS + STAGE_SECS * 3);
+        s.step(EGG_SECS + 3 * stage_secs(2)); // 2〜4 段階はどれも 3 時間
         assert_eq!(kinds(&s), ["born", "hatched", "evolved", "evolved", "evolved"]);
         let stages: Vec<u8> = s
             .diary
@@ -498,7 +499,7 @@ mod tests {
     #[test]
     fn the_diary_survives_a_save_round_trip() {
         let mut s = new_state();
-        s.step(EGG_SECS + STAGE_SECS);
+        s.step(EGG_SECS + stage_secs(2));
         s.set_name("ごま").unwrap();
         let back = GameState::from_json(&s.to_json()).unwrap();
         assert_eq!((back.diary, back.born_unix), (s.diary, s.born_unix));
@@ -507,14 +508,14 @@ mod tests {
     /// 最終段階になって旅立ちの時を迎えるまで育てた状態。
     fn elder_state() -> GameState {
         let mut s = new_state();
-        s.step(EGG_SECS + STAGE_SECS * 9);
+        s.step(secs_until_graduation());
         s
     }
 
     #[test]
     fn a_pet_is_ready_to_leave_an_hour_after_reaching_the_final_stage() {
         let mut s = new_state();
-        s.step(EGG_SECS + STAGE_SECS * 9 - 1);
+        s.step(secs_until_graduation() - 1);
         assert_eq!(s.form.stage, 10);
         assert!(!s.graduating());
         s.step(1);
@@ -584,7 +585,7 @@ mod tests {
         for _ in 0..3 {
             s.apply(Action::Clean); // 掃除好き（うさぎ）に育てる
         }
-        s.step(EGG_SECS + STAGE_SECS * 9);
+        s.step(secs_until_graduation());
         assert_eq!(s.form.personality, Personality::Tidy);
         s.graduate().unwrap();
         assert_eq!(s.legacy, Some(Personality::Tidy));
@@ -601,7 +602,7 @@ mod tests {
         for _ in 0..4 {
             s.apply(Action::Snack);
         }
-        s.step(STAGE_SECS);
+        s.step(stage_secs(2));
         assert_eq!(s.form.personality, Personality::Gluttonous);
     }
 
@@ -609,7 +610,7 @@ mod tests {
     fn generations_count_up_and_the_second_pet_can_leave_too() {
         let mut s = elder_state();
         s.graduate().unwrap();
-        s.step(EGG_SECS + STAGE_SECS * 9);
+        s.step(secs_until_graduation());
         assert!(s.graduating());
         s.graduate().unwrap();
         assert_eq!(s.generation, 3);
@@ -643,7 +644,7 @@ mod tests {
         s.step(EGG_SECS);
         assert_eq!(s.discovered.len(), 2);
         assert!(s.discovered.contains(&form_key(&s.form)));
-        s.step(STAGE_SECS);
+        s.step(stage_secs(2));
         assert_eq!(s.discovered.len(), 3);
         assert!(s.discovered.contains(&form_key(&s.form)));
     }
@@ -651,7 +652,7 @@ mod tests {
     #[test]
     fn forms_skipped_over_during_a_long_absence_are_recorded_too() {
         let mut s = new_state();
-        s.step(EGG_SECS + STAGE_SECS * 3); // 卵 → 2 → 3 → 4 → 5
+        s.step(EGG_SECS + 3 * stage_secs(2)); // 卵 → 2 → 3 → 4 → 5
         assert_eq!(s.form.stage, 5);
         assert_eq!(s.discovered.len(), 5); // 卵 + 段階2〜5
     }
@@ -667,7 +668,7 @@ mod tests {
     #[test]
     fn old_saves_start_the_dex_with_the_current_form() {
         let mut s = new_state();
-        s.step(EGG_SECS + STAGE_SECS); // 段階 3
+        s.step(EGG_SECS + stage_secs(2)); // 段階 3
         let mut json = serde_json::to_value(&s).unwrap();
         json.as_object_mut().unwrap().remove("discovered");
         let loaded = GameState::from_json(&json.to_string()).unwrap();
@@ -677,7 +678,7 @@ mod tests {
     #[test]
     fn the_dex_survives_a_save_round_trip() {
         let mut s = new_state();
-        s.step(EGG_SECS + STAGE_SECS);
+        s.step(EGG_SECS + stage_secs(2));
         assert_eq!(GameState::from_json(&s.to_json()).unwrap().discovered, s.discovered);
     }
 
@@ -781,7 +782,7 @@ mod tests {
         for _ in 0..3 {
             s.apply(Action::Snack);
         }
-        s.step(STAGE_SECS);
+        s.step(stage_secs(2));
         assert_eq!(s.form.personality, Personality::Gluttonous);
     }
 
@@ -847,7 +848,7 @@ mod tests {
         assert_eq!(s.step(EGG_SECS - 1), 0);
         assert_eq!(s.step(1), 1);
         assert_eq!(s.form.stage, 2);
-        assert_eq!(s.step(STAGE_SECS - 1), 0);
+        assert_eq!(s.step(stage_secs(2) - 1), 0);
         assert_eq!(s.step(1), 1);
         assert_eq!(s.form.stage, 3);
     }
@@ -855,7 +856,7 @@ mod tests {
     #[test]
     fn hatching_ends_the_intro_too() {
         let mut s = new_state();
-        s.step(STAGE_SECS);
+        s.step(EGG_SECS);
         assert!(s.intro_seen);
     }
 
@@ -869,7 +870,7 @@ mod tests {
     #[test]
     fn hatching_lasts_from_the_hatch_until_it_is_acknowledged() {
         let mut s = new_state();
-        s.step(STAGE_SECS);
+        s.step(EGG_SECS);
         assert!(s.hatching());
         s.ack_hatch();
         assert!(!s.hatching());
@@ -881,16 +882,16 @@ mod tests {
         let mut s = new_state();
         s.ack_hatch();
         assert!(!s.hatch_shown);
-        s.step(STAGE_SECS);
+        s.step(EGG_SECS);
         assert!(s.hatching());
     }
 
     #[test]
     fn later_evolutions_do_not_bring_the_hatch_back() {
         let mut s = new_state();
-        s.step(STAGE_SECS);
+        s.step(EGG_SECS);
         s.ack_hatch();
-        s.step(STAGE_SECS * 3);
+        s.step(3 * DAY);
         assert!(!s.hatching());
     }
 
@@ -907,7 +908,7 @@ mod tests {
     #[test]
     fn apply_updates_status_and_history() {
         let mut s = new_state();
-        s.step(STAGE_SECS); // 卵の間の「遊ぶ」は撫でる扱いなので、孵化させてから確認する。
+        s.step(EGG_SECS); // 卵の間の「遊ぶ」は撫でる扱いなので、孵化させてから確認する。
         s.apply(Action::Feed);
         s.apply(Action::Play);
         s.apply(Action::Play);
@@ -928,7 +929,7 @@ mod tests {
     #[test]
     fn play_after_hatching_is_real_play() {
         let mut s = new_state();
-        s.step(STAGE_SECS);
+        s.step(EGG_SECS);
         let hunger = s.status.hunger;
         s.apply(Action::Play);
         assert_eq!(s.history.plays, 1);
@@ -1086,7 +1087,7 @@ mod tests {
     #[test]
     fn step_evolves_when_stage_time_passes() {
         let mut s = new_state();
-        assert_eq!(s.step(STAGE_SECS), 1);
+        assert_eq!(s.step(EGG_SECS), 1);
         assert_eq!(s.growth.stage, 2);
         assert_eq!(s.form.stage, 2);
     }
@@ -1094,18 +1095,18 @@ mod tests {
     #[test]
     fn step_applies_personality_from_history_on_evolution() {
         let mut s = new_state();
-        s.step(STAGE_SECS); // 孵化
+        s.step(EGG_SECS); // 孵化
         for _ in 0..3 {
             s.apply(Action::Play);
         }
-        s.step(STAGE_SECS);
+        s.step(stage_secs(2));
         assert_eq!(s.form.personality, Personality::Playful);
     }
 
     #[test]
     fn step_returns_multiple_evolutions_after_long_absence() {
         let mut s = new_state();
-        assert_eq!(s.step(STAGE_SECS * 3), 3);
+        assert_eq!(s.step(EGG_SECS + 2 * stage_secs(2)), 3);
         assert_eq!(s.growth.stage, 4);
         assert_eq!(s.form.stage, 4);
     }
@@ -1113,17 +1114,17 @@ mod tests {
     #[test]
     fn step_stops_evolving_at_final_stage() {
         let mut s = new_state();
-        s.step(STAGE_SECS * 20);
+        s.step(30 * DAY);
         assert_eq!(s.growth.stage, 10);
-        assert_eq!(s.step(STAGE_SECS), 0);
+        assert_eq!(s.step(DAY), 0);
         assert_eq!(s.form.stage, 10);
     }
 
     #[test]
     fn step_to_advances_by_elapsed_seconds_and_updates_time() {
         let mut s = new_state();
-        assert_eq!(s.step_to(1_000 + u64::from(STAGE_SECS)), 1);
-        assert_eq!(s.last_unix, 1_000 + u64::from(STAGE_SECS));
+        assert_eq!(s.step_to(1_000 + u64::from(EGG_SECS)), 1);
+        assert_eq!(s.last_unix, 1_000 + u64::from(EGG_SECS));
     }
 
     #[test]
@@ -1168,7 +1169,7 @@ mod tests {
     fn json_roundtrip_preserves_state() {
         let mut s = new_state();
         s.apply(Action::Feed);
-        s.step(STAGE_SECS + 10);
+        s.step(EGG_SECS + 10);
         let back = GameState::from_json(&s.to_json()).unwrap();
         assert_eq!(back, s);
     }
@@ -1226,10 +1227,10 @@ mod tests {
         assert_ne!(err.kind(), io::ErrorKind::NotFound);
     }
 
-    /// ゲームバランス: 1分刻みで10時間（全10段階）遊んだときの最終状態。
+    /// ゲームバランス: 1分刻みで、卵が届いてから旅立ちの時まで（約 117 時間）遊んだときの最終状態。
     fn simulate(mut policy: impl FnMut(u32, &mut GameState)) -> GameState {
         let mut s = new_state();
-        for minute in 0..600 {
+        for minute in 0..(secs_until_graduation() / 60) {
             s.step(60);
             policy(minute, &mut s);
         }
@@ -1256,9 +1257,18 @@ mod tests {
     }
 
     #[test]
-    fn balance_hourly_care_keeps_pet_normal() {
-        let s = simulate(care_every(60));
+    fn balance_care_every_few_hours_gives_a_normal_pet() {
+        // 4時間おきのお世話では機嫌は保てないが、親密度は積み上がる。ポッとしない「ふつう」の姿になる。
+        let s = simulate(care_every(240));
+        assert_eq!(s.form.stage, 10);
         assert_eq!(s.form.branch, Branch::Normal);
+    }
+
+    #[test]
+    fn balance_hourly_care_raises_a_happy_pet() {
+        // 長い期間では親密度が高くなるので、毎時間お世話をすれば最終的に「きらきら」の姿になる。
+        let s = simulate(care_every(60));
+        assert_eq!(s.form.branch, Branch::Good);
         assert!(s.status.hunger > 0);
     }
 

@@ -8,7 +8,9 @@ pub const MAX_STAGE: u8 = 10;
 /// 卵（段階 1）が孵るまでの秒数。初回に孵化を見られるよう短くしてある。
 pub const EGG_SECS: u32 = 600;
 /// 孵化後、1段階あたりの成長に必要な秒数。
-pub const STAGE_SECS: u32 = 3600;
+pub const HOUR_SECS: u32 = 3600;
+/// 最終段階になってから旅立ちの時までの長さ。
+pub const GRADUATION_SECS: u32 = 24 * HOUR_SECS;
 const GOOD_MIN_AVG: u16 = 70;
 const POOR_MAX_AVG: u16 = 40;
 
@@ -76,11 +78,22 @@ pub struct Growth {
 }
 
 /// その段階から次の段階へ進むのに必要な秒数。
+///
+/// 序盤は進化が早く、育つほど間が空く（卵 10分 → 段階2〜4: 3時間 → 5〜7: 12時間 → 8〜9: 24時間）。
+/// 最終段階は旅立ちまでの時間（`GRADUATION_SECS`）。
 pub fn stage_secs(stage: u8) -> u32 {
-    if stage <= 1 {
-        return EGG_SECS;
+    match stage {
+        0..=1 => EGG_SECS,
+        2..=4 => 3 * HOUR_SECS,
+        5..=7 => 12 * HOUR_SECS,
+        8..=9 => 24 * HOUR_SECS,
+        _ => GRADUATION_SECS,
     }
-    STAGE_SECS
+}
+
+/// 卵が届いてから旅立ちの時までの長さ（秒）。
+pub fn secs_until_graduation() -> u32 {
+    (1..MAX_STAGE).map(stage_secs).sum::<u32>() + GRADUATION_SECS
 }
 
 impl Growth {
@@ -88,16 +101,16 @@ impl Growth {
         Self { stage: 1, elapsed_secs: 0 }
     }
 
-    /// 旅立ちの時か（最終段階になってから `STAGE_SECS` が経った）。
+    /// 旅立ちの時か（最終段階になってから `GRADUATION_SECS` が経った）。
     pub fn ready_to_graduate(&self) -> bool {
-        self.stage >= MAX_STAGE && self.elapsed_secs >= STAGE_SECS
+        self.stage >= MAX_STAGE && self.elapsed_secs >= GRADUATION_SECS
     }
 
     /// 経過時間を加算し、次の段階へ進んだ場合 true を返す。最終段階では進まない
     /// （代わりに旅立ちまでの時間を数える）。
     pub fn advance(&mut self, secs: u32) -> bool {
         if self.stage >= MAX_STAGE {
-            self.elapsed_secs = self.elapsed_secs.saturating_add(secs).min(STAGE_SECS);
+            self.elapsed_secs = self.elapsed_secs.saturating_add(secs).min(GRADUATION_SECS);
             return false;
         }
         self.elapsed_secs = self.elapsed_secs.saturating_add(secs);
@@ -171,12 +184,57 @@ mod tests {
         assert_eq!(Growth::egg(), Growth { stage: 1, elapsed_secs: 0 });
     }
 
+    const H: u32 = HOUR_SECS;
+    const DAY: u32 = 24 * HOUR_SECS;
+
     #[test]
-    fn the_egg_hatches_much_sooner_than_later_stages_evolve() {
-        assert_eq!(stage_secs(1), EGG_SECS);
-        assert_eq!(stage_secs(2), STAGE_SECS);
-        assert_eq!(stage_secs(MAX_STAGE - 1), STAGE_SECS);
-        assert!(EGG_SECS < STAGE_SECS);
+    fn the_schedule_slows_down_as_the_pet_grows() {
+        assert_eq!(stage_secs(1), 10 * 60);
+        for stage in 2..=4 {
+            assert_eq!(stage_secs(stage), 3 * H, "stage {stage}");
+        }
+        for stage in 5..=7 {
+            assert_eq!(stage_secs(stage), 12 * H, "stage {stage}");
+        }
+        for stage in 8..=9 {
+            assert_eq!(stage_secs(stage), DAY, "stage {stage}");
+        }
+        assert_eq!(GRADUATION_SECS, DAY);
+        assert_eq!(stage_secs(MAX_STAGE), GRADUATION_SECS);
+    }
+
+    #[test]
+    fn a_stage_never_takes_less_time_than_the_one_before() {
+        for stage in 1..MAX_STAGE {
+            assert!(stage_secs(stage) <= stage_secs(stage + 1), "{stage}");
+        }
+    }
+
+    #[test]
+    fn the_whole_life_takes_almost_five_days() {
+        // 10分 + 3×3時間 + 3×12時間 + 2×24時間 + 24時間 = 117時間10分
+        assert_eq!(secs_until_graduation(), 10 * 60 + 117 * H);
+        assert_eq!(secs_until_graduation(), 421_800);
+        assert!((4 * DAY..5 * DAY).contains(&secs_until_graduation()));
+    }
+
+    #[test]
+    fn each_stage_waits_for_its_own_length() {
+        for (stage, len) in [(2u8, 3 * H), (5, 12 * H), (8, DAY)] {
+            let mut g = Growth { stage, elapsed_secs: 0 };
+            assert!(!g.advance(len - 1), "stage {stage}");
+            assert!(g.advance(1), "stage {stage}");
+            assert_eq!(g, Growth { stage: stage + 1, elapsed_secs: 0 });
+        }
+    }
+
+    #[test]
+    fn the_farewell_comes_a_day_after_the_final_stage() {
+        let mut g = Growth { stage: MAX_STAGE, elapsed_secs: 0 };
+        g.advance(DAY - 1);
+        assert!(!g.ready_to_graduate());
+        g.advance(1);
+        assert!(g.ready_to_graduate());
     }
 
     #[test]
@@ -209,25 +267,17 @@ mod tests {
     }
 
     #[test]
-    fn stages_after_the_egg_still_take_an_hour() {
-        let mut g = Growth { stage: 2, elapsed_secs: 0 };
-        assert!(!g.advance(STAGE_SECS - 1));
-        assert!(g.advance(1));
-        assert_eq!(g, Growth { stage: 3, elapsed_secs: 0 });
-    }
-
-    #[test]
     fn advance_moves_one_stage_per_call_even_after_long_sleep() {
         let mut g = Growth::egg();
-        assert!(g.advance(EGG_SECS + STAGE_SECS * 2));
-        assert_eq!(g, Growth { stage: 2, elapsed_secs: STAGE_SECS * 2 });
+        assert!(g.advance(EGG_SECS + 2 * DAY));
+        assert_eq!(g, Growth { stage: 2, elapsed_secs: 2 * DAY });
     }
 
     #[test]
     fn the_final_stage_counts_down_to_the_farewell() {
         let mut g = Growth { stage: MAX_STAGE, elapsed_secs: 0 };
         assert!(!g.ready_to_graduate());
-        assert!(!g.advance(STAGE_SECS - 1));
+        assert!(!g.advance(GRADUATION_SECS - 1));
         assert!(!g.ready_to_graduate());
         assert!(!g.advance(1)); // 進化はしない
         assert!(g.ready_to_graduate());
@@ -238,7 +288,7 @@ mod tests {
     fn the_farewell_clock_stops_at_the_limit() {
         let mut g = Growth { stage: MAX_STAGE, elapsed_secs: 0 };
         g.advance(u32::MAX);
-        assert_eq!(g.elapsed_secs, STAGE_SECS);
+        assert_eq!(g.elapsed_secs, GRADUATION_SECS);
         assert!(g.ready_to_graduate());
     }
 
@@ -276,7 +326,7 @@ mod tests {
     #[test]
     fn advance_does_not_exceed_final_stage() {
         let mut g = Growth { stage: MAX_STAGE, elapsed_secs: 0 };
-        assert!(!g.advance(STAGE_SECS * 2));
+        assert!(!g.advance(GRADUATION_SECS * 2));
         assert_eq!(g.stage, MAX_STAGE);
     }
 
