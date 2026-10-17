@@ -3,6 +3,7 @@
 
 use serde::Serialize;
 
+use crate::sleep::SleepWindow;
 use crate::status::Status;
 
 /// 値が低い／ふつう／高い。
@@ -28,6 +29,12 @@ pub enum Bubble {
     Happy,
     Welcome,
     Sleeping,
+    /// 時間帯のあいさつ（ほかに伝えることがないときだけ）。
+    Morning,
+    Noon,
+    Evening,
+    /// おやすみ時間の 1 時間前。
+    Drowsy,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -57,6 +64,19 @@ pub fn express(status: &Status) -> Expression {
     Expression { mood, hunger, dirtiness, bubble: pick_bubble(mood, hunger, dirtiness) }
 }
 
+/// 時間帯のあいさつ。`hour` はローカル時刻の「時」。おやすみ時間の 1 時間前は眠そうにする。
+pub fn greeting(hour: u8, window: SleepWindow) -> Option<Bubble> {
+    if window.start_hour != window.end_hour && (window.start_hour + 23) % 24 == hour {
+        return Some(Bubble::Drowsy);
+    }
+    match hour {
+        6..=9 => Some(Bubble::Morning),
+        11..=13 => Some(Bubble::Noon),
+        17..=19 => Some(Bubble::Evening),
+        _ => None,
+    }
+}
+
 fn pick_bubble(mood: Level, hunger: Level, dirtiness: Level) -> Option<Bubble> {
     if hunger == Level::Low {
         return Some(Bubble::Hungry);
@@ -74,6 +94,33 @@ fn pick_bubble(mood: Level, hunger: Level, dirtiness: Level) -> Option<Bubble> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn night() -> SleepWindow {
+        SleepWindow { start_hour: 23, end_hour: 7 }
+    }
+
+    #[test]
+    fn the_pet_greets_morning_noon_and_evening() {
+        assert_eq!(greeting(8, night()), Some(Bubble::Morning));
+        assert_eq!(greeting(12, night()), Some(Bubble::Noon));
+        assert_eq!(greeting(18, night()), Some(Bubble::Evening));
+        for quiet in [2, 10, 14, 15, 16, 20, 21] {
+            assert_eq!(greeting(quiet, night()), None, "hour {quiet}");
+        }
+    }
+
+    #[test]
+    fn the_pet_gets_drowsy_an_hour_before_bedtime() {
+        assert_eq!(greeting(22, night()), Some(Bubble::Drowsy));
+        // おやすみ時間が夜でなくても、その 1 時間前。日付をまたぐ場合も。
+        assert_eq!(greeting(0, SleepWindow { start_hour: 1, end_hour: 5 }), Some(Bubble::Drowsy));
+        assert_eq!(greeting(23, SleepWindow { start_hour: 0, end_hour: 6 }), Some(Bubble::Drowsy));
+    }
+
+    #[test]
+    fn a_pet_that_never_sleeps_never_gets_drowsy() {
+        assert_eq!(greeting(22, SleepWindow { start_hour: 23, end_hour: 23 }), None);
+    }
 
     fn st(mood: u8, hunger: u8, dirtiness: u8) -> Status {
         Status::new(mood, 50, hunger, dirtiness)

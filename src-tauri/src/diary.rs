@@ -9,7 +9,7 @@ pub const DIARY_MAX: usize = 200;
 /// お世話の回数がこの値になったとき、節目として記録する。
 pub const CARE_MILESTONES: [u32; 6] = [10, 50, 100, 250, 500, 1000];
 
-const DAY_SECS: u64 = 24 * 60 * 60;
+pub const DAY_SECS: u64 = 24 * 60 * 60;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -24,6 +24,8 @@ pub enum DiaryEvent {
     Named { name: String },
     /// お世話の回数が節目になった。
     CareMilestone { count: u32 },
+    /// いっしょに過ごして丸 `days` 日が経った（記念日）。
+    Anniversary { days: u32 },
     /// 旅立ちを見送った（世代交代）。
     Graduated { name: Option<String>, personality: Personality },
 }

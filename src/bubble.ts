@@ -6,6 +6,10 @@ export const BUBBLE_TEXT: Record<BubbleKind, string> = {
   gloomy: "つまんないな…",
   happy: "たのしい！",
   sleeping: "Zzz…",
+  morning: "おはよう！",
+  noon: "おひるだね",
+  evening: "こんばんは",
+  drowsy: "ねむくなってきた…",
   welcome: "卵が届いたよ！撫でてあげてね",
 };
 

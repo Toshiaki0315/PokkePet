@@ -294,6 +294,10 @@ describe("App", () => {
       ["dirty", "おへや、よごれてるよ…"],
       ["gloomy", "つまんないな…"],
       ["happy", "たのしい！"],
+      ["morning", "おはよう！"],
+      ["noon", "おひるだね"],
+      ["evening", "こんばんは"],
+      ["drowsy", "ねむくなってきた…"],
     ] as const)("shows a speech bubble for %s", async (bubble, text) => {
       api.getState.mockResolvedValue(withExpression({ bubble }));
       render(<App />);
@@ -1254,5 +1258,21 @@ describe("stroking the character", () => {
     render(<App />);
     await userEvent.click(await screen.findByRole("img"));
     expect(await screen.findByRole("alert")).toHaveTextContent("save failed");
+  });
+});
+
+describe("stroke reaction by species", () => {
+  it.each([
+    ["calm", "nod"],
+    ["playful", "dance"],
+    ["gluttonous", "flop"],
+    ["tidy", "spin"],
+  ] as const)("a %s pet reacts with %s", async (personality, reaction) => {
+    const pet = { ...base, stage: 5, personality };
+    api.getState.mockResolvedValue(pet);
+    api.strokePet.mockResolvedValue(pet);
+    render(<App />);
+    await userEvent.click(await screen.findByRole("img"));
+    await waitFor(() => expect(screen.getByRole("img")).toHaveClass(reaction));
   });
 });

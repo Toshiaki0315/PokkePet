@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import type { MouseEvent } from "react";
+import type { Personality } from "./api";
 
 /** この距離（px）だけ、なでるように動かすと 1 回なでたことになる。 */
 export const STROKE_DISTANCE = 80;
@@ -42,4 +43,10 @@ export function usePetting(onStroke: () => void, now: () => number = Date.now) {
       last.current = null;
     },
   };
+}
+
+/** なでられたときの喜びかた。種族（性格）ごとに違う。卵は揺れるだけ。 */
+export function strokeReaction(personality: Personality, stage: number): string {
+  if (stage <= 1) return "wobble";
+  return { calm: "nod", playful: "dance", gluttonous: "flop", tidy: "spin" }[personality];
 }

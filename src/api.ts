@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 export type Branch = "poor" | "normal" | "good";
 export type Personality = "calm" | "playful" | "gluttonous" | "tidy";
 export type Level = "low" | "mid" | "high";
-export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping";
+export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping" | "morning" | "noon" | "evening" | "drowsy";
 export type PlayAction = "play" | "pet";
 export type ActionName = "feed" | "snack" | "play" | "clean";
 
@@ -131,6 +131,7 @@ export type DiaryEvent =
   | { kind: "evolved"; stage: number; branch: Branch; personality: Personality }
   | { kind: "named"; name: string }
   | { kind: "careMilestone"; count: number }
+  | { kind: "anniversary"; days: number }
   | { kind: "graduated"; name: string | null; personality: Personality };
 
 export interface DiaryEntry {

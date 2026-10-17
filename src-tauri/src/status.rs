@@ -4,7 +4,10 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::expression::LOW_MAX;
+
 pub const PARAM_MAX: u8 = 100;
+const AFFINITY_LOSS: u8 = 1;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Status {
@@ -36,6 +39,16 @@ const STROKE_AFFINITY: u8 = 1;
 pub const DIRTY_THRESHOLD: u8 = 70;
 
 impl Status {
+    /// 世話が足りていない状態か（おなかがすいている、またはご機嫌が低い）。
+    pub fn is_neglected(&self) -> bool {
+        self.hunger <= LOW_MAX || self.mood <= LOW_MAX
+    }
+
+    /// ほったらかしにされて、親密度が少し下がる。
+    pub fn lose_affinity(&mut self) {
+        self.affinity = self.affinity.saturating_sub(AFFINITY_LOSS);
+    }
+
     pub fn new(mood: u8, affinity: u8, hunger: u8, dirtiness: u8) -> Self {
         Self {
             mood: mood.min(PARAM_MAX),
@@ -183,6 +196,22 @@ mod tests {
         let mut s = Status::new(50, 50, 50, DIRTY_THRESHOLD - 2);
         s.tick();
         assert_eq!(s.mood, 49);
+    }
+
+    #[test]
+    fn neglect_means_hungry_or_gloomy() {
+        assert!(!Status::new(31, 50, 31, 0).is_neglected());
+        assert!(Status::new(30, 50, 80, 0).is_neglected());
+        assert!(Status::new(80, 50, 30, 0).is_neglected());
+    }
+
+    #[test]
+    fn losing_affinity_goes_down_one_and_stops_at_zero() {
+        let mut s = Status::new(50, 1, 50, 0);
+        s.lose_affinity();
+        assert_eq!(s.affinity, 0);
+        s.lose_affinity();
+        assert_eq!(s.affinity, 0);
     }
 
     #[test]

@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
 use crate::dex::form_key;
-use crate::diary::{self, DiaryEntry, DiaryEvent};
+use crate::diary::{self, DiaryEntry, DiaryEvent, DAY_SECS};
 use crate::sleep::{is_sleeping, SleepWindow};
 use crate::status::Status;
 
@@ -21,6 +21,8 @@ pub const AWAY_THRESHOLD_SECS: u64 = 300;
 pub const AWAY_DECAY_DIV: u32 = 4;
 pub const SLEEP_DECAY_DIV: u32 = 4;
 /// 1回の `step` で処理するティック数の上限（長時間離席時の無駄なループを避ける）。
+/// ほったらかしのとき、この回数のティックごとに親密度が 1 下がる。
+pub const AFFINITY_DECAY_TICKS: u32 = 60;
 pub const MAX_CATCHUP_TICKS: u32 = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +64,9 @@ pub struct GameState {
     /// 卵が届いた時刻（UNIX秒）。いっしょの日数の起点。古いセーブでは読み込み時に補う。
     #[serde(default)]
     pub born_unix: u64,
+    /// 記念日として記録した、いっしょの日数（丸何日か）。
+    #[serde(default)]
+    pub anniversaries: u32,
     /// 何代目か（最初のペットが 1）。
     #[serde(default = "first_generation")]
     pub generation: u32,
@@ -142,6 +147,7 @@ impl GameState {
             discovered: BTreeSet::new(),
             diary: Vec::new(),
             born_unix: now_unix,
+            anniversaries: 0,
             generation: 1,
             legacy: None,
         };
@@ -172,9 +178,19 @@ impl GameState {
         self.intro_seen = false;
         self.hatch_shown = false;
         self.born_unix = self.last_unix;
+        self.anniversaries = 0;
         self.record_form();
         self.remember(DiaryEvent::Born);
         Ok(())
+    }
+
+    /// いっしょに丸 1 日・2 日…が経っていたら、記念日として思い出に残す（まとめて経ったときは最新の 1 件）。
+    fn remember_anniversary(&mut self) {
+        let days = u32::try_from(self.last_unix.saturating_sub(self.born_unix) / DAY_SECS).unwrap_or(u32::MAX);
+        if days > self.anniversaries {
+            self.anniversaries = days;
+            self.remember(DiaryEvent::Anniversary { days });
+        }
     }
 
     /// 思い出を記録する（時刻は最後に時間を進めた時刻）。
@@ -273,6 +289,10 @@ impl GameState {
             self.tick_count = self.tick_count.wrapping_add(1);
             if self.tick_count % decay_divisor(timeline, k, carried) == 0 {
                 self.status.tick();
+                // ほったらかしにすると、少しずつ親密度が下がる（世話を続けていれば下がらない）。
+                if self.tick_count % AFFINITY_DECAY_TICKS == 0 && self.status.is_neglected() {
+                    self.status.lose_affinity();
+                }
             }
         }
         self.evolve_for(secs)
@@ -321,7 +341,9 @@ impl GameState {
         }
         let secs = elapsed.saturating_mul(u64::from(scale.max(1)));
         let away = elapsed > AWAY_THRESHOLD_SECS;
-        self.step_in(u32::try_from(secs).unwrap_or(u32::MAX), Some(Timeline { start_unix, utc_offset, away, sleep }))
+        let evolutions = self.step_in(u32::try_from(secs).unwrap_or(u32::MAX), Some(Timeline { start_unix, utc_offset, away, sleep }));
+        self.remember_anniversary();
+        evolutions
     }
 
     pub fn to_json(&self) -> String {
@@ -392,11 +414,60 @@ mod tests {
             .collect()
     }
 
+    fn anniversaries(s: &GameState) -> Vec<u32> {
+        s.diary.iter().filter_map(|e| if let DiaryEvent::Anniversary { days } = e.event { Some(days) } else { None }).collect()
+    }
+
+    #[test]
+    fn a_whole_day_together_is_remembered_once() {
+        let mut s = new_state();
+        s.step_to_in(1_000 + DAY_SECS - 1, 1, 0, SleepWindow::default());
+        assert!(anniversaries(&s).is_empty());
+        s.step_to_in(1_000 + DAY_SECS, 1, 0, SleepWindow::default());
+        assert_eq!(anniversaries(&s), [1]);
+        s.step_to_in(1_000 + DAY_SECS + 60, 1, 0, SleepWindow::default());
+        assert_eq!(anniversaries(&s), [1]);
+        s.step_to_in(1_000 + 2 * DAY_SECS, 1, 0, SleepWindow::default());
+        assert_eq!(anniversaries(&s), [1, 2]);
+    }
+
+    #[test]
+    fn days_skipped_while_the_app_was_closed_leave_one_entry_with_the_latest_count() {
+        let mut s = new_state();
+        s.step_to_in(1_000 + 3 * DAY_SECS + 5, 1, 0, SleepWindow::default());
+        assert_eq!(anniversaries(&s), [3]);
+    }
+
+    #[test]
+    fn the_next_pet_counts_its_own_days() {
+        let mut s = elder_state();
+        s.anniversaries = 4;
+        s.graduate().unwrap();
+        assert_eq!(s.anniversaries, 0);
+    }
+
     #[test]
     fn a_new_game_starts_the_diary_with_the_arrival_of_the_egg() {
         let s = new_state();
         assert_eq!(s.diary, vec![DiaryEntry { at_unix: 1_000, event: DiaryEvent::Born }]);
         assert_eq!(s.born_unix, 1_000);
+    }
+
+    #[test]
+    fn neglect_slowly_wears_affinity_down() {
+        let mut s = new_state();
+        s.status = Status::new(80, 50, 20, 0); // 空腹
+        s.step(TICK_SECS * AFFINITY_DECAY_TICKS * 2);
+        assert!(s.status.affinity < 50, "neglected for a while: {}", s.status.affinity);
+        assert!(s.status.affinity >= 47);
+    }
+
+    #[test]
+    fn a_pet_that_is_looked_after_keeps_its_affinity() {
+        let mut s = new_state();
+        s.status = Status::new(100, 50, 100, 0);
+        s.step(TICK_SECS * AFFINITY_DECAY_TICKS);
+        assert_eq!(s.status.affinity, 50);
     }
 
     #[test]

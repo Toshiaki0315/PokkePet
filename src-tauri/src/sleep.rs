@@ -22,11 +22,15 @@ impl Default for SleepWindow {
 
 const DAY_SECS: u64 = 24 * 60 * 60;
 
+/// `unix_secs`（UTC）の、UTC からの差 `utc_offset_secs` のローカル時刻での「時」（0〜23）。
+pub fn local_hour(unix_secs: u64, utc_offset_secs: i32) -> u8 {
+    let local = i128::from(unix_secs) + i128::from(utc_offset_secs);
+    (local.rem_euclid(i128::from(DAY_SECS)) / 3600) as u8
+}
+
 /// `unix_secs`（UTC）が、UTC からの差 `utc_offset_secs` のローカル時刻でおやすみ時間か。
 pub fn is_sleeping(unix_secs: u64, utc_offset_secs: i32, window: SleepWindow) -> bool {
-    let local = i128::from(unix_secs) + i128::from(utc_offset_secs);
-    let secs_of_day = local.rem_euclid(i128::from(DAY_SECS)) as u64;
-    let hour = (secs_of_day / 3600) as u8;
+    let hour = local_hour(unix_secs, utc_offset_secs);
     let SleepWindow { start_hour, end_hour } = window;
     if start_hour == end_hour {
         return false;
@@ -58,6 +62,14 @@ mod tests {
 
     fn window(start_hour: u8, end_hour: u8) -> SleepWindow {
         SleepWindow { start_hour, end_hour }
+    }
+
+    #[test]
+    fn local_hour_follows_the_offset_and_wraps_around_midnight() {
+        assert_eq!(local_hour(0, 0), 0);
+        assert_eq!(local_hour(9 * H + 1_800, 0), 9);
+        assert_eq!(local_hour(23 * H, 2 * 3600), 1);
+        assert_eq!(local_hour(H, -2 * 3600), 23);
     }
 
     #[test]

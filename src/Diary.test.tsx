@@ -37,6 +37,14 @@ beforeEach(() => {
   });
 });
 
+describe("Diary window (anniversaries)", () => {
+  it("describes an anniversary", async () => {
+    api.getDiary.mockResolvedValue({ daysTogether: 2, entries: [{ atUnix: at(10, 18, 7, 5), event: { kind: "anniversary", days: 1 } }] });
+    render(<Diary />);
+    expect(await screen.findByText("いっしょに 1 日が経った")).toBeInTheDocument();
+  });
+});
+
 describe("Diary window", () => {
   it("shows how many days the player has spent together", async () => {
     render(<Diary />);

@@ -21,7 +21,7 @@ impl Call {
             Bubble::Hungry => Some(Call::Hungry),
             Bubble::Dirty => Some(Call::Dirty),
             Bubble::Gloomy => Some(Call::Gloomy),
-            Bubble::Happy | Bubble::Welcome | Bubble::Sleeping => None,
+            Bubble::Happy | Bubble::Welcome | Bubble::Sleeping | Bubble::Morning | Bubble::Noon | Bubble::Evening | Bubble::Drowsy => None,
         }
     }
 
@@ -87,7 +87,7 @@ mod tests {
         assert_eq!(Call::from_bubble(Some(Bubble::Hungry)), Some(Call::Hungry));
         assert_eq!(Call::from_bubble(Some(Bubble::Dirty)), Some(Call::Dirty));
         assert_eq!(Call::from_bubble(Some(Bubble::Gloomy)), Some(Call::Gloomy));
-        for other in [Bubble::Happy, Bubble::Welcome, Bubble::Sleeping] {
+        for other in [Bubble::Happy, Bubble::Welcome, Bubble::Sleeping, Bubble::Morning, Bubble::Noon, Bubble::Evening, Bubble::Drowsy] {
             assert_eq!(Call::from_bubble(Some(other)), None);
         }
         assert_eq!(Call::from_bubble(None), None);
