@@ -52,6 +52,8 @@ pub enum Branch {
     Poor,
     Normal,
     Good,
+    /// かくしキャラ（最終段階だけ）。お世話の質がとても高いときにだけ進化する。
+    Legend,
 }
 
 impl Branch {
@@ -60,6 +62,7 @@ impl Branch {
             Branch::Poor => "poor",
             Branch::Normal => "normal",
             Branch::Good => "good",
+            Branch::Legend => "legend",
         }
     }
 }
@@ -153,10 +156,15 @@ pub fn branch_from(s: &Status, adjust: i16) -> Branch {
 }
 
 /// 進化先の形態（段階は進化後の段階）。
-pub fn evolve(stage: u8, s: &Status, h: &History, legacy: Option<Personality>, adjust: i16) -> Form {
+pub fn evolve(stage: u8, s: &Status, h: &History, legacy: Option<Personality>, adjust: i16, legend: bool) -> Form {
+    let next = stage.saturating_add(1).min(MAX_STAGE);
+    let branch = match branch_from(s, adjust) {
+        Branch::Good if legend && next == MAX_STAGE => Branch::Legend,
+        other => other,
+    };
     Form {
-        stage: stage.saturating_add(1).min(MAX_STAGE),
-        branch: branch_from(s, adjust),
+        stage: next,
+        branch,
         personality: personality_from(h, legacy),
     }
 }
@@ -178,8 +186,19 @@ mod tests {
     }
 
     #[test]
+    fn the_hidden_form_appears_only_at_the_final_stage_and_only_for_a_good_pet() {
+        let good = st(90, 90);
+        let h = History::default();
+        let at = |stage: u8, s: &Status, legend: bool| evolve(stage, s, &h, None, 0, legend);
+        assert_eq!(at(MAX_STAGE - 1, &good, true).branch, Branch::Legend);
+        assert_eq!(at(MAX_STAGE - 1, &good, false).branch, Branch::Good);
+        assert_eq!(at(MAX_STAGE - 2, &good, true).branch, Branch::Good, "not yet the last stage");
+        assert_eq!(at(MAX_STAGE - 1, &st(60, 60), true).branch, Branch::Normal, "being qualified is not enough on its own");
+    }
+
+    #[test]
     fn names_used_for_files_match_the_json_names() {
-        for b in [Branch::Poor, Branch::Normal, Branch::Good] {
+        for b in [Branch::Poor, Branch::Normal, Branch::Good, Branch::Legend] {
             assert_eq!(serde_json::to_value(b).unwrap(), b.as_str());
         }
         for p in [Personality::Calm, Personality::Playful, Personality::Gluttonous, Personality::Tidy] {
@@ -327,7 +346,7 @@ mod tests {
 
     #[test]
     fn evolving_passes_the_legacy_on() {
-        let f = evolve(2, &st(90, 90), &History::default(), Some(Personality::Gluttonous), 0);
+        let f = evolve(2, &st(90, 90), &History::default(), Some(Personality::Gluttonous), 0, false);
         assert_eq!(f.personality, Personality::Gluttonous);
     }
 
@@ -398,7 +417,7 @@ mod tests {
     #[test]
     fn evolve_combines_next_stage_branch_and_personality() {
         let h = History { feeds: 0, plays: 3, cleans: 0, snacks: 0 };
-        let f = evolve(2, &st(90, 90), &h, None, 0);
+        let f = evolve(2, &st(90, 90), &h, None, 0, false);
         assert_eq!(
             f,
             Form { stage: 3, branch: Branch::Good, personality: Personality::Playful }
@@ -407,7 +426,7 @@ mod tests {
 
     #[test]
     fn evolve_caps_stage_at_max() {
-        let f = evolve(MAX_STAGE, &st(50, 50), &History::default(), None, 0);
+        let f = evolve(MAX_STAGE, &st(50, 50), &History::default(), None, 0, false);
         assert_eq!(f.stage, MAX_STAGE);
     }
 }

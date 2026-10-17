@@ -327,7 +327,7 @@ impl GameState {
         let mut advanced = self.growth.advance(secs);
         while advanced {
             let previous_stage = self.growth.stage - 1;
-            self.form = evolve(previous_stage, &self.status, &self.history, self.legacy, self.care.score_adjustment());
+            self.form = evolve(previous_stage, &self.status, &self.history, self.legacy, self.care.score_adjustment(), self.care.is_legendary());
             self.care.evolved();
             self.record_form();
             self.remember(if previous_stage <= 1 {
@@ -992,6 +992,29 @@ mod tests {
         assert_eq!(evolve_with(100, 50), Branch::Good);
         assert_eq!(evolve_with(0, 90), Branch::Normal); // 60 - 10 = 50
         assert_eq!(evolve_with(0, 20), Branch::Normal);
+    }
+
+    #[test]
+    fn a_pet_raised_with_great_care_evolves_into_the_hidden_form_at_the_last_stage() {
+        let mut s = new_state();
+        s.growth.stage = crate::evolution::MAX_STAGE - 1;
+        s.form.stage = crate::evolution::MAX_STAGE - 1;
+        s.status = Status::new(90, 90, 50, 0);
+        s.care.discipline = 80;
+        s.evolve_for(stage_secs(crate::evolution::MAX_STAGE - 1));
+        assert_eq!((s.form.stage, s.form.branch), (crate::evolution::MAX_STAGE, Branch::Legend));
+        assert!(s.discovered.contains("10-legend-calm"));
+    }
+
+    #[test]
+    fn without_enough_discipline_the_same_pet_is_only_good() {
+        let mut s = new_state();
+        s.growth.stage = crate::evolution::MAX_STAGE - 1;
+        s.form.stage = crate::evolution::MAX_STAGE - 1;
+        s.status = Status::new(90, 90, 50, 0);
+        s.care.discipline = 10;
+        s.evolve_for(stage_secs(crate::evolution::MAX_STAGE - 1));
+        assert_eq!(s.form.branch, Branch::Good);
     }
 
     #[test]

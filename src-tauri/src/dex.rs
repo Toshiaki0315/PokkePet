@@ -1,4 +1,4 @@
-//! 図鑑: これまでに出会った姿の記録。全 109 種（卵 1 + 段階 2〜10 × 分岐 3 × 性格 4）。
+//! 図鑑: これまでに出会った姿の記録。全 113 種（卵 1 + 段階 2〜10 × 分岐 3 × 性格 4 + かくしキャラ 4）。
 
 use std::collections::BTreeSet;
 
@@ -7,6 +7,8 @@ use serde::Serialize;
 use crate::evolution::{Branch, Form, Personality, MAX_STAGE};
 
 pub const BRANCHES: [Branch; 3] = [Branch::Poor, Branch::Normal, Branch::Good];
+/// かくしキャラ（最終段階だけの分岐）。
+pub const HIDDEN_BRANCH: Branch = Branch::Legend;
 pub const PERSONALITIES: [Personality; 4] = [Personality::Calm, Personality::Playful, Personality::Gluttonous, Personality::Tidy];
 
 /// 姿の識別子。スプライトのファイル名（拡張子なし）と同じ。卵は分岐・性格によらず "egg"。
@@ -26,7 +28,8 @@ pub fn all_keys() -> Vec<String> {
 fn all_entries() -> Vec<(String, u8, Branch, Personality)> {
     let mut out = vec![("egg".to_string(), 1, Branch::Normal, Personality::Calm)];
     for stage in 2..=MAX_STAGE {
-        for branch in BRANCHES {
+        let hidden = (stage == MAX_STAGE).then_some(HIDDEN_BRANCH);
+        for branch in BRANCHES.into_iter().chain(hidden) {
             for personality in PERSONALITIES {
                 out.push((form_key(&Form { stage, branch, personality }), stage, branch, personality));
             }
@@ -84,23 +87,24 @@ mod tests {
     }
 
     #[test]
-    fn there_are_109_distinct_forms_starting_with_the_egg() {
+    fn there_are_113_distinct_forms_starting_with_the_egg() {
         let keys = all_keys();
-        assert_eq!(keys.len(), 1 + (usize::from(MAX_STAGE) - 1) * 3 * 4);
-        assert_eq!(keys.len(), 109);
-        assert_eq!(keys.iter().collect::<BTreeSet<_>>().len(), 109);
+        assert_eq!(keys.len(), 1 + (usize::from(MAX_STAGE) - 1) * 3 * 4 + 4);
+        assert_eq!(keys.len(), 113);
+        assert_eq!(keys.iter().collect::<BTreeSet<_>>().len(), 113);
         assert_eq!(keys[0], "egg");
         assert_eq!(keys[1], "2-poor-calm");
         assert_eq!(keys[2], "2-poor-playful");
         assert_eq!(keys[13], "3-poor-calm");
         assert_eq!(keys[108], "10-good-tidy");
+        assert_eq!(&keys[109..], ["10-legend-calm", "10-legend-playful", "10-legend-gluttonous", "10-legend-tidy"]);
     }
 
     #[test]
     fn the_view_flags_discovered_forms_and_counts_them() {
         let found: BTreeSet<String> = ["egg", "2-normal-calm", "5-good-playful"].iter().map(|s| s.to_string()).collect();
         let v = build_view(&found);
-        assert_eq!((v.total, v.discovered), (109, 3));
+        assert_eq!((v.total, v.discovered), (113, 3));
         let flagged: Vec<&str> = v.entries.iter().filter(|e| e.discovered).map(|e| e.key.as_str()).collect();
         assert_eq!(flagged, ["egg", "2-normal-calm", "5-good-playful"]);
     }
@@ -111,7 +115,7 @@ mod tests {
         let egg = &v.entries[0];
         assert_eq!((egg.key.as_str(), egg.stage), ("egg", 1));
         let last = v.entries.last().unwrap();
-        assert_eq!((last.key.as_str(), last.stage, last.branch, last.personality), ("10-good-tidy", 10, Branch::Good, Personality::Tidy));
+        assert_eq!((last.key.as_str(), last.stage, last.branch, last.personality), ("10-legend-tidy", 10, Branch::Legend, Personality::Tidy));
         assert!(v.entries.iter().all(|e| !e.discovered));
     }
 
@@ -124,7 +128,7 @@ mod tests {
     #[test]
     fn the_view_serializes_with_camel_case_keys() {
         let json = serde_json::to_value(build_view(&BTreeSet::new())).unwrap();
-        assert_eq!(json["total"], 109);
+        assert_eq!(json["total"], 113);
         assert_eq!(json["discovered"], 0);
         assert_eq!(json["entries"][1]["key"], "2-poor-calm");
         assert_eq!(json["entries"][1]["branch"], "poor");

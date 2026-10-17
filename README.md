@@ -33,7 +33,7 @@ macOS のメニューバーに住む、ドット絵の育成ゲームです。�
 
 - **メニューバー常駐**: Dock には出ません。アイコンの横の絵文字（🍙・💤 など）で、開かなくても状態がわかります。
 - **育成**: ご飯・おやつ・遊ぶ・掃除の 4 つのお世話。放置すると機嫌が悪くなり、育て方で姿が変わります。
-- **109 種のキャラクター**: 成長段階 9 × 分岐 3 × 性格（種族）4 ＋ 卵。図鑑で集められます。
+- **113 種のキャラクター**: 成長段階 9 × 分岐 3 × 性格（種族）4 ＋ 卵 ＋ かくしキャラ 4。図鑑で集められます。
 - **約 5 日かけて育つ**: 卵が届いてから旅立ちの時まで約 4 日 21 時間（実時間。アプリを閉じていても進みます）。
 - **おやすみ時間**: 夜はキャラも眠り、状態の減りがゆっくりになります（時間帯は設定で変えられます）。
 - **世代交代**: 旅立ちを見送ると次の卵が届き、図鑑と思い出は引き継がれます。
@@ -251,7 +251,7 @@ xattr -dr com.apple.quarantine /Applications/PokkePet.app
 メニューバーのアイコンを右クリックすると開けます。
 
 #### 図鑑
-出会った姿の一覧です。全 **109 種**（卵 1 ＋ 段階 2〜10 × 分岐 3 × 性格 4）を、段階ごとの行に並べます。**未発見の姿は黒いシルエット**で表示され、名前は伏せられます。上部に「発見 N / 109」と進捗バーが出て、全部集めると「コンプリート！」です。進化するたびに自動で更新されます。
+出会った姿の一覧です。全 **113 種**（卵 1 ＋ 段階 2〜10 × 分岐 3 × 性格 4 ＋ かくしキャラ 4）を、段階ごとの行に並べます。**未発見の姿は黒いシルエット**で表示され、名前は伏せられます。上部に「発見 N / 109」と進捗バーが出て、全部集めると「コンプリート！」です。進化するたびに自動で更新されます。
 
 #### 思い出
 これまでの出来事を新しい順に記録します。「いっしょに N 日目」も表示します。記録される出来事は次のとおりです。
@@ -397,7 +397,7 @@ pnpm test:coverage     # カバレッジ付き（90% 未満で失敗）
 ```
 
 - テストは `src/*.test.ts(x)`、環境は jsdom、Tauri との通信（`invoke` / `listen`）はモックします。
-- ドット絵が全 109 枚そろっていて 32×32 であることも、テストで確認しています。
+- ドット絵が全 113 枚そろっていて 32×32 であることも、テストで確認しています。
 
 ### 6.4 CI（GitHub Actions）
 
@@ -467,9 +467,9 @@ PokkePet/
 ├── Makefile                          make dev / app / dmg
 ├── docs/character_catalog.png        キャラクター一覧画像
 ├── tools/
-│   ├── gen_sprites.py                ドット絵（109 枚）と一覧画像の生成
+│   ├── gen_sprites.py                ドット絵（113 枚）と一覧画像の生成
 │   └── gen_icon.py                   アプリアイコンの生成
-├── public/sprites/                   ドット絵（32×32 PNG、109 枚）
+├── public/sprites/                   ドット絵（32×32 PNG、113 枚）
 ├── src/                              フロントエンド（React / TypeScript）
 │   ├── App.tsx                       ポップアップ（画面とボタン）
 │   ├── Settings.tsx                  設定ダイアログ
@@ -558,7 +558,7 @@ pip install pillow    # 初回のみ
 python3 tools/gen_sprites.py public/sprites --catalog docs/character_catalog.png
 ```
 
-- 出力: `public/sprites/` に 32×32 の PNG を 109 枚（`egg.png` と `{段階}-{分岐}-{性格}.png`）。`--catalog` で一覧画像も作ります。
+- 出力: `public/sprites/` に 32×32 の PNG を 113 枚（`egg.png` と `{段階}-{分岐}-{性格}.png`）。`--catalog` で一覧画像も作ります。
 - ファイル名の規則は `src/sprite.ts` の `spritePath()` と対応します。
 - デザインのルールは [05_character_design_catalog.md](05_character_design_catalog.md) を参照してください。
 
@@ -629,4 +629,4 @@ CI の 2 ジョブ（Frontend / Backend）が成功すると、マージでき�
 | [02_architecture_and_tech_stack.md](02_architecture_and_tech_stack.md) | アーキテクチャと技術スタック、役割分担 |
 | [03_environment_setup.md](03_environment_setup.md) | 環境構築（初期の設計メモ） |
 | [04_development_process_and_tdd.md](04_development_process_and_tdd.md) | 開発プロセス、TDD、カバレッジ目標、コーディング規約 |
-| [05_character_design_catalog.md](05_character_design_catalog.md) | キャラクターデザイン一覧（109 種のルール） |
+| [05_character_design_catalog.md](05_character_design_catalog.md) | キャラクターデザイン一覧（113 種のルール） |

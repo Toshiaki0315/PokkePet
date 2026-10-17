@@ -34,10 +34,14 @@ describe("sprite assets", () => {
     expect(missing).toEqual([]);
   });
 
+  it("has the hidden form for every personality at the final stage", () => {
+    for (const personality of personalities) expect(files.has(spritePath({ stage: 10, branch: "legend", personality }))).toBe(true);
+  });
+
   it("uses 32x32 PNGs for every sprite", () => {
     const dir = join(process.cwd(), "public", "sprites");
     const names = readdirSync(dir).filter((n) => n.endsWith(".png"));
-    expect(names.length).toBe(109);
+    expect(names.length).toBe(113);
     const wrong = names.filter((n) => {
       const png = readFileSync(join(dir, n));
       return png.readUInt32BE(16) !== 32 || png.readUInt32BE(20) !== 32; // IHDR width/height
