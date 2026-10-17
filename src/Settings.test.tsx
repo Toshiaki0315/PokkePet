@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings as SettingsModel } from "./api";
@@ -21,7 +21,7 @@ vi.mock("./sound", () => ({
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, background: "classic", breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 const unlisten = vi.fn();
 
@@ -118,6 +118,24 @@ describe("Settings dialog", () => {
     await waitFor(() => expect(screen.getByRole("checkbox", { name: "作業に寄り添う" })).not.toBeChecked());
     expect(screen.getByRole("checkbox", { name: "休憩の声かけ" })).toBeDisabled();
     expect(screen.getByRole("checkbox", { name: "おやすみ時間を自動で合わせる" })).toBeDisabled();
+  });
+
+  it("lists the backgrounds with the current one selected, and saves a new choice", async () => {
+    render(<Settings />);
+    const group = await screen.findByRole("radiogroup", { name: "背景" });
+    const radios = within(group).getAllByRole("radio");
+    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(["classic", "room", "tatami", "meadow", "forest", "beach"]);
+    expect(within(group).getByRole("radio", { name: "きもち（いつもの）" })).toBeChecked();
+    await userEvent.click(within(group).getByRole("radio", { name: "うみべ" }));
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, background: "beach" });
+  });
+
+  it("marks the chosen background", async () => {
+    api.getSettings.mockResolvedValue({ ...custom, background: "forest" });
+    render(<Settings />);
+    await waitFor(() => expect(screen.getByRole("radio", { name: "もり" })).toBeChecked());
+    expect(screen.getByRole("radio", { name: "もり" }).closest("label")).toHaveClass("selected");
+    expect(screen.getByRole("radio", { name: "おへや" }).closest("label")).not.toHaveClass("selected");
   });
 
   it("shows and saves the strict-mode switch", async () => {

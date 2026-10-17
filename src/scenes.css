@@ -1,0 +1,96 @@
+/* 画面の背景(景色)。CSS だけで描く。.scene（画面の背景の層）と .scene-thumb（設定の見本）の両方で使う。
+   このファイルは tools/gen_scenes.py で作る（手で直さず、スクリプトを直して作り直す）。 */
+.scene-thumb { position: relative; display: inline-block; width: 56px; height: 44px; border-radius: 6px; overflow: hidden; border: 1px solid #0003; flex: none; }
+.scene-room::after, .scene-tatami::after, .scene-meadow::after, .scene-forest::after, .scene-beach::after { content: ""; position: absolute; inset: 0; }
+
+/* おへや: 壁・木の床・窓・ラグ */
+.scene-room {
+  background:
+    linear-gradient(#8a5a2b, #8a5a2b) 0 71.79% / 100% 2.5% no-repeat,
+    repeating-linear-gradient(90deg, rgba(0,0,0,0.08) 0 1px, transparent 1px 22%) 0 100.00% / 100% 27.5% no-repeat,
+    linear-gradient(#cf9a5f, #b8803f) 0 100.00% / 100% 27.5% no-repeat,
+    linear-gradient(#f9ead0, #f1d8ad);
+}
+.scene-room::after {
+  background:
+    radial-gradient(ellipse at center, #e8745f 0 52%, #f6b3a3 54% 68%, transparent 70%) 50.00% 98.82% / 60% 15% no-repeat,
+    linear-gradient(#8a5a2b, #8a5a2b) 27.84% 21.43% / 3% 30% no-repeat,
+    linear-gradient(#8a5a2b, #8a5a2b) 18.18% 28.87% / 34% 3% no-repeat,
+    linear-gradient(180deg, #bfe6ff, #eaf7ff) 19.57% 22.60% / 31% 27% no-repeat,
+    linear-gradient(#8a5a2b, #8a5a2b) 18.18% 21.74% / 34% 31% no-repeat,
+    linear-gradient(#ffe9a8, #ffd36b) 87.50% 27.91% / 12% 14% no-repeat,
+    linear-gradient(#8a5a2b, #8a5a2b) 88.82% 26.25% / 15% 20% no-repeat;
+}
+
+/* わしつ: 障子・畳・座ぶとん */
+.scene-tatami {
+  background:
+    repeating-linear-gradient(90deg, #7a5a34 0 1.5%, transparent 1.5% 33.4%) 0 0.00% / 100% 62% no-repeat,
+    repeating-linear-gradient(180deg, #7a5a34 0 2%, transparent 2% 25%) 0 0.00% / 100% 62% no-repeat,
+    linear-gradient(#fbf6e6, #f3ead0) 0 0.00% / 100% 62% no-repeat,
+    linear-gradient(#4f5f27, #4f5f27) 0 63.59% / 100% 2.5% no-repeat,
+    repeating-linear-gradient(90deg, #8d9c52 0 1.2%, transparent 1.2% 50%) 0 100.00% / 100% 35.5% no-repeat,
+    repeating-linear-gradient(180deg, #8d9c52 0 1.5%, transparent 1.5% 50%) 0 100.00% / 100% 35.5% no-repeat,
+    linear-gradient(#c7d48a, #b5c577);
+}
+.scene-tatami::after {
+  background:
+    radial-gradient(ellipse at center, #c95d5d 0 58%, #a64343 60% 72%, transparent 74%) 50.00% 97.56% / 46% 18% no-repeat,
+    radial-gradient(circle at center, #fff 0 38%, #f4c2c2 40% 52%, transparent 54%) 93.02% 9.30% / 14% 14% no-repeat;
+}
+
+/* そうげん: 空・雲・おか・草 */
+.scene-meadow {
+  background:
+    linear-gradient(#5fb33a, #4a9a2a) 0 100.00% / 100% 10% no-repeat,
+    radial-gradient(ellipse 75% 42% at 18% 100%, #86cf58 98%, transparent 100%),
+    radial-gradient(ellipse 70% 36% at 88% 100%, #6dbd46 98%, transparent 100%),
+    linear-gradient(#86cdfa, #e4f6ff 62%);
+}
+.scene-meadow::after {
+  background:
+    radial-gradient(ellipse at center, #fff 0 60%, transparent 64%) 13.51% 11.11% / 26% 10% no-repeat,
+    radial-gradient(ellipse at center, #fff 0 60%, transparent 64%) 35.00% 6.59% / 20% 9% no-repeat,
+    radial-gradient(ellipse at center, #fff 0 60%, transparent 64%) 78.95% 24.18% / 24% 9% no-repeat,
+    radial-gradient(circle at center, #fff3a6 0 36%, rgba(255,243,166,0.45) 40% 60%, transparent 64%) 94.74% 2.63% / 24% 24% no-repeat,
+    radial-gradient(circle at center, #ffd1e0 0 30%, transparent 34%) 8.51% 92.63% / 6% 5% no-repeat,
+    radial-gradient(circle at center, #fff 0 30%, transparent 34%) 40.43% 96.84% / 6% 5% no-repeat,
+    radial-gradient(circle at center, #ffe27a 0 30%, transparent 34%) 89.36% 94.74% / 6% 5% no-repeat;
+}
+
+/* もり: こもれび・木・おちば */
+.scene-forest {
+  background:
+    linear-gradient(#35452a, #2a3a20) 0 100.00% / 100% 12% no-repeat,
+    linear-gradient(#5b3d24, #4a301b) 10.75% 73.33% / 7% 70% no-repeat,
+    linear-gradient(#5b3d24, #4a301b) 46.81% 78.95% / 6% 62% no-repeat,
+    linear-gradient(#5b3d24, #4a301b) 86.96% 69.23% / 8% 74% no-repeat,
+    radial-gradient(ellipse at center, #3f8f4e 0 70%, transparent 72%) -6.06% -10.00% / 34% 40% no-repeat,
+    radial-gradient(ellipse at center, #46a057 0 70%, transparent 72%) 42.86% 6.06% / 30% 34% no-repeat,
+    radial-gradient(ellipse at center, #3a8446 0 70%, transparent 72%) 106.45% -10.34% / 38% 42% no-repeat,
+    linear-gradient(#2f6a3d, #1f4a2c);
+}
+.scene-forest::after {
+  background:
+    linear-gradient(105deg, transparent 38%, rgba(255,255,190,0.22) 46%, transparent 56%),
+    linear-gradient(112deg, transparent 58%, rgba(255,255,190,0.14) 64%, transparent 72%),
+    radial-gradient(ellipse at center, #d98b2b 0 55%, transparent 60%) 21.74% 96.84% / 8% 5% no-repeat,
+    radial-gradient(ellipse at center, #c4662a 0 55%, transparent 60%) 62.37% 98.95% / 7% 5% no-repeat;
+}
+
+/* うみべ: 空・海・なみ・砂はま */
+.scene-beach {
+  background:
+    linear-gradient(#f3dfa5, #e6c776) 0 100.00% / 100% 32% no-repeat,
+    repeating-linear-gradient(180deg, rgba(255,255,255,0.55) 0 1.6%, transparent 1.6% 8%) 0 58.97% / 100% 22% no-repeat,
+    linear-gradient(#3aa1d9, #6ec7ee) 0 58.67% / 100% 25% no-repeat,
+    linear-gradient(#78cdfb, #d4f0ff 44%);
+}
+.scene-beach::after {
+  background:
+    radial-gradient(circle at center, #fff4a8 0 34%, rgba(255,244,168,0.4) 38% 58%, transparent 62%) 8.11% 2.70% / 26% 26% no-repeat,
+    radial-gradient(ellipse at center, #fff 0 60%, transparent 64%) 68.42% 10.87% / 24% 8% no-repeat,
+    linear-gradient(#fff, #fff) 0 69.04% / 100% 1.5% no-repeat,
+    radial-gradient(circle at center, #f4a6b8 0 40%, transparent 44%) 84.78% 93.62% / 8% 6% no-repeat,
+    radial-gradient(circle at center, #fff 0 40%, transparent 44%) 23.66% 95.79% / 7% 5% no-repeat;
+}

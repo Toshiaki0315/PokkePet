@@ -16,6 +16,9 @@ pub const POPUP_HEIGHT_WITH_GAUGES: f64 = 470.0;
 pub const DEFAULT_SOUND_VOLUME: u8 = 50;
 pub const SOUND_VOLUME_MAX: u8 = 100;
 pub const SOUND_PITCH_RANGE: std::ops::RangeInclusive<i8> = -2..=2;
+/// 選べる背景（画面の景色）。最初の `classic` は、これまでの「きもちで色が変わる」背景。
+pub const BACKGROUNDS: [&str; 6] = ["classic", "room", "tatami", "meadow", "forest", "beach"];
+pub const DEFAULT_BACKGROUND: &str = "classic";
 pub const DEFAULT_BODY_COLOR: &str = "#4b5fb8";
 pub const DEFAULT_BUTTON_COLOR: &str = "#f280a8";
 
@@ -39,6 +42,8 @@ pub struct Settings {
     pub companion_enabled: bool,
     /// 長く休憩なしで作業しているとき、「ちょっと休もうよ」と声をかける。
     pub break_reminder: bool,
+    /// 画面の背景（`BACKGROUNDS` のどれか）。
+    pub background: String,
     /// Mac の状態（電池・ネット・ダークモード）にペットが反応する。
     pub system_reactions: bool,
     /// 操作する時間帯から生活リズムを学んで、おやすみ時間を自動で合わせる。
@@ -62,6 +67,7 @@ impl Default for Settings {
             strict_mode: false,
             companion_enabled: true,
             system_reactions: true,
+            background: DEFAULT_BACKGROUND.to_string(),
             break_reminder: true,
             auto_sleep: true,
             sleep_start_hour: DEFAULT_SLEEP_START_HOUR,
@@ -82,6 +88,9 @@ impl Settings {
         }
         if !SOUND_PITCH_RANGE.contains(&self.sound_pitch) {
             return Err(format!("soundPitch must be -2..=2: {}", self.sound_pitch));
+        }
+        if !BACKGROUNDS.contains(&self.background.as_str()) {
+            return Err(format!("background must be one of {BACKGROUNDS:?}: {:?}", self.background));
         }
         check_color("bodyColor", &self.body_color)?;
         check_color("buttonColor", &self.button_color)
@@ -322,6 +331,22 @@ mod tests {
         let json = serde_json::to_value(Settings::default()).unwrap();
         assert_eq!(json["systemReactions"], true);
         assert_eq!((json["companionEnabled"].as_bool(), json["breakReminder"].as_bool(), json["autoSleep"].as_bool()), (Some(true), Some(true), Some(true)));
+    }
+
+    #[test]
+    fn the_background_defaults_to_the_classic_one_and_only_known_backgrounds_are_allowed() {
+        assert_eq!(Settings::default().background, "classic");
+        for name in BACKGROUNDS {
+            assert!(Settings { background: name.to_string(), ..Settings::default() }.validate().is_ok(), "{name}");
+        }
+        let err = Settings { background: "space".to_string(), ..Settings::default() }.validate().unwrap_err();
+        assert!(err.contains("background"));
+        let p = tmp("background");
+        Settings { background: "beach".to_string(), ..Settings::default() }.save(&p).unwrap();
+        assert_eq!(Settings::load(&p).unwrap().background, "beach");
+        assert_eq!(serde_json::to_value(Settings::default()).unwrap()["background"], "classic");
+        fs::write(&p, r##"{"background": "nope"}"##).unwrap();
+        assert_eq!(Settings::load(&p).unwrap_err().kind(), io::ErrorKind::InvalidData);
     }
 
     #[test]
