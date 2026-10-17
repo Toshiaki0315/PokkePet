@@ -2,9 +2,9 @@ import type { Settings } from "./api";
 
 // Rust 側の既定値 (src-tauri/src/settings.rs) と同じ。起動直後に設定が届くまでの表示に使う。
 export const DEFAULT_SETTINGS: Settings = {
-  showStage: false,
   showGauges: false,
   notifyCalls: true,
+  soundEnabled: true,
   sleepStartHour: 23,
   sleepEndHour: 7,
   bodyColor: "#4b5fb8",

@@ -52,6 +52,11 @@ export function performAction(action: ActionName): Promise<StateView> {
   return invoke<StateView>("perform_action", { action });
 }
 
+/** マウスでなでた。ほんの少しご機嫌が上がる（おやすみ中は変わらない）。 */
+export function strokePet(): Promise<StateView> {
+  return invoke<StateView>("stroke_pet");
+}
+
 /** ポップアップが開いた(true)/閉じた(false)ことの通知。 */
 export function onPopupVisibility(handler: (visible: boolean) => void): Promise<() => void> {
   return listen<boolean>("popup-visibility", (event) => handler(event.payload));
@@ -77,10 +82,11 @@ export function onStateChanged(handler: (view: StateView) => void): Promise<() =
 }
 
 export interface Settings {
-  showStage: boolean;
   showGauges: boolean;
   /** お世話の呼びかけ（空腹・汚れ・つまらない）をmacOSの通知で知らせる */
   notifyCalls: boolean;
+  /** 鳴き声（サウンド）を鳴らす */
+  soundEnabled: boolean;
   /** おやすみ時間の開始・終了（0〜23時）。同じ値ならおやすみなし */
   sleepStartHour: number;
   sleepEndHour: number;

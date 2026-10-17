@@ -1,0 +1,307 @@
+import { fireEvent, renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { Personality } from "./api";
+import { cryNotes, MASTER_GAIN, playNotes, useSound } from "./sound";
+import type { CryKind, Voice } from "./sound";
+
+const PERSONALITIES: Personality[] = ["calm", "playful", "gluttonous", "tidy"];
+const KINDS: CryKind[] = ["happy", "neutral", "sad", "eat", "tap", "hatch"];
+const voice = (personality: Personality, stage: number): Voice => ({ personality, stage });
+
+describe("cryNotes", () => {
+  it("gives every cry audible, short and well-formed notes", () => {
+    for (const kind of KINDS) {
+      for (const personality of PERSONALITIES) {
+        for (const stage of [1, 2, 5, 10]) {
+          const notes = cryNotes(kind, voice(personality, stage));
+          expect(notes.length, `${kind}/${personality}/${stage}`).toBeGreaterThan(0);
+          for (const n of notes) {
+            expect(n.duration).toBeGreaterThan(0);
+            expect(n.start).toBeGreaterThanOrEqual(0);
+            expect(n.from).toBeGreaterThan(20);
+            expect(n.to).toBeGreaterThan(20);
+            expect(Math.max(n.from, n.to)).toBeLessThan(4000);
+            expect(n.gain).toBeGreaterThan(0);
+            expect(n.gain).toBeLessThanOrEqual(1);
+          }
+          const end = Math.max(...notes.map((n) => n.start + n.duration));
+          expect(end).toBeLessThan(1);
+        }
+      }
+    }
+  });
+
+  it("makes a happy cry out of three rising notes", () => {
+    const notes = cryNotes("happy", voice("calm", 5));
+    expect(notes).toHaveLength(3);
+    for (const n of notes) expect(n.to).toBeGreaterThan(n.from);
+    expect(notes[1].from).toBeGreaterThan(notes[0].from);
+    expect(notes[2].from).toBeGreaterThan(notes[1].from);
+    expect(notes[1].start).toBeGreaterThan(notes[0].start);
+  });
+
+  it("makes a sad cry out of falling notes", () => {
+    const notes = cryNotes("sad", voice("playful", 5));
+    expect(notes.length).toBeGreaterThanOrEqual(2);
+    for (const n of notes) expect(n.to).toBeLessThan(n.from);
+  });
+
+  it("makes an ordinary cry out of a single gentle rise", () => {
+    const notes = cryNotes("neutral", voice("tidy", 5));
+    expect(notes).toHaveLength(1);
+    expect(notes[0].to).toBeGreaterThan(notes[0].from);
+  });
+
+  it("makes eating sound like quick low munches", () => {
+    const notes = cryNotes("eat", voice("gluttonous", 5));
+    expect(notes).toHaveLength(3);
+    for (const n of notes) expect(n.duration).toBeLessThan(0.1);
+    expect(notes[0].from).toBeLessThan(cryNotes("neutral", voice("gluttonous", 5))[0].from);
+  });
+
+  it("lowers the voice as the pet grows", () => {
+    for (const personality of PERSONALITIES) {
+      const small = cryNotes("neutral", voice(personality, 2))[0].from;
+      const mid = cryNotes("neutral", voice(personality, 6))[0].from;
+      const big = cryNotes("neutral", voice(personality, 10))[0].from;
+      expect(small).toBeGreaterThan(mid);
+      expect(mid).toBeGreaterThan(big);
+    }
+  });
+
+  it("gives each species its own voice", () => {
+    const first = (p: Personality) => cryNotes("neutral", voice(p, 5))[0];
+    expect(first("playful").from).toBeGreaterThan(first("tidy").from);
+    expect(first("tidy").from).toBeGreaterThan(first("calm").from);
+    expect(first("calm").from).toBeGreaterThan(first("gluttonous").from);
+    expect(new Set(PERSONALITIES.map((p) => first(p).type)).size).toBe(4);
+  });
+
+  it("lets an egg only tap, whatever it is asked to do", () => {
+    const reference = cryNotes("tap", voice("calm", 1));
+    for (const kind of ["happy", "neutral", "sad", "eat", "tap"] as CryKind[]) {
+      for (const personality of PERSONALITIES) expect(cryNotes(kind, voice(personality, 1))).toEqual(reference);
+    }
+    expect(reference).toHaveLength(2);
+    for (const n of reference) expect(n.duration).toBeLessThan(0.06);
+  });
+
+  it("still lets the newborn cheer when it hatches, even if asked with the egg's stage", () => {
+    const notes = cryNotes("hatch", voice("calm", 1));
+    expect(notes.length).toBeGreaterThan(1);
+    expect(notes[0].to).toBeGreaterThan(notes[0].from * 1.5); // 低い声から高い声へのびる
+  });
+
+  it("does not depend on anything but its arguments", () => {
+    expect(cryNotes("happy", voice("tidy", 7))).toEqual(cryNotes("happy", voice("tidy", 7)));
+  });
+});
+
+class FakeParam {
+  calls: Array<[string, number, number?]> = [];
+  setValueAtTime = vi.fn((v: number, t: number) => this.calls.push(["set", v, t]));
+  exponentialRampToValueAtTime = vi.fn((v: number, t: number) => this.calls.push(["ramp", v, t]));
+}
+class FakeOscillator {
+  type = "sine";
+  frequency = new FakeParam();
+  connect = vi.fn();
+  start = vi.fn();
+  stop = vi.fn();
+}
+class FakeGain {
+  gain = new FakeParam();
+  connect = vi.fn();
+}
+class FakeContext {
+  static instances: FakeContext[] = [];
+  currentTime = 10;
+  state: "running" | "suspended" = "running";
+  destination = { id: "destination" };
+  oscillators: FakeOscillator[] = [];
+  gains: FakeGain[] = [];
+  resume = vi.fn(() => Promise.resolve());
+  constructor() {
+    FakeContext.instances.push(this);
+  }
+  createOscillator() {
+    const o = new FakeOscillator();
+    this.oscillators.push(o);
+    return o;
+  }
+  createGain() {
+    const g = new FakeGain();
+    this.gains.push(g);
+    return g;
+  }
+}
+
+describe("playNotes", () => {
+  it("builds an oscillator and an envelope for every note", () => {
+    const ctx = new FakeContext();
+    const notes = cryNotes("happy", voice("calm", 5));
+    playNotes(ctx as never, notes);
+    expect(ctx.oscillators).toHaveLength(3);
+    expect(ctx.gains).toHaveLength(3);
+    ctx.oscillators.forEach((osc, i) => {
+      expect(osc.type).toBe(notes[i].type);
+      expect(osc.connect).toHaveBeenCalledWith(ctx.gains[i]);
+      expect(ctx.gains[i].connect).toHaveBeenCalledWith(ctx.destination);
+      const startAt = osc.start.mock.calls[0][0];
+      expect(startAt).toBeGreaterThanOrEqual(ctx.currentTime);
+      expect(osc.stop.mock.calls[0][0]).toBeGreaterThan(startAt + notes[i].duration);
+      expect(osc.frequency.setValueAtTime).toHaveBeenCalledWith(notes[i].from, startAt);
+      expect(osc.frequency.exponentialRampToValueAtTime).toHaveBeenCalledWith(notes[i].to, startAt + notes[i].duration);
+    });
+  });
+
+  it("fades each note in and out so that it never clicks, and stays quiet", () => {
+    const ctx = new FakeContext();
+    playNotes(ctx as never, cryNotes("neutral", voice("playful", 5)));
+    const g = ctx.gains[0].gain;
+    const peak = Math.max(...g.calls.map((c) => c[1]));
+    expect(peak).toBeLessThanOrEqual(MASTER_GAIN);
+    expect(g.calls[0][1]).toBeLessThan(0.001); // 無音から始まる
+    expect(g.calls[g.calls.length - 1][1]).toBeLessThan(0.001); // 無音で終わる
+  });
+
+  it("schedules later notes later", () => {
+    const ctx = new FakeContext();
+    playNotes(ctx as never, cryNotes("happy", voice("calm", 5)));
+    const starts = ctx.oscillators.map((o) => o.start.mock.calls[0][0] as number);
+    expect(starts[1]).toBeGreaterThan(starts[0]);
+    expect(starts[2]).toBeGreaterThan(starts[1]);
+  });
+});
+
+describe("useSound", () => {
+  beforeEach(() => {
+    FakeContext.instances = [];
+    vi.stubGlobal("AudioContext", FakeContext);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("plays a cry through a lazily created audio context", () => {
+    const { result } = renderHook(() => useSound(true));
+    expect(FakeContext.instances).toHaveLength(0);
+    result.current("happy", voice("calm", 5));
+    expect(FakeContext.instances).toHaveLength(1);
+    expect(FakeContext.instances[0].oscillators).toHaveLength(3);
+  });
+
+  it("reuses the same audio context for every cry", () => {
+    const { result } = renderHook(() => useSound(true));
+    result.current("happy", voice("calm", 5));
+    result.current("sad", voice("calm", 5));
+    expect(FakeContext.instances).toHaveLength(1);
+    expect(FakeContext.instances[0].oscillators.length).toBeGreaterThan(3);
+  });
+
+  it("makes no sound and creates no audio context while disabled", () => {
+    const { result } = renderHook(() => useSound(false));
+    result.current("happy", voice("calm", 5));
+    expect(FakeContext.instances).toHaveLength(0);
+  });
+
+  it("stops making sound as soon as it is switched off", () => {
+    const { result, rerender } = renderHook(({ on }) => useSound(on), { initialProps: { on: true } });
+    result.current("neutral", voice("calm", 5));
+    const count = FakeContext.instances[0].oscillators.length;
+    rerender({ on: false });
+    result.current("neutral", voice("calm", 5));
+    expect(FakeContext.instances[0].oscillators).toHaveLength(count);
+  });
+
+  it("wakes a suspended audio context before playing", () => {
+    class Suspended extends FakeContext {
+      state = "suspended" as const;
+    }
+    vi.stubGlobal("AudioContext", Suspended);
+    const { result } = renderHook(() => useSound(true));
+    result.current("neutral", voice("calm", 5));
+    expect(FakeContext.instances[0].resume).toHaveBeenCalled();
+  });
+
+  it("falls back to the prefixed WebKit audio context", () => {
+    vi.stubGlobal("AudioContext", undefined);
+    vi.stubGlobal("webkitAudioContext", FakeContext);
+    const { result } = renderHook(() => useSound(true));
+    result.current("neutral", voice("calm", 5));
+    expect(FakeContext.instances).toHaveLength(1);
+  });
+
+  it("is silent, and does not throw, when there is no Web Audio at all", () => {
+    vi.stubGlobal("AudioContext", undefined);
+    vi.stubGlobal("webkitAudioContext", undefined);
+    const { result } = renderHook(() => useSound(true));
+    expect(() => result.current("happy", voice("calm", 5))).not.toThrow();
+  });
+
+  it("is silent, and does not throw, when the audio context cannot be created", () => {
+    vi.stubGlobal("AudioContext", function Broken() {
+      throw new Error("blocked");
+    });
+    const { result } = renderHook(() => useSound(true));
+    expect(() => result.current("happy", voice("calm", 5))).not.toThrow();
+  });
+
+  it("does not let a failure while playing escape", () => {
+    class Failing extends FakeContext {
+      createOscillator(): never {
+        throw new Error("boom");
+      }
+    }
+    vi.stubGlobal("AudioContext", Failing);
+    const { result } = renderHook(() => useSound(true));
+    expect(() => result.current("happy", voice("calm", 5))).not.toThrow();
+  });
+
+  it("prepares the audio context at the first user gesture, so that later cries are allowed", () => {
+    class Suspended extends FakeContext {
+      state = "suspended" as const;
+    }
+    vi.stubGlobal("AudioContext", Suspended);
+    renderHook(() => useSound(true));
+    expect(FakeContext.instances).toHaveLength(0);
+    fireEvent.pointerDown(window);
+    expect(FakeContext.instances).toHaveLength(1);
+    expect(FakeContext.instances[0].resume).toHaveBeenCalled();
+    expect(FakeContext.instances[0].oscillators).toHaveLength(0); // 準備だけで、音は出さない
+  });
+
+  it("reuses that prepared context for the cries", () => {
+    const { result } = renderHook(() => useSound(true));
+    fireEvent.pointerDown(window);
+    result.current("neutral", voice("calm", 5));
+    expect(FakeContext.instances).toHaveLength(1);
+    expect(FakeContext.instances[0].oscillators).toHaveLength(1);
+  });
+
+  it("also prepares it at a key press", () => {
+    renderHook(() => useSound(true));
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+    expect(FakeContext.instances).toHaveLength(1);
+  });
+
+  it("does not prepare anything while the sound is off", () => {
+    renderHook(() => useSound(false));
+    fireEvent.pointerDown(window);
+    expect(FakeContext.instances).toHaveLength(0);
+  });
+
+  it("stops listening for gestures when unmounted", () => {
+    const { unmount } = renderHook(() => useSound(true));
+    unmount();
+    fireEvent.pointerDown(window);
+    expect(FakeContext.instances).toHaveLength(0);
+  });
+
+  it("survives a gesture in an environment without Web Audio", () => {
+    vi.stubGlobal("AudioContext", undefined);
+    vi.stubGlobal("webkitAudioContext", undefined);
+    renderHook(() => useSound(true));
+    expect(() => fireEvent.pointerDown(window)).not.toThrow();
+  });
+});

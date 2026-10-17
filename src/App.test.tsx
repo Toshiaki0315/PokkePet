@@ -4,11 +4,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Settings, StateView } from "./api";
 import { DEFAULT_SETTINGS } from "./defaults";
 import { HATCH_FLASH_MS, HATCH_SHAKE_MS } from "./hatch";
-import { IDLE_MIN_MS } from "./idle";
+import { IDLE_CRY_COOLDOWN_MS, IDLE_MAX_MS, IDLE_MIN_MS } from "./idle";
 
 const api = vi.hoisted(() => ({
   getState: vi.fn(),
   performAction: vi.fn(),
+  strokePet: vi.fn(),
   onStateChanged: vi.fn(),
   ackHatch: vi.fn(),
   graduate: vi.fn(),
@@ -20,6 +21,14 @@ const api = vi.hoisted(() => ({
   onPopupVisibility: vi.fn(),
 }));
 vi.mock("./api", () => api);
+
+const sound = vi.hoisted(() => ({ play: vi.fn(), useSound: vi.fn() }));
+vi.mock("./sound", () => ({
+  useSound: (enabled: boolean) => {
+    sound.useSound(enabled);
+    return sound.play;
+  },
+}));
 
 import App from "./App";
 
@@ -42,7 +51,7 @@ const base: StateView = {
   generation: 1,
 };
 const withExpression = (e: Partial<StateView["expression"]>): StateView => ({ ...base, expression: { ...base.expression, ...e } });
-const gaugesOn: Settings = { ...DEFAULT_SETTINGS, showStage: true, showGauges: true };
+const gaugesOn: Settings = { ...DEFAULT_SETTINGS, showGauges: true };
 const enableGauges = () => api.getSettings.mockResolvedValue(gaugesOn);
 const konami = async () => {
   await userEvent.keyboard("{ArrowUp}{ArrowUp}{ArrowDown}{ArrowDown}");
@@ -83,11 +92,11 @@ describe("App", () => {
     }
   });
 
-  it("shows the stage (with the gauges) and the sprite", async () => {
+  it("shows the sprite, and never the stage number (the design tells the stage)", async () => {
     enableGauges();
     render(<App />);
-    expect(await screen.findByText("段階 2 / 10")).toBeInTheDocument();
-    expect(screen.getByRole("img")).toHaveAttribute("alt", "stage 2 normal calm");
+    expect(await screen.findByRole("img")).toHaveAttribute("alt", "stage 2 normal calm");
+    expect(screen.queryByText(/段階 \d/)).toBeNull();
   });
 
   it.each([["ご飯", "feed"], ["おやつ", "snack"], ["掃除", "clean"]])("%s button calls performAction(%s)", async (label, action) => {
@@ -196,21 +205,13 @@ describe("App", () => {
       expect(screen.getAllByRole("progressbar")).toHaveLength(4);
     });
 
-    it("saves both switches through the settings API when the command is used", async () => {
+    it("saves the gauge switch through the settings API when the command is used", async () => {
       render(<App />);
       await screen.findByRole("img");
       await konami();
-      await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, showStage: true, showGauges: true }));
+      await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, showGauges: true }));
       await konami();
-      await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith({ ...DEFAULT_SETTINGS, showStage: false, showGauges: false }));
-    });
-
-    it("turns both off when only one of them was on", async () => {
-      api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, showStage: true });
-      render(<App />);
-      await screen.findByText("段階 2 / 10");
-      await konami();
-      await waitFor(() => expect(api.saveSettings).toHaveBeenCalledWith({ ...DEFAULT_SETTINGS, showStage: false, showGauges: false }));
+      await waitFor(() => expect(api.saveSettings).toHaveBeenLastCalledWith({ ...DEFAULT_SETTINGS, showGauges: false }));
     });
 
     it("shows an error when saving the settings fails", async () => {
@@ -221,20 +222,12 @@ describe("App", () => {
       expect(await screen.findByRole("alert")).toHaveTextContent("disk full");
     });
 
-    it("shows the stage and the gauges independently according to the settings", async () => {
-      api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, showStage: true });
-      render(<App />);
-      expect(await screen.findByText("段階 2 / 10")).toBeInTheDocument();
-      expect(screen.queryByRole("progressbar")).toBeNull();
-    });
-
     it("follows settings-changed events from the settings dialog", async () => {
       render(<App />);
       await screen.findByRole("img");
       await waitFor(() => expect(api.onSettingsChanged).toHaveBeenCalled());
       emitSettings(gaugesOn);
       expect(await screen.findAllByRole("progressbar")).toHaveLength(4);
-      expect(screen.getByText("段階 2 / 10")).toBeInTheDocument();
     });
   });
 
@@ -344,14 +337,13 @@ describe("App", () => {
   });
 
   describe("device layout", () => {
-    it("hides the stage label together with the gauges and toggles it with the hidden command", async () => {
+    it("never shows a stage label, with or without the gauges", async () => {
       render(<App />);
       await screen.findByRole("img");
-      expect(screen.queryByText("段階 2 / 10")).toBeNull();
+      expect(screen.queryByText(/段階 \d/)).toBeNull();
       await konami();
-      expect(screen.getByText("段階 2 / 10")).toBeInTheDocument();
-      await konami();
-      expect(screen.queryByText("段階 2 / 10")).toBeNull();
+      expect(screen.getAllByRole("progressbar")).toHaveLength(4);
+      expect(screen.queryByText(/段階 \d/)).toBeNull();
     });
 
     it("keeps the screen (character, bubble) apart from the buttons", async () => {
@@ -367,12 +359,11 @@ describe("App", () => {
       expect(within(controls).queryByRole("status")).toBeNull();
     });
 
-    it("shows the gauges and the stage label on the screen when enabled", async () => {
+    it("shows the gauges on the screen when enabled", async () => {
       enableGauges();
       render(<App />);
       const display = await screen.findByRole("region", { name: "画面" });
       expect(within(display).getAllByRole("progressbar")).toHaveLength(4);
-      expect(within(display).getByText("段階 2 / 10")).toBeInTheDocument();
       expect(display).toHaveClass("compact"); // ゲージ分の高さを確保するためキャラを小さくする
     });
 
@@ -497,6 +488,17 @@ describe("App", () => {
       expect(api.ackHatch).toHaveBeenCalledTimes(1);
       await waitFor(() => expect(screen.getByRole("img")).toHaveAttribute("alt", expect.stringContaining("stage 2")));
       expect(screen.queryByTestId("hatch-flash")).toBeNull();
+    });
+
+    it("taps while the egg shakes and cheers when the newborn appears", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      showPopup(true);
+      expect(sound.play).toHaveBeenCalledWith("tap", { personality: "calm", stage: 2 });
+      expect(sound.play).not.toHaveBeenCalledWith("hatch", expect.anything());
+      await tick(HATCH_SHAKE_MS + 10);
+      expect(sound.play).toHaveBeenCalledWith("hatch", { personality: "calm", stage: 2 });
     });
 
     it("plays the sequence only once", async () => {
@@ -732,6 +734,23 @@ describe("App", () => {
       expect(screen.getByRole("img")).not.toHaveClass("bounce");
       await wait(IDLE_MIN_MS + 10);
       expect(screen.getByRole("img")).toHaveClass("bounce");
+    });
+
+    it("lets a cheerful pet dance", async () => {
+      api.getState.mockResolvedValue(withExpression({ mood: "high", bubble: "happy" }));
+      render(<App />);
+      await openPopup();
+      await wait(IDLE_MIN_MS + 10);
+      expect(screen.getByRole("img")).toHaveClass("dance");
+    });
+
+    it("lets a gloomy pet only sigh and nod", async () => {
+      api.getState.mockResolvedValue(withExpression({ mood: "low", bubble: "gloomy" }));
+      render(<App />);
+      await openPopup();
+      await wait(IDLE_MIN_MS + 10);
+      expect(screen.getByRole("img")).toHaveClass("sigh");
+      expect(screen.getByRole("img")).not.toHaveClass("bounce");
     });
 
     it("lets an egg only rock gently", async () => {
@@ -979,19 +998,261 @@ describe("App", () => {
       expect(screen.getByRole("dialog", { name: "旅立ち" })).toBeInTheDocument();
     });
 
-    it("shows the generation next to the stage from the second generation on", async () => {
-      localStorage.clear();
+    it("does not put the generation on the screen either", async () => {
       enableGauges();
-      api.getState.mockResolvedValue({ ...base, generation: 2 });
+      api.getState.mockResolvedValue({ ...base, generation: 3 });
       render(<App />);
-      expect(await screen.findByText("2代目")).toBeInTheDocument();
-    });
-
-    it("does not mention the generation for the first pet", async () => {
-      enableGauges();
-      render(<App />);
-      await screen.findByText("段階 2 / 10");
+      await screen.findByRole("img");
       expect(screen.queryByText(/代目/)).toBeNull();
     });
+  });
+
+  describe("breathing", () => {
+    it("breathes slowly all the time while awake", async () => {
+      render(<App />);
+      const sprite = await screen.findByRole("img");
+      expect(sprite.parentElement).toHaveClass("breathing");
+    });
+
+    it("keeps breathing even when the popup is closed or the pet is hungry", async () => {
+      api.getState.mockResolvedValue(withExpression({ hunger: "low", bubble: "hungry" }));
+      render(<App />);
+      expect((await screen.findByRole("img")).parentElement).toHaveClass("breathing");
+    });
+
+    it("does not breathe like that while asleep (it has its own slow motion)", async () => {
+      api.getState.mockResolvedValue({ ...base, sleeping: true, expression: { ...base.expression, bubble: "sleeping" } });
+      render(<App />);
+      const sprite = await screen.findByRole("img");
+      expect(sprite.parentElement).not.toHaveClass("breathing");
+      expect(sprite).toHaveClass("sleeping");
+    });
+
+    it("does not breathe during the hatching show", async () => {
+      vi.useFakeTimers({ shouldAdvanceTime: true });
+      api.getState.mockResolvedValue({ ...base, hatching: true });
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+      act(() => emitVisible(true));
+      expect(screen.getByRole("img")).toHaveClass("shake");
+      expect(screen.getByRole("img").parentElement).not.toHaveClass("breathing");
+      vi.useRealTimers();
+    });
+  });
+
+  describe("sound", () => {
+    const calmVoice = { personality: "calm", stage: 2 };
+
+    it("follows the sound setting", async () => {
+      render(<App />);
+      await screen.findByRole("img");
+      expect(sound.useSound).toHaveBeenLastCalledWith(true);
+    });
+
+    it("is switched off by the setting", async () => {
+      api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, soundEnabled: false });
+      render(<App />);
+      await screen.findByRole("img");
+      await waitFor(() => expect(sound.useSound).toHaveBeenLastCalledWith(false));
+    });
+
+    it.each([["ご飯"], ["おやつ"]])("munches when given %s", async (label) => {
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: label }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("eat", calmVoice));
+    });
+
+    it("gives an ordinary cry when the room is cleaned", async () => {
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "掃除" }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("neutral", calmVoice));
+    });
+
+    it("taps when an egg is stroked", async () => {
+      const egg = { ...base, stage: 1, playAction: "pet" } as StateView;
+      api.getState.mockResolvedValue(egg);
+      api.performAction.mockResolvedValue(egg);
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "撫でる" }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("tap", { personality: "calm", stage: 1 }));
+    });
+
+    it("uses the voice of the pet as it is after the action", async () => {
+      api.performAction.mockResolvedValue({ ...base, stage: 5, personality: "playful" });
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "ご飯" }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("eat", { personality: "playful", stage: 5 }));
+    });
+
+    it("stays quiet when the action fails", async () => {
+      api.performAction.mockRejectedValue(new Error("x"));
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "ご飯" }));
+      await screen.findByRole("alert");
+      expect(sound.play).not.toHaveBeenCalled();
+    });
+
+    it("cheers when the mini game is won and sighs when it is lost", async () => {
+      api.playMinigame.mockResolvedValueOnce({ view: base, win: true, answer: "left" }).mockResolvedValueOnce({ view: base, win: false, answer: "right" });
+      render(<App />);
+      await userEvent.click(await screen.findByRole("button", { name: "遊ぶ" }));
+      const dialog = await screen.findByRole("dialog", { name: "どっちの手？" });
+      await userEvent.click(within(dialog).getByRole("button", { name: "左の手" }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("happy", calmVoice));
+      await userEvent.click(await within(dialog).findByRole("button", { name: "もういちど" }));
+      await userEvent.click(within(dialog).getByRole("button", { name: "左の手" }));
+      await waitFor(() => expect(sound.play).toHaveBeenCalledWith("sad", calmVoice));
+    });
+
+    describe("greeting when the popup is opened", () => {
+      const open = async (state: StateView) => {
+        api.getState.mockResolvedValue(state);
+        render(<App />);
+        await screen.findByRole("img");
+        await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+        act(() => emitVisible(true));
+      };
+
+      it("is cheerful for a happy pet", async () => {
+        await open(withExpression({ mood: "high", bubble: "happy" }));
+        expect(sound.play).toHaveBeenCalledWith("happy", calmVoice);
+      });
+
+      it("is ordinary for an ordinary pet", async () => {
+        await open(base);
+        expect(sound.play).toHaveBeenCalledWith("neutral", calmVoice);
+      });
+
+      it("is sad for a gloomy pet", async () => {
+        await open(withExpression({ mood: "low", bubble: "gloomy" }));
+        expect(sound.play).toHaveBeenCalledWith("sad", calmVoice);
+      });
+
+      it("is sad for a hungry pet, even when its mood is fine", async () => {
+        await open(withExpression({ mood: "high", hunger: "low", bubble: "hungry" }));
+        expect(sound.play).toHaveBeenCalledWith("sad", calmVoice);
+      });
+
+      it("is silent while the pet sleeps", async () => {
+        await open({ ...base, sleeping: true, expression: { ...base.expression, bubble: "sleeping" } });
+        expect(sound.play).not.toHaveBeenCalled();
+      });
+
+      it("says nothing when the popup is closed", async () => {
+        await open(base);
+        sound.play.mockClear();
+        act(() => emitVisible(false));
+        expect(sound.play).not.toHaveBeenCalled();
+      });
+
+      it("greets again every time the popup is opened", async () => {
+        await open(base);
+        act(() => emitVisible(false));
+        act(() => emitVisible(true));
+        expect(sound.play).toHaveBeenCalledTimes(2);
+      });
+    });
+
+    describe("idle cries", () => {
+      beforeEach(() => {
+        vi.useFakeTimers({ shouldAdvanceTime: true });
+        vi.setSystemTime(new Date("2026-10-17T12:00:00"));
+        vi.spyOn(Math, "random").mockReturnValue(0);
+      });
+      afterEach(() => {
+        vi.useRealTimers();
+        vi.restoreAllMocks();
+      });
+      const openAndWait = async () => {
+        render(<App />);
+        await screen.findByRole("img");
+        await waitFor(() => expect(api.onPopupVisibility).toHaveBeenCalled());
+        act(() => emitVisible(true));
+        sound.play.mockClear(); // あいさつは別のテストで確認する
+      };
+      const advance = async (ms: number) => {
+        await act(async () => {
+          vi.advanceTimersByTime(ms);
+        });
+      };
+
+      it("sometimes cries along with a gesture", async () => {
+        await openAndWait();
+        await advance(IDLE_MIN_MS + 10);
+        expect(sound.play).toHaveBeenCalledWith("happy", calmVoice); // bounce → happy
+      });
+
+      it("usually stays quiet during a gesture", async () => {
+        vi.spyOn(Math, "random").mockReturnValue(0.99);
+        await openAndWait();
+        await advance(IDLE_MAX_MS + 10);
+        expect(sound.play).not.toHaveBeenCalled();
+      });
+
+      it("does not cry again within the cooldown", async () => {
+        await openAndWait();
+        await advance(IDLE_MIN_MS + 10);
+        for (let elapsed = 0; elapsed < 8000; elapsed += 500) await advance(500); // 次のしぐさが何度か始まる
+        expect(sound.play).toHaveBeenCalledTimes(1);
+      });
+
+      it("cries again once the cooldown has passed", async () => {
+        await openAndWait();
+        await advance(IDLE_MIN_MS + 10);
+        // 一度にまとめて進めると、途中のしぐさが画面に反映されないので、少しずつ進める。
+        for (let elapsed = 0; elapsed < IDLE_CRY_COOLDOWN_MS + IDLE_MAX_MS; elapsed += 500) await advance(500);
+        expect(sound.play.mock.calls.length).toBeGreaterThanOrEqual(2);
+      });
+    });
+  });
+});
+
+describe("stroking the character", () => {
+  const stroked = { ...base, mood: 52 };
+
+  it("clicking the character cheers it up: the state is updated, hearts float and it cries happily", async () => {
+    api.strokePet.mockResolvedValue(stroked);
+    render(<App />);
+    await userEvent.click(await screen.findByRole("img"));
+    expect(api.strokePet).toHaveBeenCalledTimes(1);
+    expect(await screen.findByTestId("hearts")).toBeInTheDocument();
+    expect(sound.play).toHaveBeenCalledWith("happy", { personality: "calm", stage: 2 });
+  });
+
+  it("rubbing the character also counts", async () => {
+    api.strokePet.mockResolvedValue(stroked);
+    render(<App />);
+    const sprite = await screen.findByRole("img");
+    fireEvent.mouseMove(sprite, { clientX: 0, clientY: 0 });
+    fireEvent.mouseMove(sprite, { clientX: 100, clientY: 0 });
+    await waitFor(() => expect(api.strokePet).toHaveBeenCalledTimes(1));
+  });
+
+  it("the hearts disappear when their animation ends", async () => {
+    api.strokePet.mockResolvedValue(stroked);
+    render(<App />);
+    await userEvent.click(await screen.findByRole("img"));
+    const hearts = await screen.findByTestId("hearts");
+    for (const name of ["animationend", "webkitAnimationEnd"]) fireEvent(hearts, new Event(name, { bubbles: true }));
+    await waitFor(() => expect(screen.queryByTestId("hearts")).toBeNull());
+  });
+
+  it("a sleeping character is not woken by a cry or hearts", async () => {
+    const asleep = { ...base, sleeping: true };
+    api.getState.mockResolvedValue(asleep);
+    api.strokePet.mockResolvedValue(asleep);
+    render(<App />);
+    await userEvent.click(await screen.findByRole("img"));
+    await waitFor(() => expect(api.strokePet).toHaveBeenCalled());
+    expect(screen.queryByTestId("hearts")).toBeNull();
+    expect(sound.play).not.toHaveBeenCalled();
+  });
+
+  it("shows the error when stroking fails", async () => {
+    api.strokePet.mockRejectedValue(new Error("save failed"));
+    render(<App />);
+    await userEvent.click(await screen.findByRole("img"));
+    expect(await screen.findByRole("alert")).toHaveTextContent("save failed");
   });
 });

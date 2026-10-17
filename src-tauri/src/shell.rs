@@ -14,6 +14,7 @@ use crate::dex::DexView;
 use crate::diary::DiaryView;
 use crate::game::GameState;
 use crate::minigame::Side;
+use crate::paths::data_dir;
 use crate::service::{should_notify_graduation, should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
 use crate::settings::{Settings, SettingsService};
 
@@ -44,6 +45,14 @@ pub fn perform_action(app: AppHandle, svc: State<GameService>, gate: State<Mutex
     let action = action.parse()?;
     let view = svc.perform(action, now_unix()).map_err(|e| e.to_string())?;
     gate.lock().unwrap_or_else(|e| e.into_inner()).answered(); // 世話をしたので、次の困りごとはすぐ呼べる
+    update_tray_title(&app, &view);
+    Ok(view)
+}
+
+/// マウスでなでられた。
+#[tauri::command]
+pub fn stroke_pet(app: AppHandle, svc: State<GameService>) -> Result<StateView, String> {
+    let view = svc.stroke(now_unix()).map_err(|e| e.to_string())?;
     update_tray_title(&app, &view);
     Ok(view)
 }
@@ -111,7 +120,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "macos")]
     app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
-    let dir = app.path().app_data_dir()?;
+    // 開発版は別フォルダ（インストールしたアプリのセーブを上書き・流用しない）。
+    let dir = data_dir(&app.path().app_data_dir()?, cfg!(debug_assertions));
     std::fs::create_dir_all(&dir)?;
     let path = dir.join("save.json");
     let state = GameState::load(&path, now_unix()).unwrap_or_else(|e| {
@@ -169,7 +179,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
             match event.id.as_ref() {
                 "dex" => open_window(app, DEX_WINDOW, "PokkePet 図鑑", (640.0, 580.0)),
                 "diary" => open_window(app, DIARY_WINDOW, "PokkePet 思い出", (460.0, 560.0)),
-                "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 770.0)),
+                "settings" => open_window(app, SETTINGS_WINDOW, "PokkePet 設定", (380.0, 850.0)),
                 "quit" => app.exit(0),
                 _ => {}
             }

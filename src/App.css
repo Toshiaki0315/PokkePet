@@ -69,7 +69,6 @@ body { overflow: hidden; user-select: none; }
 }
 .screen > * { position: relative; z-index: 1; }
 
-.stage { align-self: flex-start; flex: none; margin: 5px 0 0 6px; font-size: 10px; font-weight: 700; color: #3b3f55; background: rgba(255, 255, 255, 0.75); padding: 1px 6px; border-radius: 8px; }
 
 .stage-area { flex: 1 1 auto; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; padding-bottom: 6px; }
 .sprite { width: 128px; height: 128px; flex: none; image-rendering: pixelated; }
@@ -169,4 +168,30 @@ body { overflow: hidden; user-select: none; }
 .farewell .title { font-size: 15px; font-weight: 700; }
 .farewell button { padding: 6px 12px; border-radius: 10px; border: 1px solid #0003; background: #fff; color: inherit; cursor: pointer; font-size: 12px; }
 .farewell button:hover { background: #fff6dd; }
-.screen > .generation { position: absolute; top: 24px; left: 6px; margin: 0; font-size: 10px; font-weight: 700; color: #3b3f55; background: rgba(255, 255, 255, 0.75); padding: 1px 6px; border-radius: 8px; z-index: 2; }
+
+/* --- 常時の呼吸と、増えたしぐさ --- */
+.sprite-wrap { display: inline-flex; transform-origin: 50% 100%; }
+.sprite-wrap.breathing { animation: breathe 3.6s ease-in-out infinite; }
+@keyframes breathe { 0%, 100% { transform: scale(1, 1); } 50% { transform: scale(1.025, 1.04); } }
+.sprite.dance { animation: dance 1.4s ease-in-out; transform-origin: 50% 90%; }
+@keyframes dance { 0%, 100% { transform: translateY(0) rotate(0); } 12% { transform: translateY(-10px) rotate(-8deg); } 25% { transform: translateY(0) rotate(0); } 37% { transform: translateY(-10px) rotate(8deg); } 50% { transform: translateY(0) rotate(0); } 62% { transform: translateY(-14px) rotate(-8deg); } 75% { transform: translateY(0) rotate(8deg); } }
+.sprite.spin { animation: spin 1.1s ease-in-out; }
+@keyframes spin { 0%, 100% { transform: scaleX(1); } 25% { transform: scaleX(0.05); } 50% { transform: scaleX(-1); } 75% { transform: scaleX(0.05); } }
+.sprite.nod { animation: nod 1.2s ease-in-out; transform-origin: 50% 100%; }
+@keyframes nod { 0%, 100% { transform: translateY(0) rotate(0); } 20% { transform: translateY(4px) rotate(4deg); } 40% { transform: translateY(0) rotate(0); } 60% { transform: translateY(4px) rotate(4deg); } 80% { transform: translateY(0) rotate(0); } }
+.sprite.sigh { animation: sigh 2s ease-in-out; transform-origin: 50% 100%; }
+@keyframes sigh { 0%, 100% { transform: scale(1, 1); } 40% { transform: scale(1.04, 1.06) translateY(-3px); } 75% { transform: scale(0.96, 0.9) translateY(4px); } }
+@media (prefers-reduced-motion: reduce) {
+  .sprite-wrap.breathing, .sprite.dance, .sprite.spin, .sprite.nod, .sprite.sigh { animation: none; }
+}
+
+/* なでると、ハートが浮かぶ */
+.petting-area { position: relative; display: inline-flex; cursor: pointer; }
+.hearts { position: absolute; inset: 0; pointer-events: none; animation: hearts-life 1.1s linear forwards; }
+.hearts i { position: absolute; bottom: 55%; font-style: normal; color: #f2557f; font-size: 18px; opacity: 0; animation: heart-up 1.1s ease-out forwards; }
+.hearts i:nth-child(1) { left: 18%; }
+.hearts i:nth-child(2) { left: 46%; animation-delay: 0.15s; font-size: 22px; }
+.hearts i:nth-child(3) { left: 72%; animation-delay: 0.3s; }
+@keyframes hearts-life { from, to { opacity: 1; } }
+@keyframes heart-up { 0% { opacity: 0; transform: translateY(0) scale(0.6); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-46px) scale(1.1); } }
+@media (prefers-reduced-motion: reduce) { .hearts i { animation-duration: 0.01s; } }

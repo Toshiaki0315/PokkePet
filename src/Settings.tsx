@@ -62,10 +62,6 @@ export default function Settings() {
       <fieldset>
         <legend>表示</legend>
         <label className="row">
-          <input type="checkbox" checked={settings.showStage} onChange={(e) => patch({ showStage: e.target.checked })} />
-          段階を表示
-        </label>
-        <label className="row">
           <input type="checkbox" checked={settings.showGauges} onChange={(e) => patch({ showGauges: e.target.checked })} />
           ゲージを表示
         </label>
@@ -99,6 +95,15 @@ export default function Settings() {
           </label>
         </div>
         {settings.sleepStartHour === settings.sleepEndHour && <p className="hint">開始と終了が同じ時刻なので、おやすみしません</p>}
+      </fieldset>
+
+      <fieldset>
+        <legend>サウンド</legend>
+        <label className="row">
+          <input type="checkbox" checked={settings.soundEnabled} onChange={(e) => patch({ soundEnabled: e.target.checked })} />
+          鳴き声を鳴らす
+        </label>
+        <p className="hint">ポップアップを開いている間に、お世話やしぐさに合わせて鳴きます（おやすみ中は鳴きません）。</p>
       </fieldset>
 
       <fieldset>
