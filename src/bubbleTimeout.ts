@@ -9,22 +9,23 @@ export type BubblePhase = "show" | "fade" | "gone";
 
 /**
  * 吹き出しは、言葉が変わったとき、または `resetKey` が変わったとき（ポップアップを開いたとき）から、
- * `BUBBLE_SHOW_MS` だけ出して、うすくなって消える。困りごとが続いていても、ずっと出しっぱなしにはしない
+ * `showMs`（既定は `BUBBLE_SHOW_MS`。設定で変えられる。0 以下なら消さない）だけ出して、うすくなって消える。困りごとが続いていても、ずっと出しっぱなしにはしない
  * （背景・ペットの様子・メニューバーのマークで、状態は伝わる）。
  */
-export function useBubblePhase(text: string | null, resetKey: unknown): BubblePhase {
+export function useBubblePhase(text: string | null, resetKey: unknown, showMs: number = BUBBLE_SHOW_MS): BubblePhase {
   const [phase, setPhase] = useState<BubblePhase>("show");
 
   useEffect(() => {
     if (!text) return;
     setPhase("show");
-    const fade = setTimeout(() => setPhase("fade"), BUBBLE_SHOW_MS);
-    const gone = setTimeout(() => setPhase("gone"), BUBBLE_SHOW_MS + BUBBLE_FADE_MS);
+    if (showMs <= 0) return; // ずっと出しておく
+    const fade = setTimeout(() => setPhase("fade"), showMs);
+    const gone = setTimeout(() => setPhase("gone"), showMs + BUBBLE_FADE_MS);
     return () => {
       clearTimeout(fade);
       clearTimeout(gone);
     };
-  }, [text, resetKey]);
+  }, [text, resetKey, showMs]);
 
   return phase;
 }

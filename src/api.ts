@@ -156,6 +156,8 @@ export interface Settings {
   systemReactions: boolean;
   /** 画面の背景（classic / room / tatami / meadow / forest / beach） */
   background: Background;
+  /** 吹き出しを出しておく長さ（秒）。0 ならずっと出しておく */
+  bubbleSeconds: number;
   /** 長く休憩なしで作業しているとき、「ちょっと休もうよ」と声をかける */
   breakReminder: boolean;
   /** 操作する時間帯から生活リズムを学んで、おやすみ時間を自動で合わせる */

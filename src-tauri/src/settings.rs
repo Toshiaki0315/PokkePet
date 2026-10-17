@@ -18,6 +18,9 @@ pub const SOUND_VOLUME_MAX: u8 = 100;
 pub const SOUND_PITCH_RANGE: std::ops::RangeInclusive<i8> = -2..=2;
 /// 選べる背景（画面の景色）。最初の `classic` は、これまでの「きもちで色が変わる」背景。
 pub const BACKGROUNDS: [&str; 6] = ["classic", "room", "tatami", "meadow", "forest", "beach"];
+/// 吹き出しを出しておく長さ（秒）の既定と上限。0 は「ずっと出しておく」。
+pub const DEFAULT_BUBBLE_SECONDS: u8 = 8;
+pub const BUBBLE_SECONDS_MAX: u8 = 60;
 pub const DEFAULT_BACKGROUND: &str = "classic";
 pub const DEFAULT_BODY_COLOR: &str = "#4b5fb8";
 pub const DEFAULT_BUTTON_COLOR: &str = "#f280a8";
@@ -44,6 +47,8 @@ pub struct Settings {
     pub break_reminder: bool,
     /// 画面の背景（`BACKGROUNDS` のどれか）。
     pub background: String,
+    /// 吹き出しを出しておく長さ（秒。0〜60）。過ぎると、すっと消える。0 なら、ずっと出しておく。
+    pub bubble_seconds: u8,
     /// Mac の状態（電池・ネット・ダークモード）にペットが反応する。
     pub system_reactions: bool,
     /// 操作する時間帯から生活リズムを学んで、おやすみ時間を自動で合わせる。
@@ -68,6 +73,7 @@ impl Default for Settings {
             companion_enabled: true,
             system_reactions: true,
             background: DEFAULT_BACKGROUND.to_string(),
+            bubble_seconds: DEFAULT_BUBBLE_SECONDS,
             break_reminder: true,
             auto_sleep: true,
             sleep_start_hour: DEFAULT_SLEEP_START_HOUR,
@@ -91,6 +97,9 @@ impl Settings {
         }
         if !BACKGROUNDS.contains(&self.background.as_str()) {
             return Err(format!("background must be one of {BACKGROUNDS:?}: {:?}", self.background));
+        }
+        if self.bubble_seconds > BUBBLE_SECONDS_MAX {
+            return Err(format!("bubbleSeconds must be 0-{BUBBLE_SECONDS_MAX}: {}", self.bubble_seconds));
         }
         check_color("bodyColor", &self.body_color)?;
         check_color("buttonColor", &self.button_color)
@@ -347,6 +356,21 @@ mod tests {
         assert_eq!(serde_json::to_value(Settings::default()).unwrap()["background"], "classic");
         fs::write(&p, r##"{"background": "nope"}"##).unwrap();
         assert_eq!(Settings::load(&p).unwrap_err().kind(), io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn the_bubble_lasts_eight_seconds_by_default_and_can_be_changed_or_kept_forever() {
+        assert_eq!(Settings::default().bubble_seconds, 8);
+        for seconds in [0, 3, 8, 60] {
+            assert!(Settings { bubble_seconds: seconds, ..Settings::default() }.validate().is_ok(), "{seconds}");
+        }
+        assert!(Settings { bubble_seconds: 61, ..Settings::default() }.validate().unwrap_err().contains("bubbleSeconds"));
+        let p = tmp("bubble-seconds");
+        Settings { bubble_seconds: 15, ..Settings::default() }.save(&p).unwrap();
+        assert_eq!(Settings::load(&p).unwrap().bubble_seconds, 15);
+        assert_eq!(serde_json::to_value(Settings::default()).unwrap()["bubbleSeconds"], 8);
+        fs::write(&p, r##"{"showGauges": true}"##).unwrap();
+        assert_eq!(Settings::load(&p).unwrap().bubble_seconds, 8, "older settings files get the default");
     }
 
     #[test]

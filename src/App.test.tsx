@@ -1818,6 +1818,26 @@ describe("speech bubbles go away by themselves", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("つまんないな…");
   });
 
+  it("follows the length chosen in the settings", async () => {
+    api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, bubbleSeconds: 3 });
+    api.getState.mockResolvedValue(happy);
+    render(<App />);
+    await screen.findByRole("status");
+    await tick(3000 + 10);
+    expect(screen.getByRole("status")).toHaveClass("fading");
+    await tick(BUBBLE_FADE_MS + 10);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+
+  it("keeps the bubble for good when the length is set to forever", async () => {
+    api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, bubbleSeconds: 0 });
+    api.getState.mockResolvedValue(happy);
+    render(<App />);
+    await screen.findByRole("status");
+    await tick(10 * 60 * 1000);
+    expect(screen.getByRole("status")).not.toHaveClass("fading");
+  });
+
   it("also applies to the note the pet leaves while it is out", async () => {
     api.getState.mockResolvedValue({ ...base, out: true });
     render(<App />);

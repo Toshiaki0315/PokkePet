@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS: Settings = {
   companionEnabled: true,
   systemReactions: true,
   background: "classic",
+  bubbleSeconds: 8,
   breakReminder: true,
   autoSleep: true,
   sleepStartHour: 23,
@@ -28,6 +29,16 @@ export const BACKGROUNDS: readonly { id: Settings["background"]; name: string }[
   { id: "meadow", name: "そうげん" },
   { id: "forest", name: "もり" },
   { id: "beach", name: "うみべ" },
+];
+
+/** 吹き出しを出しておく長さの選びかた（秒。0 はずっと出しておく）。 */
+export const BUBBLE_SECONDS_CHOICES: readonly { seconds: number; name: string }[] = [
+  { seconds: 3, name: "3 秒" },
+  { seconds: 5, name: "5 秒" },
+  { seconds: 8, name: "8 秒" },
+  { seconds: 15, name: "15 秒" },
+  { seconds: 30, name: "30 秒" },
+  { seconds: 0, name: "ずっと出しておく" },
 ];
 
 export interface Preset {

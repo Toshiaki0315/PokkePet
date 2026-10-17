@@ -138,7 +138,11 @@ export default function App() {
         ? bubbleMessage(view)
         : null
     : null;
-  const bubblePhase = useBubblePhase(bubbleText, popupOpen);
+  const bubblePhase = useBubblePhase(
+    bubbleText,
+    popupOpen,
+    settings.bubbleSeconds * 1000,
+  );
 
   const idle = useIdleGesture(
     view ? gesturesFor(view) : [],
