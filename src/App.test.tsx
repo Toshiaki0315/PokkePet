@@ -14,6 +14,7 @@ const api = vi.hoisted(() => ({
   ackHatch: vi.fn(),
   graduate: vi.fn(),
   buryPet: vi.fn(),
+  togglePower: vi.fn(),
   playMinigame: vi.fn(),
   setName: vi.fn(),
   getSettings: vi.fn(),
@@ -52,6 +53,7 @@ const base: StateView = {
   intro: false,
   hatching: false,
   sleeping: false,
+  forcedSleep: false,
   name: null,
   needsName: false,
   graduating: false,
@@ -1365,5 +1367,64 @@ describe("strict mode: the end", () => {
     render(<App />);
     await userEvent.click(await screen.findByRole("button", { name: "新しい卵を迎える" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("save failed");
+  });
+});
+
+describe("power button", () => {
+  it("puts the pet to sleep and wakes it again", async () => {
+    api.togglePower.mockResolvedValueOnce({ ...base, sleeping: true, forcedSleep: true });
+    api.togglePower.mockResolvedValueOnce(base);
+    render(<App />);
+    const button = await screen.findByRole("button", { name: "電源" });
+    expect(button).toHaveAttribute("aria-pressed", "false");
+    await userEvent.click(button);
+    await waitFor(() => expect(button).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("main")).toHaveAttribute("data-sleep", "true");
+    await userEvent.click(button);
+    await waitFor(() => expect(button).toHaveAttribute("aria-pressed", "false"));
+    expect(api.togglePower).toHaveBeenCalledTimes(2);
+  });
+
+  it("cannot be used on an egg, while the pet sleeps for the night, or after death", async () => {
+    for (const view of [{ ...base, stage: 1 }, { ...base, sleeping: true }, { ...base, dead: true }]) {
+      api.getState.mockResolvedValue(view);
+      const { unmount } = render(<App />);
+      expect(await screen.findByRole("button", { name: "電源" })).toBeDisabled();
+      unmount();
+    }
+  });
+
+  it("can wake a pet that was put to sleep even though it is night", async () => {
+    api.getState.mockResolvedValue({ ...base, sleeping: true, forcedSleep: true });
+    render(<App />);
+    expect(await screen.findByRole("button", { name: "電源" })).toBeEnabled();
+  });
+
+  it("shows the error when it fails", async () => {
+    api.togglePower.mockRejectedValue(new Error("save failed"));
+    render(<App />);
+    await userEvent.click(await screen.findByRole("button", { name: "電源" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("save failed");
+  });
+});
+
+describe("hold cmd+p to peek at the gauges", () => {
+  it("shows the gauges only while the shortcut is held", async () => {
+    render(<App />);
+    await screen.findByRole("img");
+    expect(screen.queryByRole("progressbar", { name: "ご機嫌" })).toBeNull();
+    fireEvent.keyDown(window, { key: "p", metaKey: true });
+    const bar = await screen.findByRole("progressbar", { name: "ご機嫌" });
+    expect(bar.closest(".gauges")).toHaveClass("peek");
+    fireEvent.keyUp(window, { key: "Meta" });
+    await waitFor(() => expect(screen.queryByRole("progressbar", { name: "ご機嫌" })).toBeNull());
+  });
+
+  it("does not turn the permanent gauges into an overlay", async () => {
+    enableGauges();
+    render(<App />);
+    const bar = await screen.findByRole("progressbar", { name: "ご機嫌" });
+    fireEvent.keyDown(window, { key: "p", metaKey: true });
+    expect(bar.closest(".gauges")).not.toHaveClass("peek");
   });
 });

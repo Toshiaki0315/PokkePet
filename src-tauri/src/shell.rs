@@ -58,6 +58,14 @@ pub fn stroke_pet(app: AppHandle, svc: State<GameService>) -> Result<StateView, 
     Ok(view)
 }
 
+/// 電源ボタン。ペットを無理やり寝かせる（もう一度押すと起こす）。
+#[tauri::command]
+pub fn toggle_power(app: AppHandle, svc: State<GameService>) -> Result<StateView, String> {
+    let view = svc.toggle_power(now_unix())?;
+    update_tray_title(&app, &view);
+    Ok(view)
+}
+
 /// 亡くなったペットを見送り、新しい卵を迎える。
 #[tauri::command]
 pub fn bury_pet(app: AppHandle, svc: State<GameService>) -> Result<StateView, String> {

@@ -24,6 +24,8 @@ pub const SLEEP_DECAY_DIV: u32 = 4;
 /// 1回の `step` で処理するティック数の上限（長時間離席時の無駄なループを避ける）。
 /// ほったらかしのとき、この回数のティックごとに親密度が 1 下がる。
 pub const AFFINITY_DECAY_TICKS: u32 = 60;
+/// 電源ボタンで寝かせたとき、自然に起きるまでの長さ（秒）。
+pub const FORCED_SLEEP_SECS: u64 = 8 * 60 * 60;
 pub const MAX_CATCHUP_TICKS: u32 = 200;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -78,6 +80,9 @@ pub struct GameState {
     /// 亡くなっている（きびしいモードで、病気や衰弱を放置した）。新しい卵を迎えるまで、時間は止まる。
     #[serde(default)]
     pub dead: bool,
+    /// 電源ボタンで寝かされている間の終わり（UNIX秒）。おやすみ時間とは関係なく眠っている。
+    #[serde(default)]
+    pub forced_sleep_until: Option<u64>,
     /// きびしいモードか。設定から与えられる実行時の値で、セーブには含めない。
     #[serde(skip)]
     pub strict: bool,
@@ -118,6 +123,8 @@ pub struct Timeline {
     pub away: bool,
     /// おやすみ時間の設定。
     pub sleep: SleepWindow,
+    /// 電源ボタンで寝かされている間の終わり（UNIX秒）。
+    pub forced_until: Option<u64>,
 }
 
 fn yes() -> bool {
@@ -139,7 +146,7 @@ fn decay_divisor(timeline: Option<Timeline>, tick_index: u32, carried_secs: u32)
     if t.away {
         div *= AWAY_DECAY_DIV;
     }
-    if is_sleeping(at, t.utc_offset, t.sleep) {
+    if is_sleeping(at, t.utc_offset, t.sleep) || t.forced_until.is_some_and(|until| at < until) {
         div *= SLEEP_DECAY_DIV;
     }
     div
@@ -164,6 +171,7 @@ impl GameState {
             anniversaries: 0,
             care: Care::default(),
             dead: false,
+            forced_sleep_until: None,
             strict: false,
             generation: 1,
             legacy: None,
@@ -186,6 +194,26 @@ impl GameState {
         let farewell = DiaryEvent::Graduated { name: self.name.take(), personality: self.form.personality };
         self.remember(farewell);
         self.start_next_generation(Some(self.form.personality));
+        Ok(())
+    }
+
+    /// 電源ボタンで寝かされている最中か。
+    pub fn forced_asleep(&self) -> bool {
+        self.forced_sleep_until.is_some_and(|until| until > self.last_unix)
+    }
+
+    /// 電源ボタン。起きているペットを、おやすみ時間と関係なく寝かせる（無理やりなので、ご機嫌が上がるか下がるかは
+    /// `good` しだい）。寝かされている最中に押すと起こす。卵と、亡くなったペットには使えない。
+    pub fn toggle_power(&mut self, good: bool) -> Result<(), String> {
+        if self.dead || self.form.stage <= 1 {
+            return Err("only a living pet that has hatched can be put to bed".to_string());
+        }
+        if self.forced_asleep() {
+            self.forced_sleep_until = None;
+            return Ok(());
+        }
+        self.forced_sleep_until = Some(self.last_unix.saturating_add(FORCED_SLEEP_SECS));
+        self.status.put_to_bed(good);
         Ok(())
     }
 
@@ -412,7 +440,10 @@ impl GameState {
         }
         let secs = elapsed.saturating_mul(u64::from(scale.max(1)));
         let away = elapsed > AWAY_THRESHOLD_SECS;
-        let evolutions = self.step_in(u32::try_from(secs).unwrap_or(u32::MAX), Some(Timeline { start_unix, utc_offset, away, sleep }));
+        let evolutions = self.step_in(u32::try_from(secs).unwrap_or(u32::MAX), Some(Timeline { start_unix, utc_offset, away, sleep, forced_until: self.forced_sleep_until }));
+        if self.forced_sleep_until.is_some_and(|until| until <= now_unix) {
+            self.forced_sleep_until = None; // 自然に起きた
+        }
         self.remember_anniversary();
         evolutions
     }
@@ -1168,6 +1199,45 @@ mod tests {
     }
 
     #[test]
+    fn putting_the_pet_to_bed_slows_the_decay_whatever_the_clock_says() {
+        let mut awake = hatched_state();
+        awake.status = Status::new(80, 50, 80, 0);
+        let mut forced = awake.clone();
+        forced.toggle_power(true).unwrap();
+        forced.status.mood = 80; // 寝かしつけの効果は除いて比べる
+        let start = awake.last_unix;
+        awake.step_to_in(start + 4 * 3600, 1, 0, SleepWindow { start_hour: 5, end_hour: 5 });
+        forced.step_to_in(start + 4 * 3600, 1, 0, SleepWindow { start_hour: 5, end_hour: 5 });
+        let lost = |s: &GameState| 80 - s.status.hunger;
+        assert!(lost(&forced) * 3 < lost(&awake), "asleep: {} awake: {}", lost(&forced), lost(&awake));
+    }
+
+    #[test]
+    fn the_forced_sleep_ends_on_its_own_and_the_pet_can_be_woken_early() {
+        let mut s = hatched_state();
+        s.toggle_power(true).unwrap();
+        assert!(s.forced_asleep());
+        s.toggle_power(true).unwrap();
+        assert!(!s.forced_asleep());
+        s.toggle_power(false).unwrap();
+        let end = s.forced_sleep_until.unwrap();
+        s.step_to(end - 1);
+        assert!(s.forced_asleep());
+        s.step_to(end);
+        assert!(s.forced_sleep_until.is_none());
+    }
+
+    #[test]
+    fn only_a_living_hatched_pet_can_be_put_to_bed() {
+        let mut egg = new_state();
+        assert!(egg.toggle_power(true).is_err());
+        let mut dead = doomed_state();
+        run_ticks(&mut dead, crate::care::FATAL_TICKS);
+        assert!(dead.toggle_power(true).is_err());
+        assert!(dead.forced_sleep_until.is_none());
+    }
+
+    #[test]
     fn the_next_pet_starts_with_a_fresh_care_record() {
         let mut s = elder_state();
         s.care.misses = 9;
@@ -1352,7 +1422,7 @@ mod tests {
     const FOUR_HOURS: u32 = 4 * 3600; // 120 ティック
 
     fn timeline(start_hour: u64, away: bool) -> Option<Timeline> {
-        Some(Timeline { start_unix: start_hour * H, utc_offset: 0, away, sleep: SleepWindow::default() })
+        Some(Timeline { start_unix: start_hour * H, utc_offset: 0, away, sleep: SleepWindow::default(), forced_until: None })
     }
 
     fn hunger_drop(timeline: Option<Timeline>, secs: u32) -> u8 {

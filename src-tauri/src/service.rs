@@ -69,6 +69,8 @@ pub struct StateView {
     pub hatching: bool,
     /// おやすみ時間中（ローカル時刻）。
     pub sleeping: bool,
+    /// 電源ボタンで寝かされている（おやすみ時間とは関係なく）。もう一度押すと起こせる。
+    pub forced_sleep: bool,
     /// ペットの名前（未設定なら null）。
     pub name: Option<String>,
     /// 孵化の演出が終わったのに、まだ名前がない（名前を付けてもらう）。
@@ -225,6 +227,23 @@ impl GameService {
         Ok(self.view(&state))
     }
 
+    /// 電源ボタン。おやすみ時間とは関係なく寝かせる（ご機嫌が上がるか下がるかはランダム）。寝かせている最中に押すと起こす。
+    /// おやすみ時間で眠っているときは何もできない。
+    pub fn toggle_power(&self, now_unix: u64) -> Result<StateView, String> {
+        let mut state = self.lock();
+        let mut next = state.clone();
+        next.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix), self.sleep_window());
+        let scheduled = is_sleeping(next.last_unix, self.offset_at(next.last_unix), self.sleep_window());
+        if scheduled && !next.forced_asleep() {
+            return Err("the pet is already asleep for the night".to_string());
+        }
+        let good = self.rng.lock().unwrap_or_else(|e| e.into_inner()).next_bool();
+        next.toggle_power(good)?;
+        next.save(&self.path).map_err(|e| e.to_string())?;
+        *state = next;
+        Ok(self.view(&state))
+    }
+
     /// マウスでなでられた。おやすみ中は起こさないので何も変わらない。
     pub fn stroke(&self, now_unix: u64) -> io::Result<StateView> {
         let mut state = self.lock();
@@ -306,7 +325,8 @@ fn poops(dirtiness: u8) -> u8 {
 }
 
 fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
-    let sleeping = is_sleeping(s.last_unix, utc_offset, window);
+    let forced_sleep = s.forced_asleep();
+    let sleeping = forced_sleep || is_sleeping(s.last_unix, utc_offset, window);
     let mut expression = express(&s.status);
     if sleeping {
         expression.bubble = Some(Bubble::Sleeping);
@@ -345,6 +365,7 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow) -> StateView {
         intro: !s.intro_seen,
         hatching: s.hatching(),
         sleeping,
+        forced_sleep,
         name: s.name.clone(),
         needs_name: s.form.stage >= 2 && s.hatch_shown && s.name.is_none(),
         graduating: s.graduating(),
@@ -420,6 +441,7 @@ mod tests {
                 intro: true,
                 hatching: false,
                 sleeping: false,
+                forced_sleep: false,
                 name: None,
                 needs_name: false,
                 graduating: false,
@@ -474,6 +496,78 @@ mod tests {
         state.tick_count = crate::care::SELFISH_EVERY_TICKS - 1;
         state.step(crate::game::TICK_SECS);
         GameService::new(state, tmp(name)).with_utc_offset(NOON_AT_ZERO)
+    }
+
+    fn grown_pet(name: &str) -> GameService {
+        let mut state = GameState::new(0);
+        state.step(crate::evolution::EGG_SECS);
+        state.ack_hatch();
+        state.intro_seen = true;
+        state.status = crate::status::Status::new(50, 50, 80, 0);
+        GameService::new(state, tmp(name)).with_utc_offset(NOON_AT_ZERO)
+    }
+
+    #[test]
+    fn the_power_button_puts_an_awake_pet_to_sleep_whatever_the_time_and_wakes_it_again() {
+        let s = grown_pet("power");
+        assert!(!s.snapshot().sleeping);
+        let v = s.toggle_power(700).unwrap();
+        assert!(v.sleeping && v.forced_sleep);
+        assert_eq!(v.expression.bubble, Some(Bubble::Sleeping));
+        let v = s.toggle_power(710).unwrap();
+        assert!(!v.sleeping && !v.forced_sleep);
+    }
+
+    #[test]
+    fn the_mood_after_being_put_to_bed_is_random_and_goes_both_ways() {
+        let mut moods = std::collections::BTreeSet::new();
+        for seed in 0..32 {
+            let s = grown_pet(&format!("power-rng-{seed}")).with_seed(seed);
+            let before = s.snapshot().mood;
+            let after = s.toggle_power(700).unwrap().mood;
+            // 寝かしつけの ±15 に、数ティックぶんの自然な減りが重なる
+            assert!(after >= before + 9 || after + 15 <= before + 2, "{before} -> {after}");
+            moods.insert(after > before);
+        }
+        assert_eq!(moods.len(), 2, "both outcomes happen");
+    }
+
+    #[test]
+    fn the_pet_wakes_up_by_itself_after_a_long_sleep() {
+        let s = grown_pet("power-auto").with_utc_offset(7 * 3600); // 朝 7 時台に寝かせると、8 時間後も昼
+        s.toggle_power(700).unwrap();
+        let v = s.tick(700 + crate::game::FORCED_SLEEP_SECS - 1).unwrap().view;
+        assert!(v.forced_sleep);
+        let v = s.tick(700 + crate::game::FORCED_SLEEP_SECS).unwrap().view;
+        assert!(!v.forced_sleep && !v.sleeping);
+    }
+
+    #[test]
+    fn the_power_button_does_nothing_while_the_pet_sleeps_for_the_night() {
+        let s = GameService::new(GameState::new(0), tmp("power-night")).with_utc_offset(0); // UTC の 0 時台
+        let mut state = s.lock();
+        state.step(crate::evolution::EGG_SECS);
+        state.ack_hatch();
+        drop(state);
+        assert!(s.snapshot().sleeping);
+        assert!(s.toggle_power(700).is_err());
+    }
+
+    #[test]
+    fn the_power_button_is_refused_for_an_egg() {
+        let s = svc("power-egg");
+        assert!(s.toggle_power(10).is_err());
+        assert!(!s.snapshot().forced_sleep);
+    }
+
+    #[test]
+    fn the_power_button_returns_an_error_when_saving_fails() {
+        let bad = tmp("power-bad").parent().unwrap().join("no/such/dir/save.json");
+        let mut state = GameState::new(0);
+        state.step(crate::evolution::EGG_SECS);
+        let s = GameService::new(state, bad).with_utc_offset(NOON_AT_ZERO);
+        assert!(s.toggle_power(700).is_err());
+        assert!(!s.snapshot().forced_sleep, "the pet stays as it was");
     }
 
     #[test]
