@@ -1630,7 +1630,10 @@ mod tests {
         assert_eq!(&kinds[kinds.len() - 2..], ["eggReceived", "born"]);
     }
 
-    fn day_logs(s: &GameState) -> Vec<(u8, u8, u32, u32, u32, u32, u32, u32, u32)> {
+    /// 絵日記の 1 件（月, 日, ご飯, おやつ, 遊ぶ, 掃除, なでた, 作業の分, おみやげ）。
+    type DayLogRow = (u8, u8, u32, u32, u32, u32, u32, u32, u32);
+
+    fn day_logs(s: &GameState) -> Vec<DayLogRow> {
         s.diary
             .iter()
             .filter_map(|e| match e.event {

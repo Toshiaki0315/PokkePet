@@ -22,7 +22,7 @@ fn sextet(c: u8) -> Option<u32> {
 /// 標準の base64（`=` で埋める形）を戻す。
 fn decode_base64(text: &str) -> Result<Vec<u8>, String> {
     let bytes: Vec<u8> = text.bytes().filter(|b| !b.is_ascii_whitespace()).collect();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return Err("the image data is incomplete".to_string());
     }
     let mut out = Vec::with_capacity(bytes.len() / 4 * 3);
@@ -132,6 +132,11 @@ mod tests {
         let unix = 1_792_218_645;
         assert_eq!(card_file_name(Some("ごま"), unix, 9 * 3600), "PokkePet-ごま-20261017-153045.png");
         assert_eq!(card_file_name(None, unix, 0), "PokkePet-card-20261017-063045.png");
+    }
+
+    #[test]
+    fn an_impossible_time_still_gives_a_usable_file_name() {
+        assert_eq!(card_file_name(Some("ごま"), i64::MAX as u64, 0), "PokkePet-ごま-00000000-000000.png");
     }
 
     #[test]
