@@ -14,6 +14,12 @@ pub const IDEAL_WEIGHT: RangeInclusive<u8> = 35..=65;
 const FEED_WEIGHT: u8 = 4;
 const SNACK_WEIGHT: u8 = 8;
 const PLAY_WEIGHT_LOSS: u8 = 3;
+/// ご飯・おやつを食べると、少しあとにうんちが出る（汚れ度が増える）。増える量と、出るまでのティック数。
+pub const FEED_MESS: u8 = 10;
+pub const SNACK_MESS: u8 = 6;
+pub const DIGEST_TICKS: u32 = 10;
+/// まだ出ていない「食べたぶん」の上限（食べすぎても、一度にたまる汚れには限りがある）。
+const MESS_MAX_PENDING: u8 = 40;
 /// このティック数ごとに、体重が標準（`WEIGHT_START`）へ 1 近づく。
 pub const WEIGHT_DRIFT_TICKS: u32 = 30;
 
@@ -68,6 +74,12 @@ pub struct Care {
     /// お世話ミスの合計。
     #[serde(default)]
     pub misses: u32,
+    /// 食べて、まだうんちになっていない分（汚れ度に換算）。
+    #[serde(default)]
+    pub pending_mess: u8,
+    /// うんちが出るまでの、残りのティック数（0 なら食べたものはない）。
+    #[serde(default)]
+    digest_left: u32,
     /// 前の進化から数えたお世話ミス。進化の評価に使う。
     #[serde(default)]
     pub recent_misses: u32,
@@ -93,17 +105,27 @@ pub struct Care {
 
 impl Default for Care {
     fn default() -> Self {
-        Self { weight: WEIGHT_START, discipline: 0, misses: 0, recent_misses: 0, need_ticks: 0, episode_misses: 0, sick: false, sick_ticks: 0, fatal_ticks: 0, selfish_left: 0 }
+        Self { weight: WEIGHT_START, discipline: 0, misses: 0, pending_mess: 0, digest_left: 0, recent_misses: 0, need_ticks: 0, episode_misses: 0, sick: false, sick_ticks: 0, fatal_ticks: 0, selfish_left: 0 }
     }
 }
 
 impl Care {
     pub fn fed(&mut self) {
         self.weight = self.weight.saturating_add(FEED_WEIGHT).min(WEIGHT_MAX);
+        self.digest(FEED_MESS);
     }
 
     pub fn snacked(&mut self) {
         self.weight = self.weight.saturating_add(SNACK_WEIGHT).min(WEIGHT_MAX);
+        self.digest(SNACK_MESS);
+    }
+
+    /// 食べたものが、しばらくしてうんちになる。食べ続けても、うんちが出るまでの時間は延びない。
+    fn digest(&mut self, mess: u8) {
+        self.pending_mess = self.pending_mess.saturating_add(mess).min(MESS_MAX_PENDING);
+        if self.digest_left == 0 {
+            self.digest_left = DIGEST_TICKS;
+        }
     }
 
     /// 遊ぶと痩せる。適正体重の下限（`WEIGHT_MIN`）を下回ることはない。
@@ -112,9 +134,12 @@ impl Care {
     }
 
     /// 減りのティックが 1 回進んだ。卵の間は何も数えない。
-    pub fn tick(&mut self, status: &Status, tick_count: u32, grown: bool) {
+    /// 食べたものがうんちになったときは、増える汚れ度（それ以外は 0）を返す。
+    pub fn tick(&mut self, status: &Status, tick_count: u32, grown: bool) -> u8 {
         if !grown {
-            return;
+            self.pending_mess = 0; // 卵はうんちをしない
+            self.digest_left = 0;
+            return 0;
         }
         self.count_misses(status);
         self.count_sickness();
@@ -127,6 +152,19 @@ impl Care {
             };
         }
         self.update_selfish(status, tick_count);
+        self.digested()
+    }
+
+    /// 食べてから `DIGEST_TICKS` が経ったら、たまった分をまとめて汚れにする。
+    fn digested(&mut self) -> u8 {
+        if self.digest_left == 0 {
+            return 0;
+        }
+        self.digest_left -= 1;
+        if self.digest_left > 0 {
+            return 0;
+        }
+        std::mem::take(&mut self.pending_mess)
     }
 
     fn count_misses(&mut self, status: &Status) {
@@ -266,6 +304,50 @@ mod tests {
 
     fn content() -> Status {
         Status::new(90, 50, 90, 0)
+    }
+
+    /// ティックを `n` 回進めて、出た汚れの合計を返す。
+    fn digest_for(c: &mut Care, n: u32) -> u32 {
+        (1..=n).map(|i| u32::from(c.tick(&content(), i, true))).sum()
+    }
+
+    #[test]
+    fn food_becomes_poop_a_little_while_after_eating() {
+        let mut c = Care::default();
+        c.fed();
+        assert_eq!(c.pending_mess, FEED_MESS);
+        assert_eq!(digest_for(&mut c, DIGEST_TICKS - 1), 0, "not yet");
+        assert_eq!(u32::from(c.tick(&content(), DIGEST_TICKS, true)), u32::from(FEED_MESS));
+        assert_eq!(c.pending_mess, 0);
+        assert_eq!(digest_for(&mut c, 50), 0, "and nothing more until the next meal");
+    }
+
+    #[test]
+    fn a_snack_leaves_less_than_a_meal_and_eating_again_does_not_delay_the_poop() {
+        let mut c = Care::default();
+        c.snacked();
+        digest_for(&mut c, 4);
+        c.fed(); // 食べ足しても、最初のぶんの時間で出る
+        assert_eq!(digest_for(&mut c, DIGEST_TICKS - 4), u32::from(FEED_MESS + SNACK_MESS));
+    }
+
+    #[test]
+    fn stuffing_the_pet_has_a_limit_on_the_mess() {
+        let mut c = Care::default();
+        for _ in 0..20 {
+            c.fed();
+        }
+        assert_eq!(c.pending_mess, 40);
+        assert_eq!(digest_for(&mut c, DIGEST_TICKS), 40);
+    }
+
+    #[test]
+    fn eggs_do_not_poop_even_if_fed() {
+        let mut c = Care::default();
+        c.fed();
+        assert_eq!(c.tick(&content(), 1, false), 0);
+        assert_eq!(c.pending_mess, 0);
+        assert_eq!(digest_for(&mut c, DIGEST_TICKS * 2), 0);
     }
 
     #[test]

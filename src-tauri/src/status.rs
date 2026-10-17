@@ -23,6 +23,8 @@ const FEED_AFFINITY: u8 = 2;
 const PLAY_MOOD: u8 = 25;
 const PLAY_AFFINITY: u8 = 5;
 const PLAY_HUNGER_COST: u8 = 5;
+/// 遊ぶと、泥や汗で少し汚れる。
+const PLAY_DIRT: u8 = 5;
 const SNACK_MOOD: u8 = 15;
 const SNACK_HUNGER: u8 = 10;
 const SNACK_AFFINITY: u8 = 2;
@@ -74,6 +76,12 @@ impl Status {
         self.mood = raise(self.mood, PLAY_MOOD);
         self.affinity = raise(self.affinity, PLAY_AFFINITY);
         self.hunger = self.hunger.saturating_sub(PLAY_HUNGER_COST);
+        self.dirtiness = raise(self.dirtiness, PLAY_DIRT);
+    }
+
+    /// 汚れ度を増やす（食べたものがうんちになったとき）。
+    pub fn add_dirt(&mut self, amount: u8) {
+        self.dirtiness = raise(self.dirtiness, amount);
     }
 
     /// おやつ。おなかに余裕があれば喜ぶが、満腹のときは食べすぎてご機嫌が下がる。
@@ -192,7 +200,7 @@ mod tests {
         let mut s = base();
         s.play();
         assert_eq!((s.mood, s.affinity, s.hunger), (75, 55, 45));
-        assert_eq!(s.dirtiness, 50);
+        assert_eq!(s.dirtiness, 55, "playing gets the pet muddy");
     }
 
     #[test]
@@ -228,6 +236,18 @@ mod tests {
         assert!(Status::new(70, 50, 70, 0).is_content());
         assert!(!Status::new(69, 50, 90, 0).is_content());
         assert!(!Status::new(90, 50, 69, 0).is_content());
+    }
+
+    #[test]
+    fn playing_gets_dirty_but_never_beyond_the_maximum_and_digested_food_adds_dirt() {
+        let mut s = Status::new(50, 50, 50, 98);
+        s.play();
+        assert_eq!(s.dirtiness, 100);
+        let mut t = base();
+        t.add_dirt(12);
+        assert_eq!(t.dirtiness, 62);
+        t.add_dirt(200);
+        assert_eq!(t.dirtiness, 100);
     }
 
     #[test]
