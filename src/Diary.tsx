@@ -31,6 +31,8 @@ const describe = (event: DiaryEvent): string => {
       return `お世話が ${event.count} 回になった`;
     case "anniversary":
       return `いっしょに ${event.days} 日が経った`;
+    case "eggReceived":
+      return event.name ? `「${event.name}」とお別れして、友だちのたまごを迎えた` : "友だちのたまごを迎えた";
     case "souvenir":
       return `おでかけで ${event.emoji}${event.name} を見つけた！`;
     case "restarted":
@@ -73,6 +75,19 @@ export default function Diary() {
               いっしょに作業した時間 {formatDuration(diary.togetherMinutes)}
               {diary.chronotype && `（${CHRONOTYPE_NAMES[diary.chronotype]}）`}
             </p>
+          )}
+          {diary.lineage.length > 0 && (
+            <section className="lineage" aria-label="家系図">
+              <h2>家系図</h2>
+              <ol>
+                {diary.lineage.map((a) => (
+                  <li key={a.generation} style={a.tintDegrees ? { filter: `hue-rotate(${a.tintDegrees}deg)` } : undefined}>
+                    <span className="gen">{a.generation}代目</span> {a.name ?? "なまえなし"}（{SPECIES_NAMES[a.personality]}・{BRANCH_NAMES[a.branch]}）{a.charm}
+                    {a.fromFriend && <em>友だちのたまごの血筋</em>}
+                  </li>
+                ))}
+              </ol>
+            </section>
           )}
           {diary.entries.length === 0 ? (
             <p className="empty">まだ思い出がありません</p>

@@ -5,7 +5,7 @@ const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
-import { ackGift, getSouvenirs, toggleSouvenir, ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
+import { getEggCode, receiveEgg, ackGift, getSouvenirs, toggleSouvenir, ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
 
 const view = { mood: 1, affinity: 2, hunger: 3, dirtiness: 4, stage: 1, branch: "normal", personality: "calm" };
 
@@ -104,8 +104,8 @@ describe("api", () => {
   });
 
   it("getDiary invokes get_diary", async () => {
-    invoke.mockResolvedValue({ daysTogether: 1, togetherMinutes: 0, chronotype: null, entries: [] });
-    await expect(getDiary()).resolves.toEqual({ daysTogether: 1, togetherMinutes: 0, chronotype: null, entries: [] });
+    invoke.mockResolvedValue({ daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], entries: [] });
+    await expect(getDiary()).resolves.toEqual({ daysTogether: 1, togetherMinutes: 0, chronotype: null, lineage: [], entries: [] });
     expect(invoke).toHaveBeenCalledWith("get_diary");
   });
 
@@ -120,6 +120,15 @@ describe("api", () => {
     invoke.mockResolvedValue(view);
     await expect(togglePower()).resolves.toEqual(view);
     expect(invoke).toHaveBeenCalledWith("toggle_power");
+  });
+
+  it("egg code commands invoke the matching Tauri commands", async () => {
+    invoke.mockResolvedValue("ABCDE-FGHJK");
+    await expect(getEggCode()).resolves.toBe("ABCDE-FGHJK");
+    expect(invoke).toHaveBeenCalledWith("get_egg_code");
+    invoke.mockResolvedValue(view);
+    await expect(receiveEgg("ABCDE-FGHJK")).resolves.toEqual(view);
+    expect(invoke).toHaveBeenCalledWith("receive_egg", { code: "ABCDE-FGHJK" });
   });
 
   it("souvenir commands invoke the matching Tauri commands", async () => {

@@ -56,6 +56,8 @@ const base: StateView = {
   hatching: false,
   sleeping: false,
   forcedSleep: false,
+  tintDegrees: 0,
+  charm: null,
   gift: [],
   displayed: [],
   batteryLow: false,
@@ -1624,6 +1626,23 @@ describe("souvenirs", () => {
   it("shows no shelf when nothing is displayed", async () => {
     render(<App />);
     await screen.findByRole("img", { name: /stage/ });
+    expect(screen.queryByRole("img", { name: "かざり" })).toBeNull();
+  });
+});
+
+describe("inherited look", () => {
+  it("tints the sprite by the inherited hue and shows the charm beside the name", async () => {
+    api.getState.mockResolvedValue({ ...base, tintDegrees: 130, charm: "🎀", name: "ごま" });
+    render(<App />);
+    const img = await screen.findByRole("img", { name: /stage/ });
+    expect((img.parentElement as HTMLElement).style.filter).toBe("hue-rotate(130deg)");
+    expect(screen.getByRole("img", { name: "かざり" })).toHaveTextContent("🎀");
+  });
+
+  it("leaves the original colours and no charm for the first generation", async () => {
+    render(<App />);
+    const img = await screen.findByRole("img", { name: /stage/ });
+    expect((img.parentElement as HTMLElement).style.filter).toBe("");
     expect(screen.queryByRole("img", { name: "かざり" })).toBeNull();
   });
 });

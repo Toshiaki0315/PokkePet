@@ -15,6 +15,7 @@ use crate::dex::{build_view, DexView};
 use crate::diary::{self, DiaryView};
 use crate::game::{Action, GameState};
 use crate::minigame::{is_win, Rng, Side};
+use crate::genome::EggCode;
 use crate::events::{event_for, Event};
 use crate::rhythm::{chronotype, learned_sleep_window};
 use crate::souvenirs::{self, SouvenirView};
@@ -77,6 +78,9 @@ pub struct StateView {
     pub sleeping: bool,
     /// 電源ボタンで寝かされている（おやすみ時間とは関係なく）。もう一度押すと起こせる。
     pub forced_sleep: bool,
+    /// 色あい（色相を回す角度。0 ならもとの色）と、飾り（絵文字）。親から受け継いだ見た目の特徴。
+    pub tint_degrees: u16,
+    pub charm: Option<&'static str>,
     /// 持ち帰ったばかりで、まだ見せていないおみやげ。
     pub gift: Vec<GiftItem>,
     /// 画面に飾っているおみやげ（絵文字）。
@@ -231,6 +235,7 @@ impl GameService {
         let mut view = diary::build_view(&state.diary, state.born_unix, state.last_unix);
         view.together_minutes = state.companion.total_secs / 60;
         view.chronotype = chronotype(&state.companion.rhythm);
+        view.lineage = state.lineage.iter().map(Into::into).collect();
         view
     }
 
@@ -385,6 +390,22 @@ impl GameService {
         Ok(self.view(&state))
     }
 
+    /// いまのペットの血筋の「たまごコード」。
+    pub fn egg_code(&self) -> String {
+        self.lock().egg_code().encode()
+    }
+
+    /// 友だちのたまごコードのたまごを迎える。いまのペットとはお別れになる。コードが正しくなければ、何も変えない。
+    pub fn receive_egg(&self, text: &str) -> Result<StateView, String> {
+        let code = EggCode::decode(text)?;
+        let mut state = self.lock();
+        let mut next = state.clone();
+        next.receive_egg(code);
+        next.save(&self.path).map_err(|e| e.to_string())?;
+        *state = next;
+        Ok(self.view(&state))
+    }
+
     /// 持ち帰ったおみやげを見せたことを記録して保存する。
     pub fn ack_gift(&self) -> io::Result<StateView> {
         let mut state = self.lock();
@@ -509,6 +530,8 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow, system: SystemIn
         hatching: s.hatching(),
         sleeping,
         forced_sleep,
+        tint_degrees: s.genome.tint_degrees(),
+        charm: s.genome.charm_emoji(),
         gift: s.gift.iter().filter_map(|id| souvenirs::find(id)).map(|x| GiftItem { emoji: x.emoji, name: x.name, rarity: x.rarity }).collect(),
         displayed: s.souvenirs.displayed.iter().filter_map(|id| souvenirs::find(id)).map(|x| x.emoji).collect(),
         battery_low: system.battery_low(),
@@ -592,6 +615,8 @@ mod tests {
                 hatching: false,
                 sleeping: false,
                 forced_sleep: false,
+                tint_degrees: 0,
+                charm: None,
                 gift: Vec::new(),
                 displayed: Vec::new(),
                 battery_low: false,
@@ -962,6 +987,69 @@ mod tests {
         let bad = tmp("gift-bad").parent().unwrap().join("no/such/dir/save.json");
         let s = GameService::new(GameState::new(0), bad);
         assert!(s.ack_gift().is_err());
+    }
+
+    #[test]
+    fn the_inherited_look_is_in_the_view() {
+        let s = grown_pet("look");
+        s.lock().genome = crate::genome::Genome { tint: 3, charm: 1 };
+        let v = s.snapshot();
+        assert_eq!((v.tint_degrees, v.charm), (130, Some("🎀")));
+        let json = serde_json::to_value(&v).unwrap();
+        assert_eq!((json["tintDegrees"].as_u64(), json["charm"].as_str()), (Some(130), Some("🎀")));
+        assert_eq!(svc("look-plain").snapshot().charm, None);
+    }
+
+    #[test]
+    fn the_egg_code_can_be_shared_and_welcomed_by_another_game() {
+        let mine = grown_pet("code-mine");
+        {
+            let mut state = mine.lock();
+            state.genome = crate::genome::Genome { tint: 5, charm: 3 };
+            state.form.personality = Personality::Tidy;
+        }
+        let code = mine.egg_code();
+        let friend = grown_pet("code-friend");
+        let v = friend.receive_egg(&code.to_lowercase()).unwrap();
+        assert_eq!((v.stage, v.generation, v.tint_degrees, v.charm), (1, 2, 230, Some("👓")));
+        assert_eq!(friend.lock().legacy, Some(Personality::Tidy));
+        let diary = friend.diary();
+        assert_eq!(diary.lineage.len(), 1);
+        let ancestor = &diary.lineage[0];
+        assert!(ancestor.from_friend && ancestor.charm == Some("👓") && ancestor.tint_degrees == 230);
+        let json = serde_json::to_value(&diary).unwrap();
+        assert_eq!(json["lineage"][0]["fromFriend"], true);
+        assert_eq!(json["lineage"][0]["tintDegrees"], 230);
+    }
+
+    #[test]
+    fn a_wrong_egg_code_changes_nothing() {
+        let s = grown_pet("code-wrong");
+        let before = s.snapshot();
+        assert!(s.receive_egg("NOT-A-CODE").is_err());
+        assert!(s.receive_egg("AAAAA-AAAAA").is_err());
+        assert_eq!(s.snapshot(), before);
+    }
+
+    #[test]
+    fn receiving_an_egg_returns_an_error_when_saving_fails() {
+        let code = grown_pet("code-src").egg_code();
+        let bad = tmp("code-bad").parent().unwrap().join("no/such/dir/save.json");
+        let s = GameService::new(GameState::new(0), bad);
+        assert!(s.receive_egg(&code).is_err());
+        assert_eq!(s.snapshot().generation, 1, "the pet stays as it was");
+    }
+
+    #[test]
+    fn the_family_tree_is_in_the_diary_oldest_first() {
+        let mut state = GameState::new(0);
+        state.step(secs_until_graduation());
+        state.graduate().unwrap();
+        state.step(secs_until_graduation());
+        state.graduate().unwrap();
+        let s = GameService::new(state, tmp("tree")).with_utc_offset(NOON_AT_ZERO);
+        let tree = s.diary().lineage;
+        assert_eq!(tree.iter().map(|a| a.generation).collect::<Vec<_>>(), [1, 2]);
     }
 
     #[test]

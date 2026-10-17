@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::care::{Care, SICK_MOOD_LOSS};
 use crate::companion::{Companion, Observation};
+use crate::genome::{record_ancestor, Ancestor, EggCode, Genome};
 use crate::souvenirs::{self, SouvenirBook, OUTING_MIN_SECS};
 use crate::minigame::Rng;
 use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
@@ -87,6 +88,12 @@ pub struct GameState {
     /// 集めたおみやげと、飾っているもの。世代をこえて引き継ぐ。
     #[serde(default)]
     pub souvenirs: SouvenirBook,
+    /// いまのペットの見た目の特徴（色あい・飾り）。
+    #[serde(default)]
+    pub genome: Genome,
+    /// 家系図（旅立った先祖。古い順）。
+    #[serde(default)]
+    pub lineage: Vec<Ancestor>,
     /// 持ち帰ったばかりで、まだ見せていないおみやげ（`Souvenir::id`）。
     #[serde(default)]
     pub gift: Vec<String>,
@@ -184,6 +191,8 @@ impl GameState {
             care: Care::default(),
             companion: Companion::default(),
             souvenirs: SouvenirBook::default(),
+            genome: Genome::default(),
+            lineage: Vec::new(),
             gift: Vec::new(),
             dead: false,
             forced_sleep_until: None,
@@ -206,9 +215,16 @@ impl GameState {
         if !self.graduating() {
             return Err("it is not time to say goodbye yet".to_string());
         }
-        let farewell = DiaryEvent::Graduated { name: self.name.take(), personality: self.form.personality };
-        self.remember(farewell);
-        self.start_next_generation(Some(self.form.personality));
+        let name = self.name.take();
+        self.remember(DiaryEvent::Graduated { name: name.clone(), personality: self.form.personality });
+        record_ancestor(
+            &mut self.lineage,
+            Ancestor { generation: self.generation, name, personality: self.form.personality, branch: self.form.branch, genome: self.genome, from_friend: false },
+        );
+        // 子には、色あいや飾りが、少し変わりながら受け継がれる。
+        let mut rng = Rng::new(self.last_unix ^ u64::from(self.generation).rotate_left(40) ^ 0x00C0_FFEE);
+        let child = self.genome.child(&mut rng);
+        self.start_next_generation(Some(self.form.personality), child);
         Ok(())
     }
 
@@ -280,7 +296,24 @@ impl GameState {
     pub fn restart(&mut self) {
         let farewell = DiaryEvent::Restarted { name: self.name.take(), personality: self.form.personality };
         self.remember(farewell);
-        self.start_next_generation(None);
+        self.lineage.clear(); // 新しい家系になる
+        self.start_next_generation(None, Genome::default());
+    }
+
+    /// いまのペットの血筋を、友だちに送れる「たまごコード」にする（このペットが親になったら受け継ぐ特徴）。
+    pub fn egg_code(&self) -> EggCode {
+        let personality = if self.form.stage <= 1 { self.legacy.unwrap_or(self.form.personality) } else { self.form.personality };
+        EggCode { personality, genome: self.genome, generation: u8::try_from(self.generation).unwrap_or(u8::MAX) }
+    }
+
+    /// 友だちのたまごコードのたまごを迎える。いまのペットとはお別れして、新しいたまごが届く
+    /// （コードの性格・色あい・飾りを引き継ぐ。図鑑と思い出は残る）。
+    pub fn receive_egg(&mut self, code: EggCode) {
+        let farewell = DiaryEvent::EggReceived { name: self.name.take(), personality: self.form.personality };
+        self.remember(farewell);
+        self.lineage.clear();
+        record_ancestor(&mut self.lineage, Ancestor { generation: u32::from(code.generation), name: None, personality: code.personality, branch: Branch::Normal, genome: code.genome, from_friend: true });
+        self.start_next_generation(Some(code.personality), code.genome);
     }
 
     /// 亡くなったペットを見送り、新しい卵を迎える。性格は受け継がない。
@@ -289,12 +322,14 @@ impl GameState {
             return Err("the pet is still alive".to_string());
         }
         self.name = None;
-        self.start_next_generation(None);
+        self.lineage.clear();
+        self.start_next_generation(None, Genome::default());
         Ok(())
     }
 
-    fn start_next_generation(&mut self, legacy: Option<Personality>) {
+    fn start_next_generation(&mut self, legacy: Option<Personality>, genome: Genome) {
         self.dead = false;
+        self.genome = genome;
         self.forced_sleep_until = None;
         self.legacy = legacy;
         self.generation += 1;
@@ -1469,6 +1504,84 @@ mod tests {
         assert_eq!(s.souvenirs, owned);
         s.restart();
         assert_eq!(s.souvenirs, owned);
+    }
+
+    #[test]
+    fn the_first_pet_has_the_plain_look_and_no_ancestors() {
+        let s = new_state();
+        assert_eq!((s.genome, s.lineage.len()), (Genome::default(), 0));
+    }
+
+    #[test]
+    fn graduating_passes_the_look_on_to_the_child_and_adds_the_parent_to_the_family_tree() {
+        let mut s = elder_state();
+        s.genome = Genome { tint: 3, charm: 2 };
+        s.set_name("ごま").unwrap();
+        s.graduate().unwrap();
+        assert_eq!(s.lineage.len(), 1);
+        let parent = &s.lineage[0];
+        assert_eq!((parent.generation, parent.name.as_deref(), parent.genome, parent.from_friend), (1, Some("ごま"), Genome { tint: 3, charm: 2 }, false));
+        assert!(usize::from(s.genome.tint) < 8 && usize::from(s.genome.charm) < 6);
+    }
+
+    #[test]
+    fn across_many_generations_the_family_tree_grows_and_the_look_drifts() {
+        let mut s = new_state();
+        s.genome = Genome { tint: 0, charm: 0 };
+        let mut seen_tints = std::collections::BTreeSet::new();
+        for _ in 0..12 {
+            s.step(secs_until_graduation());
+            s.set_name("ごま").ok();
+            s.graduate().unwrap();
+            seen_tints.insert(s.genome.tint);
+        }
+        assert_eq!(s.lineage.len(), 12);
+        assert_eq!(s.lineage.iter().map(|a| a.generation).collect::<Vec<_>>(), (1..=12).collect::<Vec<_>>());
+        assert!(seen_tints.len() > 1, "the colour drifts over the generations");
+    }
+
+    #[test]
+    fn restarting_or_burying_makes_a_new_plain_family_line() {
+        let mut s = elder_state();
+        s.genome = Genome { tint: 4, charm: 3 };
+        s.graduate().unwrap();
+        assert_eq!(s.lineage.len(), 1);
+        s.restart();
+        assert_eq!((s.genome, s.lineage.len()), (Genome::default(), 0));
+        let mut dead = doomed_state();
+        dead.genome = Genome { tint: 5, charm: 1 };
+        dead.lineage.push(Ancestor { generation: 1, name: None, personality: Personality::Calm, branch: Branch::Normal, genome: Genome::default(), from_friend: false });
+        run_ticks(&mut dead, crate::care::FATAL_TICKS);
+        dead.bury().unwrap();
+        assert_eq!((dead.genome, dead.lineage.len()), (Genome::default(), 0));
+    }
+
+    #[test]
+    fn the_egg_code_carries_the_personality_look_and_generation() {
+        let mut s = hatched_state();
+        s.form.personality = Personality::Playful;
+        s.genome = Genome { tint: 6, charm: 4 };
+        s.generation = 3;
+        assert_eq!(s.egg_code(), EggCode { personality: Personality::Playful, genome: Genome { tint: 6, charm: 4 }, generation: 3 });
+        let mut egg = new_state();
+        egg.legacy = Some(Personality::Tidy);
+        assert_eq!(egg.egg_code().personality, Personality::Tidy, "an egg shares the blood it carries");
+        egg.generation = 1_000;
+        assert_eq!(egg.egg_code().generation, 255);
+    }
+
+    #[test]
+    fn receiving_an_egg_replaces_the_pet_with_the_friends_blood_and_remembers_it() {
+        let mut s = elder_state();
+        s.set_name("ごま").unwrap();
+        s.receive_egg(EggCode { personality: Personality::Gluttonous, genome: Genome { tint: 2, charm: 5 }, generation: 7 });
+        assert_eq!((s.generation, s.form.stage, s.name.clone(), s.legacy), (2, 1, None, Some(Personality::Gluttonous)));
+        assert_eq!(s.genome, Genome { tint: 2, charm: 5 });
+        assert_eq!(s.lineage.len(), 1);
+        assert_eq!((s.lineage[0].generation, s.lineage[0].from_friend, s.lineage[0].personality), (7, true, Personality::Gluttonous));
+        assert!(s.diary.iter().any(|e| matches!(&e.event, DiaryEvent::EggReceived { name: Some(n), .. } if n == "ごま")));
+        let kinds = kinds(&s);
+        assert_eq!(&kinds[kinds.len() - 2..], ["eggReceived", "born"]);
     }
 
     #[test]

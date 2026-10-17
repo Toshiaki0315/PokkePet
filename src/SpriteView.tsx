@@ -18,7 +18,13 @@ export function Sprite({ view, extraClass, breathing = false, onAnimationEnd }: 
   const label = `stage ${view.stage} ${view.branch} ${view.personality}`;
   const mood = view.sleeping ? "sleeping" : view.expression.hunger === "low" ? "hungry" : "";
   const classes = ["sprite", mood, extraClass ?? ""].filter(Boolean).join(" ");
-  const wrap = (child: ReactNode) => <span className={breathing ? "sprite-wrap breathing" : "sprite-wrap"}>{child}</span>;
+  // 親から受け継いだ色あい（色相を回す）。動きのアニメーションの外側にかけて、重ならないようにする。
+  const tint = view.tintDegrees ? { filter: `hue-rotate(${view.tintDegrees}deg)` } : undefined;
+  const wrap = (child: ReactNode) => (
+    <span className={breathing ? "sprite-wrap breathing" : "sprite-wrap"} style={tint}>
+      {child}
+    </span>
+  );
   if (broken) {
     return wrap(
       <div className={`${classes} placeholder`} role="img" aria-label={label} onAnimationEnd={onAnimationEnd}>
