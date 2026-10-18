@@ -47,17 +47,27 @@ pub fn is_sleeping(unix_secs: u64, utc_offset_secs: i32, window: SleepWindow) ->
     hour >= start_hour || hour < end_hour
 }
 
-/// `start` から `end`（どちらも UTC の UNIX 秒）までのうち、おやすみ時間でない（起きている）秒数。
-/// 5 分きざみで調べる。
-pub fn awake_secs_between(start_unix: u64, end_unix: u64, utc_offset_secs: i32, window: SleepWindow) -> u64 {
+/// ペットが眠っている期間（UNIX 秒、開始以上・終了未満）。電源ボタンで寝かされた間、または起こされた間。
+pub type Span = (u64, u64);
+
+fn within(span: Option<Span>, t: u64) -> bool {
+    span.is_some_and(|(from, to)| (from..to).contains(&t))
+}
+
+/// `start` から `end`（どちらも UTC の UNIX 秒）まで、ペットが**眠らずに起きていた時間**（`start` から、最初に眠るまで）。
+/// 眠っているのは、おやすみ時間（ただし `woken` の間は起こされている）か、電源ボタンで寝かされた間（`forced`）。
+/// 5 分きざみで調べる。`start` の時点で眠っていたら 0。
+pub fn awake_run_between(start_unix: u64, end_unix: u64, utc_offset_secs: i32, window: SleepWindow, forced: Option<Span>, woken: Option<Span>) -> u64 {
     const CHUNK: u64 = 300;
     let mut awake = 0;
     let mut t = start_unix;
     while t < end_unix {
-        let chunk = CHUNK.min(end_unix - t);
-        if !is_sleeping(t, utc_offset_secs, window) {
-            awake += chunk;
+        let asleep = within(forced, t) || (is_sleeping(t, utc_offset_secs, window) && !within(woken, t));
+        if asleep {
+            break;
         }
+        let chunk = CHUNK.min(end_unix - t);
+        awake += chunk;
         t += chunk;
     }
     awake
@@ -97,21 +107,39 @@ mod tests {
     }
 
     #[test]
-    fn the_awake_time_between_two_moments_leaves_out_the_night() {
+    fn the_awake_run_stops_when_the_pet_falls_asleep() {
         let night = SleepWindow { start_hour: 23, end_hour: 7 };
-        // 22:00〜翌 8:00（10 時間）のうち、起きているのは 22〜23 時と 7〜8 時
-        assert_eq!(awake_secs_between(22 * H, 32 * H, 0, night), 2 * H);
-        assert_eq!(awake_secs_between(10 * H, 12 * H, 0, night), 2 * H, "all day");
-        assert_eq!(awake_secs_between(0, 6 * H, 0, night), 0, "all night");
-        assert_eq!(awake_secs_between(100, 100, 0, night), 0);
-        assert_eq!(awake_secs_between(200, 100, 0, night), 0);
-        assert_eq!(awake_secs_between(0, 10 * H, 0, SleepWindow { start_hour: 5, end_hour: 5 }), 10 * H, "a pet that never sleeps");
+        // 22:00 から 10 時間: 23 時に眠るので、起きていたのは最初の 1 時間（朝に起きた分は数えない）
+        assert_eq!(awake_run_between(22 * H, 32 * H, 0, night, None, None), H);
+        assert_eq!(awake_run_between(10 * H, 12 * H, 0, night, None, None), 2 * H, "all day");
+        assert_eq!(awake_run_between(0, 6 * H, 0, night, None, None), 0, "asleep from the start");
+        assert_eq!(awake_run_between(100, 100, 0, night, None, None), 0);
+        assert_eq!(awake_run_between(200, 100, 0, night, None, None), 0);
+        assert_eq!(awake_run_between(0, 10 * H, 0, SleepWindow { start_hour: 5, end_hour: 5 }, None, None), 10 * H, "a pet that never sleeps");
     }
 
     #[test]
     fn a_span_that_is_not_a_multiple_of_the_step_is_counted_to_the_second() {
         let night = SleepWindow { start_hour: 23, end_hour: 7 };
-        assert_eq!(awake_secs_between(12 * H, 12 * H + 421, 0, night), 421);
+        assert_eq!(awake_run_between(12 * H, 12 * H + 421, 0, night, None, None), 421);
+    }
+
+    #[test]
+    fn a_pet_put_to_bed_with_the_power_button_is_asleep_whatever_the_clock_says() {
+        let night = SleepWindow { start_hour: 23, end_hour: 7 };
+        // 21:00 に寝かされた（8 時間）。おやすみ時間の前から眠っている
+        let forced = Some((21 * H, 29 * H));
+        assert_eq!(awake_run_between(21 * H, 33 * H, 0, night, forced, None), 0);
+        // 20:00 から見ると、寝かされるまでの 1 時間だけ起きていた
+        assert_eq!(awake_run_between(20 * H, 33 * H, 0, night, forced, None), H);
+    }
+
+    #[test]
+    fn a_pet_woken_in_the_night_is_awake_until_the_woken_span_ends() {
+        let night = SleepWindow { start_hour: 23, end_hour: 7 };
+        let woken = Some((24 * H, 26 * H)); // 0 時から 2 時間、起こされていた
+        assert_eq!(awake_run_between(24 * H, 30 * H, 0, night, None, woken), 2 * H);
+        assert_eq!(awake_run_between(24 * H, 30 * H, 0, night, None, None), 0);
     }
 
     #[test]

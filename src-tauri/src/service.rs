@@ -13,7 +13,7 @@ use crate::expression::{express, greeting, Bubble, Expression};
 use crate::companion::{Awake, Observation};
 use crate::dex::{build_view, DexView};
 use crate::diary::{self, DiaryView};
-use crate::game::{Action, GameState};
+use crate::game::{Action, GameState, FORCED_SLEEP_SECS, WOKEN_AWAKE_SECS};
 use crate::minigame::{is_win, Rng, Side};
 use crate::genome::EggCode;
 use crate::events::{todays_event, Event};
@@ -21,7 +21,7 @@ use crate::rhythm::{chronotype, learned_sleep_window};
 use crate::seasons::{scene_for, season_of};
 use crate::souvenirs::{self, SouvenirView};
 use crate::system::SystemInfo;
-use crate::sleep::{awake_secs_between, is_sleeping, local_hour, local_month_day, local_utc_offset, SleepWindow};
+use crate::sleep::{awake_run_between, is_sleeping, local_hour, local_month_day, local_utc_offset, SleepWindow};
 
 impl FromStr for Action {
     type Err = String;
@@ -309,7 +309,11 @@ impl GameService {
         // 席を離れている間にペットが眠っていた時間（おやすみ時間・電源ボタンで寝かせた間）は、おでかけにならない。
         let awake = Awake {
             now: (!is_sleeping(now_unix, offset, window) || state.awake_override_until.is_some_and(|until| until > now_unix)) && state.forced_sleep_until.is_none_or(|until| until <= now_unix),
-            during_gap: state.companion.last_observed().map(|prev| awake_secs_between(prev, now_unix, offset, window)),
+            during_gap: state.companion.last_observed().map(|prev| {
+                let forced = state.forced_sleep_until.map(|until| (until.saturating_sub(FORCED_SLEEP_SECS), until));
+                let woken = state.awake_override_until.map(|until| (until.saturating_sub(WOKEN_AWAKE_SECS), until));
+                awake_run_between(prev, now_unix, offset, window, forced, woken)
+            }),
         };
         let obs = state.observe_activity_with(now_unix, idle_secs, hour, awake);
         if obs.returned_after.is_some() {
@@ -1088,11 +1092,36 @@ mod tests {
     }
 
     #[test]
-    fn a_pet_that_wakes_up_while_the_owner_is_still_away_goes_out_for_that_hour_only() {
+    fn a_pet_that_wakes_up_in_the_morning_while_the_owner_is_still_away_does_not_go_out_then() {
+        // 22:30 に離席 → 23 時に眠る → 朝 7 時に起きる → 8 時に飼い主が戻る。出かけたのは、寝るまでの 30 分だけ
         let s = night_owner_service("night-away-late");
         let day = 5 * 86_400;
-        observed_absence(&s, day + 22 * 3600 + 1800, day + 8 * 3600 + 86_400); // 7〜8 時は起きている
-        assert_eq!(s.snapshot().gift.len(), 1, "one hour out: one souvenir, not a whole night's worth");
+        observed_absence(&s, day + 22 * 3600 + 1800, day + 8 * 3600 + 86_400);
+        assert!(s.snapshot().gift.is_empty(), "it went home to sleep and did not go out again: {:?}", s.snapshot().gift);
+    }
+
+    #[test]
+    fn putting_the_pet_to_bed_with_the_power_button_before_bedtime_and_sleeping_the_mac_brings_nothing() {
+        // 21:00 に電源ボタンで寝かせて（8 時間）、Mac もスリープ。朝 8 時に戻る。おやすみ時間の前の 2 時間も、眠っている
+        let s = night_owner_service("forced-mac-sleep");
+        let day = 5 * 86_400;
+        s.lock().last_unix = day + 21 * 3600 - 10;
+        s.observe_activity(day + 21 * 3600 - 10, 0);
+        s.toggle_power(day + 21 * 3600).unwrap();
+        s.observe_activity(day + 21 * 3600, 0);
+        let obs = s.observe_activity(day + 8 * 3600 + 86_400, 5); // Mac のスリープ明け
+        assert!(obs.returned_after.is_some());
+        assert!(s.snapshot().gift.is_empty(), "{:?}", s.snapshot().gift);
+    }
+
+    #[test]
+    fn a_mac_that_slept_while_the_pet_was_still_awake_gives_only_the_time_until_the_pet_slept() {
+        // 21:00 に離席して Mac がスリープ → 翌朝 8 時に戻る。ペットが起きていたのは、23 時に眠るまでの 2 時間
+        let s = night_owner_service("mac-sleep-evening");
+        let day = 5 * 86_400;
+        s.observe_activity(day + 21 * 3600, 0);
+        s.observe_activity(day + 8 * 3600 + 86_400, 5);
+        assert_eq!(s.snapshot().gift.len(), 1, "2 hours of an outing (not the whole night): {:?}", s.snapshot().gift);
     }
 
     #[test]
