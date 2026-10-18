@@ -8,6 +8,8 @@ const noToday: DayStats = { feeds: 0, snacks: 0, plays: 0, cleans: 0, strokes: 0
 const api = vi.hoisted(() => ({
   getDiary: vi.fn(),
   getState: vi.fn(),
+  getSettings: vi.fn(),
+  getSouvenirs: vi.fn(),
   saveCard: vi.fn(),
   onStateChanged: vi.fn(),
 }));
@@ -65,12 +67,14 @@ describe("Diary window (picture diary and card)", () => {
   });
 
   describe("saving the growth card", () => {
-    const pet = { name: "ごま", personality: "playful", branch: "good", stage: 5, generation: 2, charm: "🎀", tintDegrees: 80 };
+    const pet = { name: "ごま", personality: "playful", branch: "good", stage: 5, generation: 2, charm: "🎀", tintDegrees: 80, displayed: ["🐚", "🍀"] };
     const ctx = { createLinearGradient: () => ({ addColorStop: vi.fn() }), fillRect: vi.fn(), fillText: vi.fn(), drawImage: vi.fn() };
     const originalImage = globalThis.Image;
 
     beforeEach(() => {
       api.getState.mockResolvedValue(pet);
+      api.getSettings.mockResolvedValue({ bodyColor: "#2f9e8f" });
+      api.getSouvenirs.mockResolvedValue({ total: 40, found: 9, maxDisplayed: 3, entries: [] });
       api.saveCard.mockResolvedValue("/Users/me/Pictures/PokkePet-ごま-20261017-153045.png");
       vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(ctx as never);
       vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/png;base64,AAAA");
@@ -96,6 +100,8 @@ describe("Diary window (picture diary and card)", () => {
       expect(ctx.fillText).toHaveBeenCalledWith("🎀 ごま", expect.any(Number), expect.any(Number));
       expect(ctx.fillText).toHaveBeenCalledWith("きつね・きらきら", expect.any(Number), expect.any(Number));
       expect(ctx.fillText).toHaveBeenCalledWith("いっしょに作業 1時間30分（夜型）", expect.any(Number), expect.any(Number));
+      expect(ctx.fillText).toHaveBeenCalledWith("おみやげ 9 / 40", expect.any(Number), expect.any(Number));
+      expect(ctx.fillText).toHaveBeenCalledWith("🐚 🍀", expect.any(Number), expect.any(Number));
     });
 
     it("leaves out the working time and type when there is none", async () => {
