@@ -41,9 +41,13 @@ pub struct Companion {
     /// 時刻（0〜23 時）ごとの、操作していた時間（秒）。生活リズムを学ぶ材料。
     #[serde(default)]
     pub rhythm: [u32; 24],
-    /// 席を離れている間に、ペットが起きていた時間（秒）。眠っている間は、おでかけにならない。
+    /// 席を離れてから、ペットが最初に眠るまでに、起きていた時間（秒）。これが、おでかけの長さになる。
     #[serde(default)]
     away_awake_secs: u64,
+    /// 席を離れている間に、ペットが一度でも眠ったか。眠ったあとは、また起きても、おでかけには数えない
+    /// （出かけて、帰って寝た。朝に起きたあとは、もう出かけない）。
+    #[serde(default)]
+    away_slept: bool,
 }
 
 /// ペットが起きているか（観測のたびに、呼び出し側が教える）。
@@ -51,7 +55,8 @@ pub struct Companion {
 pub struct Awake {
     /// いま起きているか。
     pub now: bool,
-    /// 前回の観測から長く空いたとき（Mac のスリープなど）、その間に起きていた秒数。None なら、ずっと起きていたことにする。
+    /// 前回の観測から長く空いたとき（Mac のスリープなど）、その最初から、ペットが眠るまでに起きていた秒数。
+    /// 最初から眠っていたら 0。None なら、ずっと起きていたことにする。
     pub during_gap: Option<u64>,
 }
 
@@ -83,8 +88,14 @@ impl Companion {
     /// `observe` に、ペットが起きているかを加えたもの。席を離れている間にペットが眠っていた時間は、おでかけに数えない。
     pub fn observe_with(&mut self, now_unix: u64, idle_secs: u64, local_hour: u8, awake: Awake) -> Observation {
         let (step, gap) = self.step_since_last(now_unix);
-        if let (Some(gap), Some(_)) = (gap, self.away_since) {
-            self.away_awake_secs += awake.during_gap.unwrap_or(gap).min(gap);
+        if let (Some(gap), Some(_)) = (gap, self.away_since)
+            && !self.away_slept
+        {
+            let run = awake.during_gap.unwrap_or(gap).min(gap);
+            self.away_awake_secs += run;
+            if run < gap {
+                self.away_slept = true; // 空いている間に、眠った
+            }
         }
         let mut obs = Observation::default();
         if idle_secs < ACTIVE_IDLE_MAX_SECS {
@@ -92,6 +103,7 @@ impl Companion {
             if let Some(since) = self.away_since.take() {
                 obs.returned_after = Some(now_unix.saturating_sub(since));
                 obs.outing_secs = std::mem::take(&mut self.away_awake_secs);
+                self.away_slept = false;
                 self.back_until = now_unix + WELCOME_BACK_SECS;
             }
             return obs;
@@ -103,8 +115,13 @@ impl Companion {
         if idle_secs >= AWAY_AFTER_SECS && self.away_since.is_none() {
             self.away_since = Some(now_unix.saturating_sub(idle_secs));
             self.away_awake_secs = if awake.now { idle_secs } else { 0 };
-        } else if self.away_since.is_some() && awake.now {
-            self.away_awake_secs += step;
+            self.away_slept = !awake.now;
+        } else if self.away_since.is_some() && !self.away_slept {
+            if awake.now {
+                self.away_awake_secs += step;
+            } else {
+                self.away_slept = true;
+            }
         }
         obs
     }
@@ -129,6 +146,8 @@ impl Companion {
         let gap = now_unix - prev;
         if gap >= AWAY_AFTER_SECS && self.away_since.is_none() {
             self.away_since = Some(prev);
+            self.away_awake_secs = 0;
+            self.away_slept = false;
         }
         if gap <= MAX_STEP_SECS { (gap, None) } else { (0, Some(gap)) }
     }
@@ -275,6 +294,44 @@ mod tests {
         let obs = c.observe_with(back, 0, 6, Awake::ALWAYS);
         assert_eq!(obs.returned_after, Some(back - T0));
         assert_eq!(obs.outing_secs, AWAY_AFTER_SECS, "only the half hour before it fell asleep");
+    }
+
+    #[test]
+    fn after_falling_asleep_the_pet_does_not_go_out_again_when_it_wakes_up_while_the_owner_is_still_away() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 22);
+        idle_for(&mut c, T0, 0, AWAY_AFTER_SECS, Awake::ALWAYS); // 起きている間に離席と分かる
+        let slept_from = T0 + AWAY_AFTER_SECS;
+        idle_for(&mut c, slept_from, AWAY_AFTER_SECS, 3600, ASLEEP); // 眠る
+        let woke_at = slept_from + 3600;
+        idle_for(&mut c, woke_at, AWAY_AFTER_SECS + 3600, 2 * 3600, Awake::ALWAYS); // 朝に起きる（飼い主はまだ戻らない）
+        let back = woke_at + 2 * 3600 + 10;
+        let obs = c.observe_with(back, 0, 9, Awake::ALWAYS);
+        assert_eq!(obs.outing_secs, AWAY_AFTER_SECS, "only the time before it went to sleep");
+    }
+
+    #[test]
+    fn a_gap_that_starts_awake_and_ends_asleep_counts_only_the_awake_start() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 20);
+        // Mac が 12 時間スリープ。最初の 3 時間は起きていて、そのあと眠った
+        let obs = c.observe_with(T0 + 12 * 3600, 5, 8, Awake { now: true, during_gap: Some(3 * 3600) });
+        assert_eq!(obs.outing_secs, 3 * 3600);
+        // 次の離席は、数え直し
+        let mut again = c.clone();
+        idle_for(&mut again, T0 + 12 * 3600, 0, AWAY_AFTER_SECS + 100, Awake::ALWAYS);
+        assert!(again.observe_with(T0 + 12 * 3600 + AWAY_AFTER_SECS + 200, 0, 9, Awake::ALWAYS).outing_secs <= AWAY_AFTER_SECS + 200);
+    }
+
+    #[test]
+    fn a_gap_after_the_pet_already_slept_adds_nothing() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 22);
+        idle_for(&mut c, T0, 0, AWAY_AFTER_SECS, Awake::ALWAYS);
+        idle_for(&mut c, T0 + AWAY_AFTER_SECS, AWAY_AFTER_SECS, 600, ASLEEP);
+        let now = T0 + AWAY_AFTER_SECS + 600;
+        let obs = c.observe_with(now + 5 * 3600, 5, 8, Awake { now: true, during_gap: Some(5 * 3600) });
+        assert_eq!(obs.outing_secs, AWAY_AFTER_SECS);
     }
 
     #[test]
