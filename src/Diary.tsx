@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getDiary, getState, onStateChanged, saveCard } from "./api";
+import { getDiary, getSettings, getSouvenirs, getState, onStateChanged, saveCard } from "./api";
 import type { DiaryEvent, DiaryView } from "./api";
 import { CARD_HEIGHT, CARD_WIDTH, drawCard, loadImage } from "./card";
 import { BRANCH_NAMES, CHRONOTYPE_NAMES, SPECIES_NAMES } from "./names";
@@ -70,7 +70,7 @@ export default function Diary() {
   const saveGrowthCard = async () => {
     try {
       if (!diary) return;
-      const pet = await getState();
+      const [pet, settings, souvenirs] = await Promise.all([getState(), getSettings(), getSouvenirs()]);
       const sprite = await loadImage(spritePath(pet));
       const canvas = document.createElement("canvas");
       canvas.width = CARD_WIDTH;
@@ -88,6 +88,10 @@ export default function Diary() {
           type: diary.chronotype ? CHRONOTYPE_NAMES[diary.chronotype] : null,
           charm: pet.charm,
           tintDegrees: pet.tintDegrees,
+          bodyColor: settings.bodyColor,
+          souvenirs: pet.displayed,
+          souvenirsFound: souvenirs.found,
+          souvenirsTotal: souvenirs.total,
         },
         sprite,
       );
