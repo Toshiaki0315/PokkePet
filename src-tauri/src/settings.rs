@@ -16,8 +16,8 @@ pub const POPUP_HEIGHT_WITH_GAUGES: f64 = 470.0;
 pub const DEFAULT_SOUND_VOLUME: u8 = 50;
 pub const SOUND_VOLUME_MAX: u8 = 100;
 pub const SOUND_PITCH_RANGE: std::ops::RangeInclusive<i8> = -2..=2;
-/// 選べる背景（画面の景色）。最初の `classic` は、これまでの「きもちで色が変わる」背景。
-pub const BACKGROUNDS: [&str; 6] = ["classic", "room", "tatami", "meadow", "forest", "beach"];
+/// 選べる背景（画面の景色）。`classic` は「きもちで色が変わる」背景、`season` は「季節にまかせる」（春は夜桜、夏はうみべ、秋はあき、冬はゆきげしき）。
+pub const BACKGROUNDS: [&str; 11] = ["classic", "season", "room", "tatami", "meadow", "forest", "beach", "sakura", "snow", "autumn", "stars"];
 /// 吹き出しを出しておく長さ（秒）の既定と上限。0 は「ずっと出しておく」。
 pub const DEFAULT_BUBBLE_SECONDS: u8 = 8;
 pub const BUBBLE_SECONDS_MAX: u8 = 60;

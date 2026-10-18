@@ -124,7 +124,7 @@ describe("Settings dialog", () => {
     render(<Settings />);
     const group = await screen.findByRole("radiogroup", { name: "背景" });
     const radios = within(group).getAllByRole("radio");
-    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(["classic", "room", "tatami", "meadow", "forest", "beach"]);
+    expect(radios.map((r) => (r as HTMLInputElement).value)).toEqual(["classic", "season", "room", "tatami", "meadow", "forest", "beach", "sakura", "snow", "autumn", "stars"]);
     expect(within(group).getByRole("radio", { name: "きもち（いつもの）" })).toBeChecked();
     await userEvent.click(within(group).getByRole("radio", { name: "うみべ" }));
     expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, background: "beach" });

@@ -58,6 +58,7 @@ const base: StateView = {
   sleeping: false,
   forcedSleep: false,
   out: false,
+  seasonScene: "snow",
   tintDegrees: 0,
   charm: null,
   gift: [],
@@ -1753,11 +1754,32 @@ describe("outing scene", () => {
 });
 
 describe("background scenes", () => {
-  it.each(["classic", "room", "tatami", "meadow", "forest", "beach"] as const)("draws the %s background chosen in the settings", async (background) => {
+  it.each(["classic", "room", "tatami", "meadow", "forest", "beach", "sakura", "snow", "autumn", "stars"] as const)("draws the %s background chosen in the settings", async (background) => {
     api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, background });
     render(<App />);
     await screen.findByRole("img", { name: /stage/ });
     await waitFor(() => expect(document.querySelector(".screen > .scene")).toHaveClass(`scene-${background}`));
+  });
+
+  it.each([
+    ["sakura", "sakura"],
+    ["beach", "beach"],
+    ["autumn", "autumn"],
+    ["snow", "snow"],
+  ] as const)("lets the season choose the background (%s)", async (seasonScene, expected) => {
+    api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, background: "season" });
+    api.getState.mockResolvedValue({ ...base, seasonScene });
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    await waitFor(() => expect(document.querySelector(".screen > .scene")).toHaveClass(`scene-${expected}`));
+  });
+
+  it("ignores the season when a fixed background is chosen", async () => {
+    api.getSettings.mockResolvedValue({ ...DEFAULT_SETTINGS, background: "forest" });
+    api.getState.mockResolvedValue({ ...base, seasonScene: "sakura" });
+    render(<App />);
+    await screen.findByRole("img", { name: /stage/ });
+    await waitFor(() => expect(document.querySelector(".screen > .scene")).toHaveClass("scene-forest"));
   });
 
   it("starts with the classic background until the saved settings arrive", async () => {

@@ -24,11 +24,16 @@ export const DEFAULT_SETTINGS: Settings = {
 /** 選べる背景（`id` は設定の値）。見た目は `scenes.css`。 */
 export const BACKGROUNDS: readonly { id: Settings["background"]; name: string }[] = [
   { id: "classic", name: "きもち（いつもの）" },
+  { id: "season", name: "季節にまかせる" },
   { id: "room", name: "おへや" },
   { id: "tatami", name: "わしつ" },
   { id: "meadow", name: "そうげん" },
   { id: "forest", name: "もり" },
   { id: "beach", name: "うみべ" },
+  { id: "sakura", name: "よざくら" },
+  { id: "snow", name: "ゆきげしき" },
+  { id: "autumn", name: "あき" },
+  { id: "stars", name: "ほしぞら" },
 ];
 
 /** 吹き出しを出しておく長さの選びかた（秒。0 はずっと出しておく）。 */
