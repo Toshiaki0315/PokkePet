@@ -391,7 +391,7 @@ export default function App() {
           aria-label="画面"
         >
           <div
-            className={`scene scene-${settings.background}`}
+            className={`scene scene-${settings.background === "season" ? view.seasonScene : settings.background}`}
             aria-hidden="true"
           />
           <div className="titlebar">

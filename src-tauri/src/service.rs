@@ -18,6 +18,7 @@ use crate::minigame::{is_win, Rng, Side};
 use crate::genome::EggCode;
 use crate::events::{event_for, Event};
 use crate::rhythm::{chronotype, learned_sleep_window};
+use crate::seasons::{scene_for, season_of};
 use crate::souvenirs::{self, SouvenirView};
 use crate::system::SystemInfo;
 use crate::sleep::{awake_secs_between, is_sleeping, local_hour, local_month_day, local_utc_offset, SleepWindow};
@@ -87,6 +88,8 @@ pub struct StateView {
     pub gift: Vec<GiftItem>,
     /// 画面に飾っているおみやげ（絵文字）。
     pub displayed: Vec<&'static str>,
+    /// いまの季節に合う背景（背景が「季節にまかせる」のとき、画面はこれを使う）。
+    pub season_scene: &'static str,
     /// Mac の電池が少ない（電源につながっていないとき）。
     pub battery_low: bool,
     /// Mac が充電中。
@@ -541,6 +544,7 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow, system: SystemIn
         charm: s.genome.charm_emoji(),
         gift: s.gift.iter().filter_map(|id| souvenirs::find(id)).map(|x| GiftItem { emoji: x.emoji, name: x.name, rarity: x.rarity }).collect(),
         displayed: s.souvenirs.displayed.iter().filter_map(|id| souvenirs::find(id)).map(|x| x.emoji).collect(),
+        season_scene: scene_for(season_of(local_month_day(s.last_unix, utc_offset).0)),
         battery_low: system.battery_low(),
         charging: system.charging(),
         offline: !system.online,
@@ -627,6 +631,7 @@ mod tests {
                 charm: None,
                 gift: Vec::new(),
                 displayed: Vec::new(),
+                season_scene: "snow", // UTC+15 の 1970-01-01 は冬
                 battery_low: false,
                 charging: false,
                 offline: false,
@@ -1153,6 +1158,21 @@ mod tests {
         let bad = tmp("gift-bad").parent().unwrap().join("no/such/dir/save.json");
         let s = GameService::new(GameState::new(0), bad);
         assert!(s.ack_gift().is_err());
+    }
+
+    #[test]
+    fn the_view_tells_the_background_of_the_season() {
+        let s = svc("season-scene");
+        assert_eq!(s.snapshot().season_scene, "snow", "1 月");
+        let spring = svc("season-spring");
+        spring.lock().last_unix = 100 * 86_400; // 1970-04-11
+        assert_eq!(spring.snapshot().season_scene, "sakura");
+        let summer = svc("season-summer");
+        summer.lock().last_unix = 190 * 86_400; // 1970-07-10
+        assert_eq!(serde_json::to_value(summer.snapshot()).unwrap()["seasonScene"], "beach");
+        let autumn = svc("season-autumn");
+        autumn.lock().last_unix = 280 * 86_400; // 1970-10-08
+        assert_eq!(autumn.snapshot().season_scene, "autumn");
     }
 
     #[test]

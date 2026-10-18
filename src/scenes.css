@@ -1,7 +1,7 @@
 /* 画面の背景(景色)。CSS だけで描く。.scene（画面の背景の層）と .scene-thumb（設定の見本）の両方で使う。
    このファイルは tools/gen_scenes.py で作る（手で直さず、スクリプトを直して作り直す）。 */
 .scene-thumb { position: relative; display: inline-block; width: 56px; height: 44px; border-radius: 6px; overflow: hidden; border: 1px solid #0003; flex: none; }
-.scene-room::after, .scene-tatami::after, .scene-meadow::after, .scene-forest::after, .scene-beach::after { content: ""; position: absolute; inset: 0; }
+.scene-room::after, .scene-tatami::after, .scene-meadow::after, .scene-forest::after, .scene-beach::after, .scene-sakura::after, .scene-snow::after, .scene-autumn::after, .scene-stars::after { content: ""; position: absolute; inset: 0; }
 
 /* おへや: 壁・木の床・窓・ラグ */
 .scene-room {
@@ -93,4 +93,96 @@
     linear-gradient(#fff, #fff) 0 69.04% / 100% 1.5% no-repeat,
     radial-gradient(circle at center, #f4a6b8 0 40%, transparent 44%) 84.78% 93.62% / 8% 6% no-repeat,
     radial-gradient(circle at center, #fff 0 40%, transparent 44%) 23.66% 95.79% / 7% 5% no-repeat;
+}
+
+/* よざくら: 夜空・月・さくらの木 */
+.scene-sakura {
+  background:
+    linear-gradient(#2a2140, #1d1733) 0 100.00% / 100% 10% no-repeat,
+    linear-gradient(#3b2a2a, #2c1f1f) 4.30% 82.35% / 7% 66% no-repeat,
+    radial-gradient(ellipse at center, #ffb7d0 0 62%, transparent 66%) -9.38% 2.78% / 36% 28% no-repeat,
+    radial-gradient(ellipse at center, #ff9ec0 0 62%, transparent 66%) 15.15% 8.11% / 34% 26% no-repeat,
+    radial-gradient(ellipse at center, #ffd0e0 0 62%, transparent 66%) 31.43% -5.13% / 30% 22% no-repeat,
+    radial-gradient(ellipse at center, #ffa9c8 0 62%, transparent 66%) -5.26% 25.00% / 24% 20% no-repeat,
+    linear-gradient(#1b1840, #3a2a63 58%, #6a4585);
+}
+.scene-sakura::after {
+  background:
+    radial-gradient(circle at center, #fff6d0 0 34%, rgba(255,246,208,0.35) 38% 58%, transparent 62%) 94.87% 5.13% / 22% 22% no-repeat,
+    radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%) 41.24% 30.93% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%) 56.70% 49.48% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%) 30.93% 63.92% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%) 84.54% 59.79% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%) 68.04% 76.29% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%) 18.56% 82.47% / 3% 3% no-repeat;
+}
+
+/* ゆきげしき: ゆき・雪だるま */
+.scene-snow {
+  background:
+    linear-gradient(#ffffff, #eef4fb) 0 100.00% / 100% 20% no-repeat,
+    radial-gradient(ellipse 70% 30% at 20% 100%, #f7fafd 98%, transparent 100%),
+    radial-gradient(ellipse 60% 26% at 90% 100%, #eef4fb 98%, transparent 100%),
+    linear-gradient(#9db6d4, #dbe7f3 58%);
+}
+.scene-snow::after {
+  background:
+    radial-gradient(circle at center, #fff 0 36%, transparent 42%) 12.50% 10.42% / 4% 4% no-repeat,
+    radial-gradient(circle at center, #fff 0 36%, transparent 42%) 30.93% 24.74% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #fff 0 36%, transparent 42%) 50.00% 8.33% / 4% 4% no-repeat,
+    radial-gradient(circle at center, #fff 0 36%, transparent 42%) 65.98% 30.93% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #fff 0 36%, transparent 42%) 83.33% 14.58% / 4% 4% no-repeat,
+    radial-gradient(circle at center, #fff 0 36%, transparent 42%) 92.78% 41.24% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #fff 0 36%, transparent 42%) 20.62% 47.42% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #fff 0 36%, transparent 42%) 57.73% 53.61% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #fff 0 46%, #cfe0f2 50% 60%, transparent 64%) 90.91% 75.00% / 12% 12% no-repeat,
+    radial-gradient(circle at center, #fff 0 46%, #cfe0f2 50% 60%, transparent 64%) 89.25% 60.87% / 7% 8% no-repeat;
+}
+
+/* あき: 夕やけ・紅葉・おちば */
+.scene-autumn {
+  background:
+    linear-gradient(#a8622a, #8a4e1e) 0 100.00% / 100% 12% no-repeat,
+    linear-gradient(#5b3d24, #4a301b) 14.89% 78.95% / 6% 62% no-repeat,
+    linear-gradient(#5b3d24, #4a301b) 79.57% 75.00% / 7% 68% no-repeat,
+    radial-gradient(ellipse at center, #d9531e 0 68%, transparent 72%) -3.03% 6.25% / 34% 36% no-repeat,
+    radial-gradient(ellipse at center, #e8832a 0 68%, transparent 72%) 10.53% 15.79% / 24% 24% no-repeat,
+    radial-gradient(ellipse at center, #c23b22 0 68%, transparent 72%) 100.00% 0.00% / 38% 36% no-repeat,
+    radial-gradient(ellipse at center, #eba033 0 68%, transparent 72%) 92.11% 15.79% / 24% 24% no-repeat,
+    linear-gradient(#f4b66a, #fbe3b8 56%);
+}
+.scene-autumn::after {
+  background:
+    radial-gradient(ellipse at center, #d9531e 0 55%, transparent 60%) 32.26% 95.83% / 7% 4% no-repeat,
+    radial-gradient(ellipse at center, #eba033 0 55%, transparent 60%) 51.61% 97.92% / 7% 4% no-repeat,
+    radial-gradient(ellipse at center, #c23b22 0 55%, transparent 60%) 66.67% 94.79% / 7% 4% no-repeat,
+    radial-gradient(ellipse at center, #e8832a 0 55%, transparent 60%) 41.67% 41.24% / 4% 3% no-repeat,
+    radial-gradient(ellipse at center, #d9531e 0 55%, transparent 60%) 56.25% 63.92% / 4% 3% no-repeat;
+}
+
+/* ほしぞら: 夜空・月・星 */
+.scene-stars {
+  background:
+    radial-gradient(ellipse 80% 24% at 22% 100%, #0e1438 98%, transparent 100%),
+    radial-gradient(ellipse 70% 20% at 86% 100%, #121a44 98%, transparent 100%),
+    linear-gradient(#0b1030, #1d2b6b 66%, #34459a);
+}
+.scene-stars::after {
+  background:
+    radial-gradient(circle at center, #fff6c8 0 40%, transparent 44%) 83.33% 9.52% / 16% 16% no-repeat,
+    radial-gradient(circle at center, #1b2866 0 40%, transparent 44%) 86.05% 6.98% / 14% 14% no-repeat,
+    radial-gradient(circle at center, #fff 0 30%, transparent 36%) 10.31% 8.25% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #fff 0 30%, transparent 36%) 26.53% 20.41% / 2% 2% no-repeat,
+    radial-gradient(circle at center, #fff 0 30%, transparent 36%) 43.30% 6.19% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #fff 0 30%, transparent 36%) 57.14% 28.57% / 2% 2% no-repeat,
+    radial-gradient(circle at center, #fff 0 30%, transparent 36%) 34.69% 38.78% / 2% 2% no-repeat,
+    radial-gradient(circle at center, #fff 0 30%, transparent 36%) 92.78% 32.99% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #ffe9a8 0 30%, transparent 36%) 18.56% 35.05% / 3% 3% no-repeat,
+    radial-gradient(circle at center, #fff 0 30%, transparent 36%) 61.22% 51.02% / 2% 2% no-repeat,
+    radial-gradient(circle at center, #fff 0 30%, transparent 36%) 8.16% 53.06% / 2% 2% no-repeat;
+}
+
+/* 季節にまかせる（設定の見本だけ。画面では、そのときの季節の背景を使う） */
+.scene-season {
+  background: linear-gradient(135deg, #ffb7d0 0 25%, #86cf58 25% 50%, #e8832a 50% 75%, #cfe0f2 75%);
 }

@@ -6,7 +6,7 @@ export type Personality = "calm" | "playful" | "gluttonous" | "tidy";
 export type Level = "low" | "mid" | "high";
 export type BubbleKind = "hungry" | "dirty" | "gloomy" | "happy" | "welcome" | "sleeping" | "morning" | "noon" | "evening" | "drowsy" | "selfish" | "sick" | "dying" | "rest" | "welcomeback" | "batterylow" | "offline" | "event";
 export type Chronotype = "morning" | "night" | "neutral";
-export type Background = "classic" | "room" | "tatami" | "meadow" | "forest" | "beach";
+export type Background = "classic" | "season" | "room" | "tatami" | "meadow" | "forest" | "beach" | "sakura" | "snow" | "autumn" | "stars";
 export type PlayAction = "play" | "pet";
 export type ActionName = "feed" | "snack" | "play" | "clean" | "scold" | "cure";
 
@@ -48,6 +48,8 @@ export interface StateView {
   sleeping: boolean;
   /** 電源ボタンで寝かされている（おやすみ時間とは関係なく）。もう一度押すと起こせる */
   forcedSleep: boolean;
+  /** いまの季節に合う背景（背景が「季節にまかせる」のときに使う） */
+  seasonScene: Exclude<Background, "classic" | "season">;
   /** おでかけ中（飼い主が席を離れていて、ペットは起きている）。画面にはいない */
   out: boolean;
   /** 親から受け継いだ色あい（色相を回す角度。0 ならもとの色）と、飾り（絵文字。なければ null） */

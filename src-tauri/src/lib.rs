@@ -13,6 +13,7 @@ pub mod genome;
 pub mod minigame;
 pub mod paths;
 pub mod rhythm;
+pub mod seasons;
 pub mod service;
 pub mod settings;
 pub mod souvenirs;

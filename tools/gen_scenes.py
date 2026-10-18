@@ -98,11 +98,79 @@ def build():
         L("radial-gradient(circle at center, #f4a6b8 0 40%, transparent 44%)", 78, 88, 8, 6),
         L("radial-gradient(circle at center, #fff 0 40%, transparent 44%)", 22, 91, 7, 5),
     ])
+    sakura = block("sakura", [
+        L("linear-gradient(#2a2140, #1d1733)", 0, 90, 100, 10),
+        L("linear-gradient(#3b2a2a, #2c1f1f)", 4, 28, 7, 66),
+        L("radial-gradient(ellipse at center, #ffb7d0 0 62%, transparent 66%)", -6, 2, 36, 28),
+        L("radial-gradient(ellipse at center, #ff9ec0 0 62%, transparent 66%)", 10, 6, 34, 26),
+        L("radial-gradient(ellipse at center, #ffd0e0 0 62%, transparent 66%)", 22, -4, 30, 22),
+        L("radial-gradient(ellipse at center, #ffa9c8 0 62%, transparent 66%)", -4, 20, 24, 20),
+        "linear-gradient(#1b1840, #3a2a63 58%, #6a4585)",
+    ], [
+        L("radial-gradient(circle at center, #fff6d0 0 34%, rgba(255,246,208,0.35) 38% 58%, transparent 62%)", 74, 4, 22, 22),
+        L("radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%)", 40, 30, 3, 3),
+        L("radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%)", 55, 48, 3, 3),
+        L("radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%)", 30, 62, 3, 3),
+        L("radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%)", 82, 58, 3, 3),
+        L("radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%)", 66, 74, 3, 3),
+        L("radial-gradient(circle at center, #ffc7dc 0 42%, transparent 46%)", 18, 80, 3, 3),
+    ])
+    snow = block("snow", [
+        L("linear-gradient(#ffffff, #eef4fb)", 0, 80, 100, 20),
+        "radial-gradient(ellipse 70% 30% at 20% 100%, #f7fafd 98%, transparent 100%)",
+        "radial-gradient(ellipse 60% 26% at 90% 100%, #eef4fb 98%, transparent 100%)",
+        "linear-gradient(#9db6d4, #dbe7f3 58%)",
+    ], [
+        L("radial-gradient(circle at center, #fff 0 36%, transparent 42%)", 12, 10, 4, 4),
+        L("radial-gradient(circle at center, #fff 0 36%, transparent 42%)", 30, 24, 3, 3),
+        L("radial-gradient(circle at center, #fff 0 36%, transparent 42%)", 48, 8, 4, 4),
+        L("radial-gradient(circle at center, #fff 0 36%, transparent 42%)", 64, 30, 3, 3),
+        L("radial-gradient(circle at center, #fff 0 36%, transparent 42%)", 80, 14, 4, 4),
+        L("radial-gradient(circle at center, #fff 0 36%, transparent 42%)", 90, 40, 3, 3),
+        L("radial-gradient(circle at center, #fff 0 36%, transparent 42%)", 20, 46, 3, 3),
+        L("radial-gradient(circle at center, #fff 0 36%, transparent 42%)", 56, 52, 3, 3),
+        L("radial-gradient(circle at center, #fff 0 46%, #cfe0f2 50% 60%, transparent 64%)", 80, 66, 12, 12),
+        L("radial-gradient(circle at center, #fff 0 46%, #cfe0f2 50% 60%, transparent 64%)", 83, 56, 7, 8),
+    ])
+    autumn = block("autumn", [
+        L("linear-gradient(#a8622a, #8a4e1e)", 0, 88, 100, 12),
+        L("linear-gradient(#5b3d24, #4a301b)", 14, 30, 6, 62),
+        L("linear-gradient(#5b3d24, #4a301b)", 74, 24, 7, 68),
+        L("radial-gradient(ellipse at center, #d9531e 0 68%, transparent 72%)", -2, 4, 34, 36),
+        L("radial-gradient(ellipse at center, #e8832a 0 68%, transparent 72%)", 8, 12, 24, 24),
+        L("radial-gradient(ellipse at center, #c23b22 0 68%, transparent 72%)", 62, 0, 38, 36),
+        L("radial-gradient(ellipse at center, #eba033 0 68%, transparent 72%)", 70, 12, 24, 24),
+        "linear-gradient(#f4b66a, #fbe3b8 56%)",
+    ], [
+        L("radial-gradient(ellipse at center, #d9531e 0 55%, transparent 60%)", 30, 92, 7, 4),
+        L("radial-gradient(ellipse at center, #eba033 0 55%, transparent 60%)", 48, 94, 7, 4),
+        L("radial-gradient(ellipse at center, #c23b22 0 55%, transparent 60%)", 62, 91, 7, 4),
+        L("radial-gradient(ellipse at center, #e8832a 0 55%, transparent 60%)", 40, 40, 4, 3),
+        L("radial-gradient(ellipse at center, #d9531e 0 55%, transparent 60%)", 54, 62, 4, 3),
+    ])
+    stars = block("stars", [
+        "radial-gradient(ellipse 80% 24% at 22% 100%, #0e1438 98%, transparent 100%)",
+        "radial-gradient(ellipse 70% 20% at 86% 100%, #121a44 98%, transparent 100%)",
+        "linear-gradient(#0b1030, #1d2b6b 66%, #34459a)",
+    ], [
+        L("radial-gradient(circle at center, #fff6c8 0 40%, transparent 44%)", 70, 8, 16, 16),
+        L("radial-gradient(circle at center, #1b2866 0 40%, transparent 44%)", 74, 6, 14, 14),
+        L("radial-gradient(circle at center, #fff 0 30%, transparent 36%)", 10, 8, 3, 3),
+        L("radial-gradient(circle at center, #fff 0 30%, transparent 36%)", 26, 20, 2, 2),
+        L("radial-gradient(circle at center, #fff 0 30%, transparent 36%)", 42, 6, 3, 3),
+        L("radial-gradient(circle at center, #fff 0 30%, transparent 36%)", 56, 28, 2, 2),
+        L("radial-gradient(circle at center, #fff 0 30%, transparent 36%)", 34, 38, 2, 2),
+        L("radial-gradient(circle at center, #fff 0 30%, transparent 36%)", 90, 32, 3, 3),
+        L("radial-gradient(circle at center, #ffe9a8 0 30%, transparent 36%)", 18, 34, 3, 3),
+        L("radial-gradient(circle at center, #fff 0 30%, transparent 36%)", 60, 50, 2, 2),
+        L("radial-gradient(circle at center, #fff 0 30%, transparent 36%)", 8, 52, 2, 2),
+    ])
+    season = ".scene-season {\n  background: linear-gradient(135deg, #ffb7d0 0 25%, #86cf58 25% 50%, #e8832a 50% 75%, #cfe0f2 75%);\n}\n"
     header = (
         "/* 画面の背景(景色)。CSS だけで描く。.scene（画面の背景の層）と .scene-thumb（設定の見本）の両方で使う。\n"
         "   このファイルは tools/gen_scenes.py で作る（手で直さず、スクリプトを直して作り直す）。 */\n"
         ".scene-thumb { position: relative; display: inline-block; width: 56px; height: 44px; border-radius: 6px; overflow: hidden; border: 1px solid #0003; flex: none; }\n"
-        ".scene-room::after, .scene-tatami::after, .scene-meadow::after, .scene-forest::after, .scene-beach::after { content: \"\"; position: absolute; inset: 0; }\n\n"
+        ".scene-room::after, .scene-tatami::after, .scene-meadow::after, .scene-forest::after, .scene-beach::after, .scene-sakura::after, .scene-snow::after, .scene-autumn::after, .scene-stars::after { content: \"\"; position: absolute; inset: 0; }\n\n"
     )
     return (
         header
@@ -111,6 +179,11 @@ def build():
         + "\n/* そうげん: 空・雲・おか・草 */\n" + meadow
         + "\n/* もり: こもれび・木・おちば */\n" + forest
         + "\n/* うみべ: 空・海・なみ・砂はま */\n" + beach
+        + "\n/* よざくら: 夜空・月・さくらの木 */\n" + sakura
+        + "\n/* ゆきげしき: ゆき・雪だるま */\n" + snow
+        + "\n/* あき: 夕やけ・紅葉・おちば */\n" + autumn
+        + "\n/* ほしぞら: 夜空・月・星 */\n" + stars
+        + "\n/* 季節にまかせる（設定の見本だけ。画面では、そのときの季節の背景を使う） */\n" + season
     )
 
 
