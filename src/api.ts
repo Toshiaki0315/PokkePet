@@ -284,11 +284,15 @@ export function playMinigame(guess: Side): Promise<MiniGameReport> {
   return invoke<MiniGameReport>("play_minigame", { guess });
 }
 
+export type SeasonName = "spring" | "summer" | "autumn" | "winter";
+
 export interface SouvenirEntry {
   id: string;
   name: string;
   emoji: string;
   rarity: number;
+  /** 季節限定なら、その季節（その季節にしか見つからない） */
+  season: SeasonName | null;
   count: number;
   displayed: boolean;
 }

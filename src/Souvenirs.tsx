@@ -8,8 +8,12 @@ const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export const RARITY_NAMES = ["よくある", "めずらしい", "とてもめずらしい"] as const;
 
+/** 季節限定のしるし。 */
+export const SEASON_MARKS = { spring: "🌸", summer: "🌻", autumn: "🍁", winter: "❄️" } as const;
+const SEASON_NAMES = { spring: "春", summer: "夏", autumn: "秋", winter: "冬" } as const;
+
 // 集めていないおみやげは名前を出さない（アクセシビリティ名も「まだ」）。
-const label = (e: SouvenirEntry) => (e.count > 0 ? `${e.name}（${RARITY_NAMES[e.rarity]}）` : "まだ見つけていない");
+const label = (e: SouvenirEntry) => (e.count > 0 ? `${e.name}（${RARITY_NAMES[e.rarity]}${e.season ? `・${SEASON_NAMES[e.season]}限定` : ""}）` : e.season ? `まだ見つけていない（${SEASON_NAMES[e.season]}限定）` : "まだ見つけていない");
 
 /** メニューバーの「おみやげ…」から開く、おでかけで持ち帰ったおみやげのコレクション。クリックで画面に飾る／しまう。 */
 export default function Souvenirs() {
@@ -52,7 +56,7 @@ export default function Souvenirs() {
             </span>
             <progress aria-label="集めた数" role="progressbar" aria-valuenow={book.found} max={book.total} value={book.found} />
           </div>
-          <p className="hint">持っているものをクリックすると、画面に飾れます（{book.maxDisplayed} つまで）。</p>
+          <p className="hint">持っているものをクリックすると、画面に飾れます（{book.maxDisplayed} つまで）。🌸🌻🍁❄️ のしるしは、その季節にしか見つからないものです。</p>
           <ul className="grid" aria-label="おみやげ">
             {book.entries.map((e) => (
               <li key={e.id}>
@@ -60,6 +64,11 @@ export default function Souvenirs() {
                   <span className="emoji" aria-hidden="true">
                     {e.count > 0 ? e.emoji : "？"}
                   </span>
+                  {e.season && (
+                    <span className="season" aria-hidden="true">
+                      {SEASON_MARKS[e.season]}
+                    </span>
+                  )}
                   {e.count > 1 && <span className="count">×{e.count}</span>}
                 </button>
               </li>
