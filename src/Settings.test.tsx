@@ -21,7 +21,7 @@ vi.mock("./sound", () => ({
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, background: "classic", bubbleSeconds: 8, birthdayMonth: 0, birthdayDay: 0, breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, background: "classic", bubbleSeconds: 8, legacyStrength: 2, birthdayMonth: 0, birthdayDay: 0, breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 const unlisten = vi.fn();
 
@@ -184,6 +184,17 @@ describe("Settings dialog", () => {
       await userEvent.selectOptions(month, "なし");
       expect(api.saveSettings).toHaveBeenLastCalledWith({ ...custom, birthdayMonth: 0, birthdayDay: 0 });
     });
+  });
+
+  it("chooses how strongly the next generation takes after its parent", async () => {
+    render(<Settings />);
+    const select = await screen.findByRole("combobox", { name: "引き継ぎの強さ" });
+    expect(select).toHaveValue("2");
+    expect(within(select).getAllByRole("option").map((o) => o.textContent)).toEqual(["受け継がない", "弱い", "ふつう", "強い"]);
+    await userEvent.selectOptions(select, "強い");
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, legacyStrength: 3 });
+    await userEvent.selectOptions(select, "受け継がない");
+    expect(api.saveSettings).toHaveBeenLastCalledWith({ ...custom, legacyStrength: 0 });
   });
 
   it("shows and saves the strict-mode switch", async () => {

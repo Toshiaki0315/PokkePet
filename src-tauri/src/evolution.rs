@@ -127,16 +127,28 @@ impl Growth {
     }
 }
 
-/// 履歴から性格を決定する。最多の行動に対応し、同数・全0なら `legacy`（親から受け継いだ性格）、
-/// それも無ければ Calm。
-pub fn personality_from(h: &History, legacy: Option<Personality>) -> Personality {
-    let counts = [
+/// 親から受け継ぐ性格の強さ（「行動 N 回ぶん」の加点）の選びかたと、既定。設定「引き継ぎの強さ」で選ぶ。
+pub const LEGACY_BONUSES: [u32; 4] = [0, 10, 25, 60];
+pub const DEFAULT_LEGACY_BONUS: u32 = 25;
+
+/// 履歴から性格を決定する。それぞれの性格の点数（食べさせた回数・遊んだ回数・掃除した回数）に、
+/// 親から受け継いだ性格（`legacy`）へ `legacy_bonus` 点を足して、いちばん高いものになる。
+/// 受け継ぐ強さが大きいほど、親に似やすい（子が親と違う行動を、それ以上重ねると、性格が変わる）。
+/// 点数がそろって決まらない・何もしていないときは `legacy`、それも無ければ Calm。
+pub fn personality_from(h: &History, legacy: Option<Personality>, legacy_bonus: u32) -> Personality {
+    let mut scores = [
         (h.feeds + h.snacks, Personality::Gluttonous),
         (h.plays, Personality::Playful),
         (h.cleans, Personality::Tidy),
+        (0, Personality::Calm),
     ];
-    let top = counts.iter().map(|c| c.0).max().unwrap_or(0);
-    let mut leaders = counts.iter().filter(|c| c.0 == top);
+    if let Some(parent) = legacy {
+        for score in scores.iter_mut().filter(|score| score.1 == parent) {
+            score.0 += legacy_bonus;
+        }
+    }
+    let top = scores.iter().map(|score| score.0).max().unwrap_or(0);
+    let mut leaders = scores.iter().filter(|score| score.0 == top);
     match (leaders.next(), leaders.next()) {
         (Some(&(n, p)), None) if n > 0 => p,
         _ => legacy.unwrap_or(Personality::Calm),
@@ -156,7 +168,7 @@ pub fn branch_from(s: &Status, adjust: i16) -> Branch {
 }
 
 /// 進化先の形態（段階は進化後の段階）。
-pub fn evolve(stage: u8, s: &Status, h: &History, legacy: Option<Personality>, adjust: i16, legend: bool) -> Form {
+pub fn evolve(stage: u8, s: &Status, h: &History, legacy: Option<Personality>, legacy_bonus: u32, adjust: i16, legend: bool) -> Form {
     let next = stage.saturating_add(1).min(MAX_STAGE);
     let branch = match branch_from(s, adjust) {
         Branch::Good if legend && next == MAX_STAGE => Branch::Legend,
@@ -165,7 +177,7 @@ pub fn evolve(stage: u8, s: &Status, h: &History, legacy: Option<Personality>, a
     Form {
         stage: next,
         branch,
-        personality: personality_from(h, legacy),
+        personality: personality_from(h, legacy, legacy_bonus),
     }
 }
 
@@ -189,7 +201,7 @@ mod tests {
     fn the_hidden_form_appears_only_at_the_final_stage_and_only_for_a_good_pet() {
         let good = st(90, 90);
         let h = History::default();
-        let at = |stage: u8, s: &Status, legend: bool| evolve(stage, s, &h, None, 0, legend);
+        let at = |stage: u8, s: &Status, legend: bool| evolve(stage, s, &h, None, 0, 0, legend);
         assert_eq!(at(MAX_STAGE - 1, &good, true).branch, Branch::Legend);
         assert_eq!(at(MAX_STAGE - 1, &good, false).branch, Branch::Good);
         assert_eq!(at(MAX_STAGE - 2, &good, true).branch, Branch::Good, "not yet the last stage");
@@ -328,25 +340,58 @@ mod tests {
 
     #[test]
     fn the_parents_personality_is_the_default_for_a_new_pet() {
-        assert_eq!(personality_from(&History::default(), Some(Personality::Playful)), Personality::Playful);
+        assert_eq!(personality_from(&History::default(), Some(Personality::Playful), 0), Personality::Playful);
         let tie = History { feeds: 3, plays: 3, cleans: 0, snacks: 0 };
-        assert_eq!(personality_from(&tie, Some(Personality::Tidy)), Personality::Tidy);
+        assert_eq!(personality_from(&tie, Some(Personality::Tidy), 0), Personality::Tidy);
     }
 
     #[test]
     fn what_the_new_pet_actually_does_overrides_the_inherited_personality() {
         let h = History { feeds: 0, plays: 0, cleans: 5, snacks: 0 };
-        assert_eq!(personality_from(&h, Some(Personality::Playful)), Personality::Tidy);
+        assert_eq!(personality_from(&h, Some(Personality::Playful), 0), Personality::Tidy);
+    }
+
+    #[test]
+    fn the_inheritance_bonus_makes_the_child_take_after_the_parent_until_it_does_enough_of_something_else() {
+        let parent = Some(Personality::Tidy);
+        let doing = |plays| History { feeds: 0, plays, cleans: 0, snacks: 0 };
+        assert_eq!(personality_from(&doing(10), parent, 0), Personality::Playful, "no bonus: what it does wins");
+        assert_eq!(personality_from(&doing(10), parent, 25), Personality::Tidy, "25 points of fondness for the parent");
+        assert_eq!(personality_from(&doing(25), parent, 25), Personality::Tidy, "a tie goes to the parent");
+        assert_eq!(personality_from(&doing(26), parent, 25), Personality::Playful, "enough of something else wins");
+    }
+
+    #[test]
+    fn a_calm_parent_makes_calm_children_who_need_a_clear_lead_to_change() {
+        let parent = Some(Personality::Calm);
+        let doing = |cleans| History { feeds: 0, plays: 0, cleans, snacks: 0 };
+        assert_eq!(personality_from(&doing(10), parent, 25), Personality::Calm);
+        assert_eq!(personality_from(&doing(40), parent, 25), Personality::Tidy);
+        assert_eq!(personality_from(&doing(10), parent, 0), Personality::Tidy);
+    }
+
+    #[test]
+    fn the_inheritance_bonus_only_helps_the_parents_personality() {
+        let h = History { feeds: 5, plays: 0, cleans: 0, snacks: 0 };
+        assert_eq!(personality_from(&h, None, 60), Personality::Gluttonous, "no parent, no bonus");
+        assert_eq!(personality_from(&History::default(), Some(Personality::Playful), 60), Personality::Playful);
+    }
+
+    #[test]
+    fn the_strengths_you_can_choose_grow_and_the_default_is_the_normal_one() {
+        assert!(LEGACY_BONUSES.windows(2).all(|w| w[0] < w[1]));
+        assert_eq!(LEGACY_BONUSES[0], 0);
+        assert_eq!(LEGACY_BONUSES[2], DEFAULT_LEGACY_BONUS);
     }
 
     #[test]
     fn without_a_legacy_the_default_is_still_calm() {
-        assert_eq!(personality_from(&History::default(), None), Personality::Calm);
+        assert_eq!(personality_from(&History::default(), None, 0), Personality::Calm);
     }
 
     #[test]
     fn evolving_passes_the_legacy_on() {
-        let f = evolve(2, &st(90, 90), &History::default(), Some(Personality::Gluttonous), 0, false);
+        let f = evolve(2, &st(90, 90), &History::default(), Some(Personality::Gluttonous), 0, 0, false);
         assert_eq!(f.personality, Personality::Gluttonous);
     }
 
@@ -359,7 +404,7 @@ mod tests {
 
     #[test]
     fn personality_is_calm_without_history() {
-        assert_eq!(personality_from(&History::default(), None), Personality::Calm);
+        assert_eq!(personality_from(&History::default(), None, 0), Personality::Calm);
     }
 
     #[test]
@@ -367,23 +412,23 @@ mod tests {
         let play = History { feeds: 1, plays: 5, cleans: 2, snacks: 0 };
         let feed = History { feeds: 9, plays: 5, cleans: 2, snacks: 0 };
         let clean = History { feeds: 1, plays: 5, cleans: 7, snacks: 0 };
-        assert_eq!(personality_from(&play, None), Personality::Playful);
-        assert_eq!(personality_from(&feed, None), Personality::Gluttonous);
-        assert_eq!(personality_from(&clean, None), Personality::Tidy);
+        assert_eq!(personality_from(&play, None, 0), Personality::Playful);
+        assert_eq!(personality_from(&feed, None, 0), Personality::Gluttonous);
+        assert_eq!(personality_from(&clean, None, 0), Personality::Tidy);
     }
 
     #[test]
     fn snacks_count_towards_a_gluttonous_personality() {
         let h = History { feeds: 1, plays: 4, cleans: 2, snacks: 4 };
-        assert_eq!(personality_from(&h, None), Personality::Gluttonous); // 1 + 4 = 5 > 4
+        assert_eq!(personality_from(&h, None, 0), Personality::Gluttonous); // 1 + 4 = 5 > 4
         let only_snacks = History { snacks: 3, ..History::default() };
-        assert_eq!(personality_from(&only_snacks, None), Personality::Gluttonous);
+        assert_eq!(personality_from(&only_snacks, None, 0), Personality::Gluttonous);
     }
 
     #[test]
     fn snacks_and_feeds_add_up_in_a_tie_check() {
         let h = History { feeds: 2, plays: 4, cleans: 0, snacks: 2 };
-        assert_eq!(personality_from(&h, None), Personality::Calm); // 2 + 2 = 4 は遊ぶと同数
+        assert_eq!(personality_from(&h, None, 0), Personality::Calm); // 2 + 2 = 4 は遊ぶと同数
     }
 
     #[test]
@@ -395,7 +440,7 @@ mod tests {
     #[test]
     fn personality_is_calm_on_tie_for_top() {
         let h = History { feeds: 4, plays: 4, cleans: 1, snacks: 0 };
-        assert_eq!(personality_from(&h, None), Personality::Calm);
+        assert_eq!(personality_from(&h, None, 0), Personality::Calm);
     }
 
     #[test]
@@ -417,7 +462,7 @@ mod tests {
     #[test]
     fn evolve_combines_next_stage_branch_and_personality() {
         let h = History { feeds: 0, plays: 3, cleans: 0, snacks: 0 };
-        let f = evolve(2, &st(90, 90), &h, None, 0, false);
+        let f = evolve(2, &st(90, 90), &h, None, 0, 0, false);
         assert_eq!(
             f,
             Form { stage: 3, branch: Branch::Good, personality: Personality::Playful }
@@ -426,7 +471,7 @@ mod tests {
 
     #[test]
     fn evolve_caps_stage_at_max() {
-        let f = evolve(MAX_STAGE, &st(50, 50), &History::default(), None, 0, false);
+        let f = evolve(MAX_STAGE, &st(50, 50), &History::default(), None, 0, 0, false);
         assert_eq!(f.stage, MAX_STAGE);
     }
 }

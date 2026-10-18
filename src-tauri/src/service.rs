@@ -385,6 +385,11 @@ impl GameService {
         Ok(self.view(&state))
     }
 
+    /// 旅立った親の性格を子が受け継ぐ強さ（加点）。設定から与える。
+    pub fn set_legacy_bonus(&self, bonus: u32) {
+        self.lock().legacy_bonus = bonus;
+    }
+
     /// きびしいモード（お別れがある）か。設定から与える。
     pub fn set_strict(&self, strict: bool) {
         self.lock().strict = strict;
@@ -1276,6 +1281,14 @@ mod tests {
         assert_eq!((today.feeds, today.plays, today.strokes), (1, 1, 1));
         let json = serde_json::to_value(s.diary()).unwrap();
         assert_eq!((json["today"]["feeds"].as_u64(), json["today"]["strokes"].as_u64()), (Some(1), Some(1)));
+    }
+
+    #[test]
+    fn the_inheritance_strength_from_the_settings_reaches_the_game() {
+        let s = svc("legacy-bonus");
+        assert_eq!(s.lock().legacy_bonus, crate::evolution::DEFAULT_LEGACY_BONUS);
+        s.set_legacy_bonus(60);
+        assert_eq!(s.lock().legacy_bonus, 60);
     }
 
     #[test]
