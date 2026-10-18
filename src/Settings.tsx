@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { getSettings, onSettingsChanged, saveSettings } from "./api";
 import type { Settings as SettingsModel } from "./api";
-import { BACKGROUNDS, BUBBLE_SECONDS_CHOICES, DEFAULT_SETTINGS, PRESETS } from "./defaults";
+import { BACKGROUNDS, BUBBLE_SECONDS_CHOICES, DEFAULT_SETTINGS, LEGACY_STRENGTHS, PRESETS } from "./defaults";
 import { useSound } from "./sound";
 import { useListener } from "./useListener";
 import "./Settings.css";
@@ -172,6 +172,17 @@ export default function Settings() {
           <input type="checkbox" checked={settings.strictMode} onChange={(e) => patch({ strictMode: e.target.checked })} />
           きびしいモード
         </label>
+        <label className="row">
+          引き継ぎの強さ
+          <select aria-label="引き継ぎの強さ" value={settings.legacyStrength} onChange={(e) => patch({ legacyStrength: Number(e.target.value) })}>
+            {LEGACY_STRENGTHS.map(({ value, name }) => (
+              <option key={value} value={value}>
+                {name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <p className="hint">旅立った親の性格（種族）を、次の世代がどれだけ受け継ぐか。強いほど、親に似た子が生まれ、違う種族にするには、たくさん世話の仕方を変える必要があります。</p>
         <p className="hint">病気を治さずに放っておいたり、おなかもご機嫌もゼロのまま長く放置すると、お別れ（死）があります。ふだんは、こまめにお世話すれば心配いりません。</p>
       </fieldset>
 

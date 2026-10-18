@@ -7,6 +7,7 @@ use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 
+use crate::evolution::{DEFAULT_LEGACY_BONUS, LEGACY_BONUSES};
 use crate::sleep::{SleepWindow, DEFAULT_SLEEP_END_HOUR, DEFAULT_SLEEP_START_HOUR};
 
 /// ポップアップの大きさ（論理ピクセル）。ゲージを出すときは縦に広げる。
@@ -21,6 +22,8 @@ pub const BACKGROUNDS: [&str; 11] = ["classic", "season", "room", "tatami", "mea
 /// 吹き出しを出しておく長さ（秒）の既定と上限。0 は「ずっと出しておく」。
 pub const DEFAULT_BUBBLE_SECONDS: u8 = 8;
 pub const BUBBLE_SECONDS_MAX: u8 = 60;
+/// 引き継ぎの強さ（0 = なし・1 = 弱い・2 = ふつう・3 = 強い）の既定。
+pub const DEFAULT_LEGACY_STRENGTH: u8 = 2;
 pub const DEFAULT_BACKGROUND: &str = "classic";
 pub const DEFAULT_BODY_COLOR: &str = "#4b5fb8";
 pub const DEFAULT_BUTTON_COLOR: &str = "#f280a8";
@@ -50,6 +53,8 @@ pub struct Settings {
     /// 飼い主のお誕生日（月 1〜12・日 1〜31。どちらも 0 なら、設定なし）。その日、ペットがお祝いする。
     pub birthday_month: u8,
     pub birthday_day: u8,
+    /// 旅立った親の性格を、子が受け継ぐ強さ（0 = なし・1 = 弱い・2 = ふつう・3 = 強い）。
+    pub legacy_strength: u8,
     /// 吹き出しを出しておく長さ（秒。0〜60）。過ぎると、すっと消える。0 なら、ずっと出しておく。
     pub bubble_seconds: u8,
     /// Mac の状態（電池・ネット・ダークモード）にペットが反応する。
@@ -77,6 +82,7 @@ impl Default for Settings {
             system_reactions: true,
             background: DEFAULT_BACKGROUND.to_string(),
             bubble_seconds: DEFAULT_BUBBLE_SECONDS,
+            legacy_strength: DEFAULT_LEGACY_STRENGTH,
             birthday_month: 0,
             birthday_day: 0,
             break_reminder: true,
@@ -103,6 +109,9 @@ impl Settings {
         if !BACKGROUNDS.contains(&self.background.as_str()) {
             return Err(format!("background must be one of {BACKGROUNDS:?}: {:?}", self.background));
         }
+        if usize::from(self.legacy_strength) >= LEGACY_BONUSES.len() {
+            return Err(format!("legacyStrength must be 0-{}: {}", LEGACY_BONUSES.len() - 1, self.legacy_strength));
+        }
         check_birthday(self.birthday_month, self.birthday_day)?;
         if self.bubble_seconds > BUBBLE_SECONDS_MAX {
             return Err(format!("bubbleSeconds must be 0-{BUBBLE_SECONDS_MAX}: {}", self.bubble_seconds));
@@ -114,6 +123,11 @@ impl Settings {
     /// ポップアップの高さ。ゲージを出さないときは、空きが大きくならないよう低くする。
     pub fn popup_height(&self) -> f64 {
         if self.show_gauges { POPUP_HEIGHT_WITH_GAUGES } else { POPUP_HEIGHT }
+    }
+
+    /// 親の性格を受け継ぐ強さを、点数にしたもの。
+    pub fn legacy_bonus(&self) -> u32 {
+        LEGACY_BONUSES.get(usize::from(self.legacy_strength)).copied().unwrap_or(DEFAULT_LEGACY_BONUS)
     }
 
     /// 飼い主のお誕生日（月, 日）。設定されていなければ None。
@@ -416,6 +430,23 @@ mod tests {
         with(3, 15).save(&p).unwrap();
         assert_eq!(Settings::load(&p).unwrap().birthday(), Some((3, 15)));
         assert_eq!(serde_json::to_value(with(3, 15)).unwrap()["birthdayMonth"], 3);
+    }
+
+    #[test]
+    fn the_inheritance_strength_is_normal_by_default_and_maps_to_points() {
+        assert_eq!(Settings::default().legacy_strength, 2);
+        assert_eq!(Settings::default().legacy_bonus(), 25);
+        let with = |strength| Settings { legacy_strength: strength, ..Settings::default() };
+        assert_eq!([with(0).legacy_bonus(), with(1).legacy_bonus(), with(3).legacy_bonus()], [0, 10, 60]);
+        for strength in 0..=3 {
+            assert!(with(strength).validate().is_ok(), "{strength}");
+        }
+        assert!(with(4).validate().unwrap_err().contains("legacyStrength"));
+        assert_eq!(with(4).legacy_bonus(), 25, "an unknown strength falls back to the default");
+        let p = tmp("legacy-strength");
+        with(3).save(&p).unwrap();
+        assert_eq!(Settings::load(&p).unwrap().legacy_bonus(), 60);
+        assert_eq!(serde_json::to_value(Settings::default()).unwrap()["legacyStrength"], 2);
     }
 
     #[test]

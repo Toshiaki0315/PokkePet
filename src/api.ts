@@ -160,6 +160,8 @@ export interface Settings {
   background: Background;
   /** 吹き出しを出しておく長さ（秒）。0 ならずっと出しておく */
   bubbleSeconds: number;
+  /** 旅立った親の性格を子が受け継ぐ強さ（0=なし 1=弱い 2=ふつう 3=強い） */
+  legacyStrength: number;
   /** 飼い主のお誕生日（月 1〜12・日 1〜31。どちらも 0 ならなし）。その日、ペットがお祝いする */
   birthdayMonth: number;
   birthdayDay: number;

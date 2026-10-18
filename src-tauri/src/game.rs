@@ -14,7 +14,7 @@ use crate::genome::{record_ancestor, Ancestor, EggCode, Genome};
 use crate::seasons::Season;
 use crate::souvenirs::{self, SouvenirBook, OUTING_MIN_SECS};
 use crate::minigame::Rng;
-use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
+use crate::evolution::{evolve, DEFAULT_LEGACY_BONUS, Branch, Form, Growth, History, Personality};
 use crate::dex::form_key;
 use crate::diary::{self, DiaryEntry, DiaryEvent, DAY_SECS};
 use crate::sleep::{is_sleeping, SleepWindow};
@@ -120,6 +120,9 @@ pub struct GameState {
     /// きびしいモードか。設定から与えられる実行時の値で、セーブには含めない。
     #[serde(skip)]
     pub strict: bool,
+    /// 親から性格を受け継ぐ強さ（加点）。設定から与えられる実行時の値で、セーブには含めない。
+    #[serde(skip, default = "default_legacy_bonus")]
+    pub legacy_bonus: u32,
     /// 何代目か（最初のペットが 1）。
     #[serde(default = "first_generation")]
     pub generation: u32,
@@ -165,6 +168,10 @@ pub struct Timeline {
 
 fn yes() -> bool {
     true
+}
+
+fn default_legacy_bonus() -> u32 {
+    DEFAULT_LEGACY_BONUS
 }
 
 fn first_generation() -> u32 {
@@ -219,6 +226,7 @@ impl GameState {
             forced_sleep_until: None,
             awake_override_until: None,
             strict: false,
+            legacy_bonus: DEFAULT_LEGACY_BONUS,
             generation: 1,
             legacy: None,
         };
@@ -603,7 +611,7 @@ impl GameState {
         let mut advanced = self.growth.advance(secs);
         while advanced {
             let previous_stage = self.growth.stage - 1;
-            self.form = evolve(previous_stage, &self.status, &self.history, self.legacy, self.care.score_adjustment(), self.care.is_legendary());
+            self.form = evolve(previous_stage, &self.status, &self.history, self.legacy, self.legacy_bonus, self.care.score_adjustment(), self.care.is_legendary());
             self.care.evolved();
             self.record_form();
             self.remember(if previous_stage <= 1 {
@@ -981,16 +989,45 @@ mod tests {
     }
 
     #[test]
-    fn what_the_next_pet_does_overrides_the_inheritance() {
+    fn what_the_next_pet_does_overrides_the_inheritance_once_it_does_enough_of_it() {
         let mut s = elder_state();
         s.graduate().unwrap();
         s.legacy = Some(Personality::Tidy);
         s.step(EGG_SECS);
-        for _ in 0..4 {
+        for _ in 0..(DEFAULT_LEGACY_BONUS + 5) {
             s.apply(Action::Snack);
         }
-        s.step(stage_secs(2));
+        s.evolve_for(stage_secs(2));
         assert_eq!(s.form.personality, Personality::Gluttonous);
+    }
+
+    #[test]
+    fn a_few_different_actions_do_not_make_the_child_unlike_its_parent_unless_the_inheritance_is_weak() {
+        let run = |bonus: u32| {
+            let mut s = elder_state();
+            s.graduate().unwrap();
+            s.legacy = Some(Personality::Tidy);
+            s.legacy_bonus = bonus;
+            s.step(EGG_SECS);
+            for _ in 0..8 {
+                s.apply(Action::Snack);
+            }
+            s.evolve_for(stage_secs(2));
+            s.form.personality
+        };
+        assert_eq!(run(DEFAULT_LEGACY_BONUS), Personality::Tidy, "8 snacks against a 25-point bonus");
+        assert_eq!(run(0), Personality::Gluttonous, "with no inheritance the 8 snacks decide");
+    }
+
+    #[test]
+    fn the_inheritance_strength_is_not_saved_and_old_saves_get_the_default() {
+        let mut s = new_state();
+        s.legacy_bonus = 99;
+        let json: serde_json::Value = serde_json::from_str(&s.to_json()).unwrap();
+        assert!(json.get("legacy_bonus").is_none() && json.get("legacyBonus").is_none());
+        let back: GameState = serde_json::from_value(json).unwrap();
+        assert_eq!(back.legacy_bonus, DEFAULT_LEGACY_BONUS);
+        assert_eq!(new_state().legacy_bonus, DEFAULT_LEGACY_BONUS);
     }
 
     #[test]

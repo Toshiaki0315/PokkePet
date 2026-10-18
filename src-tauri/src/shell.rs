@@ -198,6 +198,7 @@ pub fn save_settings(app: AppHandle, svc: State<SettingsService>, game: State<Ga
     game.set_strict(saved.strict_mode);
     game.set_auto_sleep(saved.auto_sleep);
     game.set_birthday(saved.birthday());
+    game.set_legacy_bonus(saved.legacy_bonus());
     apply_popup_size(&app, &saved);
     let _ = app.emit(SETTINGS_EVENT, saved.clone());
     let _ = app.emit(STATE_EVENT, game.snapshot());
@@ -257,6 +258,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.state::<GameService>().set_strict(settings.strict_mode);
     app.state::<GameService>().set_auto_sleep(settings.auto_sleep);
     app.state::<GameService>().set_birthday(settings.birthday());
+    app.state::<GameService>().set_legacy_bonus(settings.legacy_bonus());
     app.state::<GameService>().set_events(true);
     let launch_at_login = settings.launch_at_login;
     apply_popup_size(app.handle(), &settings);

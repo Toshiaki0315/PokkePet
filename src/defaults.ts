@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: Settings = {
   systemReactions: true,
   background: "classic",
   bubbleSeconds: 8,
+  legacyStrength: 2,
   birthdayMonth: 0,
   birthdayDay: 0,
   breakReminder: true,
@@ -46,6 +47,14 @@ export const BUBBLE_SECONDS_CHOICES: readonly { seconds: number; name: string }[
   { seconds: 15, name: "15 秒" },
   { seconds: 30, name: "30 秒" },
   { seconds: 0, name: "ずっと出しておく" },
+];
+
+/** 親の性格を受け継ぐ強さの選びかた。 */
+export const LEGACY_STRENGTHS: readonly { value: number; name: string }[] = [
+  { value: 0, name: "受け継がない" },
+  { value: 1, name: "弱い" },
+  { value: 2, name: "ふつう" },
+  { value: 3, name: "強い" },
 ];
 
 export interface Preset {
