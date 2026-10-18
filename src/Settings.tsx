@@ -7,6 +7,10 @@ import { useListener } from "./useListener";
 import "./Settings.css";
 import "./scenes.css";
 
+/** 月ごとの日数（2 月は 29 日まで選べる）。 */
+const DAYS_IN_MONTH = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+const MONTHS = Array.from({ length: 12 }, (_, i) => i + 1);
+
 const HOURS = Array.from({ length: 24 }, (_, hour) => hour);
 
 /** 「22時〜翌6時」のような表示。開始が終了より後なら翌日にまたがる。 */
@@ -57,6 +61,35 @@ export default function Settings() {
           </select>
         </label>
         <p className="hint">ペットのひとことが、これだけ出てから、すっと消えます。</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>お誕生日</legend>
+        <p className="hint">あなたのお誕生日を入れると、その日、ペットがお祝いしてくれます。</p>
+        <div className="row">
+          <label>
+            月
+            <select aria-label="誕生日の月" value={settings.birthdayMonth} onChange={(e) => patch(e.target.value === "0" ? { birthdayMonth: 0, birthdayDay: 0 } : { birthdayMonth: Number(e.target.value), birthdayDay: Math.max(1, Math.min(settings.birthdayDay || 1, DAYS_IN_MONTH[Number(e.target.value) - 1])) })}>
+              <option value={0}>なし</option>
+              {MONTHS.map((month) => (
+                <option key={month} value={month}>
+                  {month}月
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            日
+            <select aria-label="誕生日の日" value={settings.birthdayDay} disabled={settings.birthdayMonth === 0} onChange={(e) => patch({ birthdayDay: Number(e.target.value) })}>
+              {settings.birthdayMonth === 0 && <option value={0}>-</option>}
+              {Array.from({ length: settings.birthdayMonth === 0 ? 0 : DAYS_IN_MONTH[settings.birthdayMonth - 1] }, (_, i) => i + 1).map((day) => (
+                <option key={day} value={day}>
+                  {day}日
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
       </fieldset>
 
       <fieldset>

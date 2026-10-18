@@ -16,7 +16,7 @@ use crate::diary::{self, DiaryView};
 use crate::game::{Action, GameState};
 use crate::minigame::{is_win, Rng, Side};
 use crate::genome::EggCode;
-use crate::events::{event_for, Event};
+use crate::events::{todays_event, Event};
 use crate::rhythm::{chronotype, learned_sleep_window};
 use crate::seasons::{scene_for, season_of};
 use crate::souvenirs::{self, SouvenirView};
@@ -198,13 +198,15 @@ pub struct GameService {
     system: Mutex<SystemInfo>,
     /// 季節のできごとを出すか（アプリでは常にオン。テストでは、1970-01-01（お正月）の時刻を使うので、既定はオフ）。
     events: AtomicBool,
+    /// 飼い主のお誕生日（月, 日）。設定から与える。
+    birthday: Mutex<Option<(u32, u32)>>,
     /// ミニゲームの乱数。
     rng: Mutex<Rng>,
 }
 
 impl GameService {
     pub fn new(state: GameState, path: PathBuf) -> Self {
-        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()), learned_sleep: Mutex::new(None), auto_sleep: AtomicBool::new(false), system: Mutex::new(SystemInfo::default()), events: AtomicBool::new(false), rng: Mutex::new(Rng::new(time_seed())) }
+        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()), learned_sleep: Mutex::new(None), auto_sleep: AtomicBool::new(false), system: Mutex::new(SystemInfo::default()), events: AtomicBool::new(false), birthday: Mutex::new(None), rng: Mutex::new(Rng::new(time_seed())) }
     }
 
     /// 経過時間の倍率（動作確認用）。
@@ -269,6 +271,15 @@ impl GameService {
         self.events.store(on, Ordering::Relaxed);
     }
 
+    /// 飼い主のお誕生日を知らせる（その日、ペットがお祝いする）。
+    pub fn set_birthday(&self, birthday: Option<(u32, u32)>) {
+        *self.birthday.lock().unwrap_or_else(|e| e.into_inner()) = birthday;
+    }
+
+    fn birthday(&self) -> Option<(u32, u32)> {
+        *self.birthday.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn system_info(&self) -> SystemInfo {
         *self.system.lock().unwrap_or_else(|e| e.into_inner())
     }
@@ -313,7 +324,7 @@ impl GameService {
     }
 
     fn view(&self, state: &GameState) -> StateView {
-        view_of(state, self.offset_at(state.last_unix), self.sleep_window(), self.system_info(), self.events.load(Ordering::Relaxed))
+        view_of(state, self.offset_at(state.last_unix), self.sleep_window(), self.system_info(), self.events.load(Ordering::Relaxed), self.birthday())
     }
 
     pub fn snapshot(&self) -> StateView {
@@ -476,12 +487,12 @@ fn poops(stage: u8, dirtiness: u8) -> u8 {
 }
 
 /// 今日（ローカル時刻）の季節のできごと。
-fn event_for_today(unix: u64, utc_offset: i32) -> Option<Event> {
-    let (month, day) = local_month_day(unix, utc_offset);
-    event_for(month, day)
+fn event_for_today(s: &GameState, utc_offset: i32, birthday: Option<(u32, u32)>) -> Option<Event> {
+    let (month, day) = local_month_day(s.last_unix, utc_offset);
+    todays_event(month, day, birthday, s.days_since_start(utc_offset))
 }
 
-fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow, system: SystemInfo, events: bool) -> StateView {
+fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow, system: SystemInfo, events: bool, birthday: Option<(u32, u32)>) -> StateView {
     let forced_sleep = s.forced_asleep();
     let sleeping = forced_sleep || (is_sleeping(s.last_unix, utc_offset, window) && !s.woken_by_force());
     let mut expression = express(&s.status);
@@ -510,7 +521,7 @@ fn view_of(s: &GameState, utc_offset: i32, window: SleepWindow, system: SystemIn
             expression.bubble = Some(Bubble::Offline);
         }
     }
-    let event = events.then(|| event_for_today(s.last_unix, utc_offset)).flatten();
+    let event = events.then(|| event_for_today(s, utc_offset, birthday)).flatten();
     if !sleeping && s.form.stage >= 2 && event.is_some() && matches!(expression.bubble, None | Some(Bubble::Happy)) {
         expression.bubble = Some(Bubble::Event);
     }
@@ -958,8 +969,8 @@ mod tests {
         s.set_events(true);
         let v = s.snapshot();
         assert_eq!(v.expression.bubble, Some(Bubble::Event));
-        let event = v.event.unwrap();
-        assert_eq!((event.emoji, event.message), ("🎍", "あけましておめでとう！"));
+        let event = v.event.clone().unwrap();
+        assert_eq!((event.emoji, event.message.as_str()), ("🎍", "あけましておめでとう！"));
         let json = serde_json::to_value(&v).unwrap();
         assert_eq!(json["event"]["emoji"], "🎍");
         assert_eq!(json["event"]["message"], "あけましておめでとう！");
@@ -984,10 +995,27 @@ mod tests {
     }
 
     #[test]
+    fn the_pet_celebrates_the_owners_birthday_and_the_days_since_the_start() {
+        let s = grown_pet("birthday").with_utc_offset(15 * 3600); // 1970-01-01 が使い始め
+        s.set_events(true);
+        s.lock().last_unix = 100 * 86_400; // 1970-04-11 = 使い始めから 100 日
+        let v = s.snapshot();
+        assert_eq!(v.event.as_ref().map(|e| e.emoji), Some("🎉"), "{:?}", v.event);
+        s.lock().last_unix = 110 * 86_400; // 1970-04-21
+        assert!(s.snapshot().event.is_none());
+        s.set_birthday(Some((4, 21)));
+        let v = s.snapshot();
+        assert_eq!(v.expression.bubble, Some(Bubble::Event));
+        assert_eq!(v.event.as_ref().map(|e| e.emoji), Some("🎂"));
+        s.set_birthday(None);
+        assert!(s.snapshot().event.is_none());
+    }
+
+    #[test]
     fn an_ordinary_day_has_no_event() {
         let s = grown_pet("event-ordinary").with_utc_offset(15 * 3600);
         s.set_events(true);
-        s.lock().last_unix = 100 * 86_400; // 1970-04-11
+        s.lock().last_unix = 101 * 86_400; // 1970-04-12
         assert!(s.snapshot().event.is_none());
     }
 

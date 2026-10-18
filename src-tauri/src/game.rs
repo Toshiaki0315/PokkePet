@@ -94,6 +94,9 @@ pub struct GameState {
     /// きょう（ローカル時刻）の出来事と、その日番号。日が変わると、絵日記として思い出に書く。
     #[serde(default)]
     pub today: DayStats,
+    /// アプリを使い始めた時刻（UNIX秒）。使い始めの記念日に使う。古いセーブは、最初に時間を進めたときの時刻から数える。
+    #[serde(default)]
+    pub app_started_unix: u64,
     #[serde(default)]
     pub day_index: i64,
     /// いまのペットの見た目の特徴（色あい・飾り）。
@@ -206,6 +209,7 @@ impl GameState {
             companion: Companion::default(),
             souvenirs: SouvenirBook::default(),
             today: DayStats::default(),
+            app_started_unix: now_unix,
             day_index: i64::MIN,
             genome: Genome::default(),
             lineage: Vec::new(),
@@ -399,6 +403,11 @@ impl GameState {
         self.care = Care::default();
         self.record_form();
         self.remember(DiaryEvent::Born);
+    }
+
+    /// 使い始めから、ローカルの日付で何日たったか（使い始めの日が 0）。
+    pub fn days_since_start(&self, utc_offset: i32) -> i64 {
+        day_number(self.last_unix, utc_offset) - day_number(self.app_started_unix.min(self.last_unix), utc_offset)
     }
 
     /// 日が変わっていたら、前の日の絵日記を思い出に書いて、きょうの数え直しを始める（何もなかった日は書かない）。
@@ -623,6 +632,9 @@ impl GameState {
         let elapsed = now_unix.saturating_sub(start_unix);
         self.last_unix = now_unix;
         self.roll_day(now_unix, utc_offset);
+        if self.app_started_unix == 0 {
+            self.app_started_unix = now_unix;
+        }
         if elapsed == 0 {
             return 0;
         }
@@ -1802,6 +1814,29 @@ mod tests {
         assert_eq!((back.today, back.day_index), (DayStats::default(), 0));
         back.step_to_in(back.last_unix + 60, 1, 0, SleepWindow::default());
         assert!(day_logs(&back).is_empty());
+    }
+
+    #[test]
+    fn the_days_since_the_start_follow_the_local_calendar() {
+        let mut s = GameState::new(10 * 86_400 + 23 * 3600); // 11 月...ではなく、1970 年の 10 日の 23 時
+        assert_eq!(s.days_since_start(0), 0);
+        s.step_to_in(11 * 86_400 + 60, 1, 0, SleepWindow::default());
+        assert_eq!(s.days_since_start(0), 1, "past midnight is already the next day");
+        assert_eq!(s.days_since_start(-3600 * 2), 0, "still the same day in a later time zone");
+        s.step_to_in(110 * 86_400 + 5, 1, 0, SleepWindow::default());
+        assert_eq!(s.days_since_start(0), 100);
+    }
+
+    #[test]
+    fn an_old_save_starts_counting_days_from_its_next_step() {
+        let mut json: serde_json::Value = serde_json::from_str(&new_state().to_json()).unwrap();
+        json.as_object_mut().unwrap().remove("app_started_unix");
+        json.as_object_mut().unwrap().remove("appStartedUnix");
+        let mut back: GameState = serde_json::from_value(json).unwrap();
+        assert_eq!(back.app_started_unix, 0);
+        back.step_to_in(back.last_unix + 120, 1, 0, SleepWindow::default());
+        assert_eq!(back.app_started_unix, back.last_unix);
+        assert_eq!(back.days_since_start(0), 0);
     }
 
     #[test]

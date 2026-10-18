@@ -160,6 +160,9 @@ export interface Settings {
   background: Background;
   /** 吹き出しを出しておく長さ（秒）。0 ならずっと出しておく */
   bubbleSeconds: number;
+  /** 飼い主のお誕生日（月 1〜12・日 1〜31。どちらも 0 ならなし）。その日、ペットがお祝いする */
+  birthdayMonth: number;
+  birthdayDay: number;
   /** 長く休憩なしで作業しているとき、「ちょっと休もうよ」と声をかける */
   breakReminder: boolean;
   /** 操作する時間帯から生活リズムを学んで、おやすみ時間を自動で合わせる */

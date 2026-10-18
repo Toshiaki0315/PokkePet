@@ -197,6 +197,7 @@ pub fn save_settings(app: AppHandle, svc: State<SettingsService>, game: State<Ga
     game.set_sleep_window(saved.sleep_window()); // おやすみ時間の変更をすぐ反映する
     game.set_strict(saved.strict_mode);
     game.set_auto_sleep(saved.auto_sleep);
+    game.set_birthday(saved.birthday());
     apply_popup_size(&app, &saved);
     let _ = app.emit(SETTINGS_EVENT, saved.clone());
     let _ = app.emit(STATE_EVENT, game.snapshot());
@@ -255,6 +256,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.state::<GameService>().set_sleep_window(settings.sleep_window());
     app.state::<GameService>().set_strict(settings.strict_mode);
     app.state::<GameService>().set_auto_sleep(settings.auto_sleep);
+    app.state::<GameService>().set_birthday(settings.birthday());
     app.state::<GameService>().set_events(true);
     let launch_at_login = settings.launch_at_login;
     apply_popup_size(app.handle(), &settings);

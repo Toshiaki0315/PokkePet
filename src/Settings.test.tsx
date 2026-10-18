@@ -21,7 +21,7 @@ vi.mock("./sound", () => ({
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, background: "classic", bubbleSeconds: 8, breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, background: "classic", bubbleSeconds: 8, birthdayMonth: 0, birthdayDay: 0, breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 const unlisten = vi.fn();
 
@@ -147,6 +147,43 @@ describe("Settings dialog", () => {
     expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, bubbleSeconds: 30 });
     await userEvent.selectOptions(select, "ずっと出しておく");
     expect(api.saveSettings).toHaveBeenLastCalledWith({ ...custom, bubbleSeconds: 0 });
+  });
+
+  describe("birthday", () => {
+    it("is not set at first, and the day cannot be chosen until a month is", async () => {
+      render(<Settings />);
+      const month = await screen.findByRole("combobox", { name: "誕生日の月" });
+      expect(month).toHaveValue("0");
+      expect(screen.getByRole("combobox", { name: "誕生日の日" })).toBeDisabled();
+    });
+
+    it("saves a month (starting at the 1st) and then a day", async () => {
+      api.getSettings.mockResolvedValue({ ...custom, birthdayMonth: 0, birthdayDay: 0 });
+      render(<Settings />);
+      await userEvent.selectOptions(await screen.findByRole("combobox", { name: "誕生日の月" }), "10月");
+      expect(api.saveSettings).toHaveBeenLastCalledWith({ ...custom, birthdayMonth: 10, birthdayDay: 1 });
+      await userEvent.selectOptions(screen.getByRole("combobox", { name: "誕生日の日" }), "17日");
+      expect(api.saveSettings).toHaveBeenLastCalledWith({ ...custom, birthdayMonth: 10, birthdayDay: 17 });
+    });
+
+    it("keeps the day within the month when the month changes, and offers 29 days for February", async () => {
+      api.getSettings.mockResolvedValue({ ...custom, birthdayMonth: 1, birthdayDay: 31 });
+      render(<Settings />);
+      const month = await screen.findByRole("combobox", { name: "誕生日の月" });
+      await waitFor(() => expect(month).toHaveValue("1"));
+      await userEvent.selectOptions(month, "2月");
+      expect(api.saveSettings).toHaveBeenLastCalledWith({ ...custom, birthdayMonth: 2, birthdayDay: 29 });
+      await waitFor(() => expect(within(screen.getByRole("combobox", { name: "誕生日の日" })).getAllByRole("option")).toHaveLength(29));
+    });
+
+    it("clears both when the month is set back to none", async () => {
+      api.getSettings.mockResolvedValue({ ...custom, birthdayMonth: 5, birthdayDay: 5 });
+      render(<Settings />);
+      const month = await screen.findByRole("combobox", { name: "誕生日の月" });
+      await waitFor(() => expect(month).toHaveValue("5"));
+      await userEvent.selectOptions(month, "なし");
+      expect(api.saveSettings).toHaveBeenLastCalledWith({ ...custom, birthdayMonth: 0, birthdayDay: 0 });
+    });
   });
 
   it("shows and saves the strict-mode switch", async () => {

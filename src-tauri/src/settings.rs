@@ -47,6 +47,9 @@ pub struct Settings {
     pub break_reminder: bool,
     /// 画面の背景（`BACKGROUNDS` のどれか）。
     pub background: String,
+    /// 飼い主のお誕生日（月 1〜12・日 1〜31。どちらも 0 なら、設定なし）。その日、ペットがお祝いする。
+    pub birthday_month: u8,
+    pub birthday_day: u8,
     /// 吹き出しを出しておく長さ（秒。0〜60）。過ぎると、すっと消える。0 なら、ずっと出しておく。
     pub bubble_seconds: u8,
     /// Mac の状態（電池・ネット・ダークモード）にペットが反応する。
@@ -74,6 +77,8 @@ impl Default for Settings {
             system_reactions: true,
             background: DEFAULT_BACKGROUND.to_string(),
             bubble_seconds: DEFAULT_BUBBLE_SECONDS,
+            birthday_month: 0,
+            birthday_day: 0,
             break_reminder: true,
             auto_sleep: true,
             sleep_start_hour: DEFAULT_SLEEP_START_HOUR,
@@ -98,6 +103,7 @@ impl Settings {
         if !BACKGROUNDS.contains(&self.background.as_str()) {
             return Err(format!("background must be one of {BACKGROUNDS:?}: {:?}", self.background));
         }
+        check_birthday(self.birthday_month, self.birthday_day)?;
         if self.bubble_seconds > BUBBLE_SECONDS_MAX {
             return Err(format!("bubbleSeconds must be 0-{BUBBLE_SECONDS_MAX}: {}", self.bubble_seconds));
         }
@@ -108,6 +114,11 @@ impl Settings {
     /// ポップアップの高さ。ゲージを出さないときは、空きが大きくならないよう低くする。
     pub fn popup_height(&self) -> f64 {
         if self.show_gauges { POPUP_HEIGHT_WITH_GAUGES } else { POPUP_HEIGHT }
+    }
+
+    /// 飼い主のお誕生日（月, 日）。設定されていなければ None。
+    pub fn birthday(&self) -> Option<(u32, u32)> {
+        (self.birthday_month != 0).then_some((u32::from(self.birthday_month), u32::from(self.birthday_day)))
     }
 
     /// ゲームに渡すおやすみ時間。
@@ -136,6 +147,23 @@ impl Settings {
 
 fn invalid_data(e: impl Into<Box<dyn std::error::Error + Send + Sync>>) -> io::Error {
     io::Error::new(io::ErrorKind::InvalidData, e)
+}
+
+/// お誕生日は、どちらも 0（なし）か、実在する月日（2 月は 29 日まで）。
+fn check_birthday(month: u8, day: u8) -> Result<(), String> {
+    if month == 0 && day == 0 {
+        return Ok(());
+    }
+    let days_in_month = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 => 29,
+        _ => return Err(format!("birthdayMonth must be 1-12 (or 0 for none): {month}")),
+    };
+    if day == 0 || day > days_in_month {
+        return Err(format!("birthdayDay is not a real day of month {month}: {day}"));
+    }
+    Ok(())
 }
 
 fn check_hour(field: &str, hour: u8) -> Result<(), String> {
@@ -371,6 +399,23 @@ mod tests {
         assert_eq!(serde_json::to_value(Settings::default()).unwrap()["bubbleSeconds"], 8);
         fs::write(&p, r##"{"showGauges": true}"##).unwrap();
         assert_eq!(Settings::load(&p).unwrap().bubble_seconds, 8, "older settings files get the default");
+    }
+
+    #[test]
+    fn the_birthday_is_off_by_default_and_must_be_a_real_date() {
+        assert_eq!(Settings::default().birthday(), None);
+        let with = |month, day| Settings { birthday_month: month, birthday_day: day, ..Settings::default() };
+        assert_eq!(with(10, 17).birthday(), Some((10, 17)));
+        assert!(with(2, 29).validate().is_ok());
+        assert!(with(12, 31).validate().is_ok());
+        assert!(with(0, 0).validate().is_ok());
+        for (month, day) in [(2, 30), (4, 31), (13, 1), (0, 5), (5, 0), (6, 32)] {
+            assert!(with(month, day).validate().is_err(), "{month}/{day}");
+        }
+        let p = tmp("birthday");
+        with(3, 15).save(&p).unwrap();
+        assert_eq!(Settings::load(&p).unwrap().birthday(), Some((3, 15)));
+        assert_eq!(serde_json::to_value(with(3, 15)).unwrap()["birthdayMonth"], 3);
     }
 
     #[test]
