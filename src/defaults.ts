@@ -13,6 +13,8 @@ export const DEFAULT_SETTINGS: Settings = {
   systemReactions: true,
   background: "classic",
   bubbleSeconds: 8,
+  birthdayMonth: 0,
+  birthdayDay: 0,
   breakReminder: true,
   autoSleep: true,
   sleepStartHour: 23,
