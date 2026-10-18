@@ -12,12 +12,12 @@ vi.mock("./api", () => api);
 
 import Souvenirs from "./Souvenirs";
 
-const entry = (id: string, emoji: string, name: string, rarity: number, count: number, displayed = false): SouvenirEntry => ({ id, emoji, name, rarity, count, displayed });
+const entry = (id: string, emoji: string, name: string, rarity: number, count: number, displayed = false, season: SouvenirEntry["season"] = null): SouvenirEntry => ({ id, emoji, name, rarity, season, count, displayed });
 const book = (displayed = false): SouvenirView => ({
-  total: 24,
+  total: 40,
   found: 2,
   maxDisplayed: 3,
-  entries: [entry("shell", "🐚", "かいがら", 0, 3, displayed), entry("acorn", "🌰", "どんぐり", 0, 0), entry("gem", "💎", "ほうせき", 2, 1)],
+  entries: [entry("shell", "🐚", "かいがら", 0, 3, displayed), entry("acorn", "🌰", "どんぐり", 0, 0), entry("gem", "💎", "ほうせき", 2, 1), entry("sakura", "🌸", "さくらのはなびら", 0, 2, false, "spring"), entry("snowflake", "❄️", "ゆきのけっしょう", 2, 0, false, "winter")],
 });
 
 let emit: () => void;
@@ -35,7 +35,7 @@ beforeEach(() => {
 describe("Souvenirs window", () => {
   it("shows how many have been found", async () => {
     render(<Souvenirs />);
-    expect(await screen.findByText("集めた 2 / 24")).toBeInTheDocument();
+    expect(await screen.findByText("集めた 2 / 40")).toBeInTheDocument();
     expect(screen.getByRole("progressbar", { name: "集めた数" })).toHaveAttribute("aria-valuenow", "2");
   });
 
@@ -46,6 +46,17 @@ describe("Souvenirs window", () => {
     expect(within(list).getByRole("button", { name: "ほうせき（とてもめずらしい）" })).toHaveTextContent("💎");
     const unknown = within(list).getByRole("button", { name: "まだ見つけていない" });
     expect(unknown).toBeDisabled();
+    expect(unknown).toHaveTextContent("？");
+  });
+
+  it("marks season-limited items with the season, found or not", async () => {
+    render(<Souvenirs />);
+    const list = await screen.findByRole("list", { name: "おみやげ" });
+    const found = within(list).getByRole("button", { name: "さくらのはなびら（よくある・春限定）" });
+    expect(found).toHaveTextContent("🌸");
+    const unknown = within(list).getByRole("button", { name: "まだ見つけていない（冬限定）" });
+    expect(unknown).toBeDisabled();
+    expect(unknown).toHaveTextContent("❄️");
     expect(unknown).toHaveTextContent("？");
   });
 
@@ -68,11 +79,11 @@ describe("Souvenirs window", () => {
 
   it("reloads when the game state changes (new souvenirs after an outing)", async () => {
     render(<Souvenirs />);
-    await screen.findByText("集めた 2 / 24");
+    await screen.findByText("集めた 2 / 40");
     api.getSouvenirs.mockResolvedValue({ ...book(), found: 3 });
     await waitFor(() => expect(api.onStateChanged).toHaveBeenCalled());
     emit();
-    expect(await screen.findByText("集めた 3 / 24")).toBeInTheDocument();
+    expect(await screen.findByText("集めた 3 / 40")).toBeInTheDocument();
   });
 
   it("shows an error when the collection cannot be loaded", async () => {
@@ -83,7 +94,7 @@ describe("Souvenirs window", () => {
 
   it("stops listening when closed", async () => {
     const { unmount } = render(<Souvenirs />);
-    await screen.findByText("集めた 2 / 24");
+    await screen.findByText("集めた 2 / 40");
     await waitFor(() => expect(api.onStateChanged).toHaveBeenCalled());
     unmount();
     await waitFor(() => expect(unlisten).toHaveBeenCalled());

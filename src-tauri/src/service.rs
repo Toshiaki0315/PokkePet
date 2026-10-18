@@ -313,7 +313,7 @@ impl GameService {
         };
         let obs = state.observe_activity_with(now_unix, idle_secs, hour, awake);
         if obs.returned_after.is_some() {
-            state.bring_back(obs.outing_secs, now_unix);
+            state.bring_back_in(obs.outing_secs, now_unix, season_of(local_month_day(now_unix, offset).0));
         }
         *self.learned_sleep.lock().unwrap_or_else(|e| e.into_inner()) = learned_sleep_window(&state.companion.rhythm);
         obs

@@ -11,6 +11,7 @@ use crate::care::{Care, SICK_MOOD_LOSS};
 use crate::companion::{Awake, Companion, Observation};
 use crate::daylog::{day_number, month_day, DayStats};
 use crate::genome::{record_ancestor, Ancestor, EggCode, Genome};
+use crate::seasons::Season;
 use crate::souvenirs::{self, SouvenirBook, OUTING_MIN_SECS};
 use crate::minigame::Rng;
 use crate::evolution::{evolve, Branch, Form, Growth, History, Personality};
@@ -272,13 +273,18 @@ impl GameState {
     /// 飼い主が席を離れていた間のおでかけから戻った。離れていた時間に応じて、おみやげを持ち帰る
     /// （孵化したペットだけ。短い離席では何も持ち帰らない）。
     pub fn bring_back(&mut self, away_secs: u64, now_unix: u64) {
+        self.bring_back_in(away_secs, now_unix, Season::Spring);
+    }
+
+    /// `bring_back` に、いまの季節を加えたもの（季節限定のおみやげは、その季節にしか持ち帰らない）。
+    pub fn bring_back_in(&mut self, away_secs: u64, now_unix: u64, season: Season) {
         if self.dead || self.form.stage < 2 || away_secs < OUTING_MIN_SECS {
             return;
         }
         let collected = u64::from(self.souvenirs.counts.values().sum::<u32>());
         let mut rng = Rng::new(now_unix ^ collected.rotate_left(32) ^ away_secs);
         for _ in 0..souvenirs::count_for(away_secs) {
-            let found = souvenirs::pick(&mut rng, away_secs);
+            let found = souvenirs::pick(&mut rng, away_secs, season);
             self.souvenirs.add(found.id);
             self.today.souvenirs += 1;
             self.gift.push(found.id.to_string());
@@ -1626,6 +1632,19 @@ mod tests {
         s.ack_gift();
         assert!(s.gift.is_empty());
         assert_eq!(s.souvenirs.counts.values().sum::<u32>(), 2, "the collection stays");
+    }
+
+    #[test]
+    fn only_the_current_seasons_special_souvenirs_are_brought_back() {
+        let mut s = hatched_state();
+        for i in 0..300 {
+            s.bring_back_in(20 * 3600, 1_000 + i, Season::Summer);
+        }
+        let seasonal: Vec<&str> = s.souvenirs.counts.keys().filter_map(|id| crate::souvenirs::find(id)).filter(|x| x.season.is_some()).map(|x| x.id).collect();
+        assert!(!seasonal.is_empty(), "the summer things turn up");
+        for id in seasonal {
+            assert_eq!(crate::souvenirs::find(id).unwrap().season, Some(Season::Summer), "{id}");
+        }
     }
 
     #[test]

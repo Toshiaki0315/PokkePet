@@ -3,8 +3,8 @@
 .souvenirs .lead, .souvenirs .hint { margin: 0 0 10px; font-size: 12px; color: #666; }
 .souvenirs .summary { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; font-size: 13px; }
 .souvenirs .summary progress { flex: 1; height: 10px; }
-.souvenirs .grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
-.souvenirs .item { position: relative; width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 12px; border: 2px solid #0002; background: #fff; cursor: pointer; font-size: 30px; line-height: 1; padding: 0; }
+.souvenirs .grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; }
+.souvenirs .item { position: relative; width: 100%; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; border-radius: 12px; border: 2px solid #0002; background: #fff; cursor: pointer; font-size: 26px; line-height: 1; padding: 0; }
 .souvenirs .item:disabled { cursor: default; background: #ececf1; color: #aaa; font-size: 22px; }
 .souvenirs .item.rarity-1:not(:disabled) { border-color: #6aa7ff; }
 .souvenirs .item.rarity-2:not(:disabled) { border-color: #f0b429; background: #fffaf0; }
@@ -18,3 +18,4 @@
   .souvenirs .item:disabled { background: #2d2d33; color: #666; }
   .souvenirs .count { color: #ccc; }
 }
+.souvenirs .season { position: absolute; left: 2px; top: 1px; font-size: 10px; line-height: 1; }
