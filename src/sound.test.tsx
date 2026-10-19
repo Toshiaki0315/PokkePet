@@ -1,7 +1,8 @@
 import { fireEvent, renderHook } from "@testing-library/react";
+import { act } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Personality } from "./api";
-import { cryNotes, MASTER_GAIN, PITCH_STEP_SEMITONES, playNotes, useSound } from "./sound";
+import { ContextKeeper, cryNotes, MASTER_GAIN, PITCH_STEP_SEMITONES, playNotes, useSound, WAKE_TIMEOUT_MS } from "./sound";
 import type { CryKind, Voice } from "./sound";
 
 const PERSONALITIES: Personality[] = ["calm", "playful", "gluttonous", "tidy"];
@@ -116,11 +117,16 @@ class FakeGain {
 class FakeContext {
   static instances: FakeContext[] = [];
   currentTime = 10;
-  state: "running" | "suspended" = "running";
+  state: "running" | "suspended" | "interrupted" | "closed" = "running";
+  onstatechange: (() => void) | null = null;
   destination = { id: "destination" };
   oscillators: FakeOscillator[] = [];
   gains: FakeGain[] = [];
   resume = vi.fn(() => Promise.resolve());
+  close = vi.fn(() => {
+    this.state = "closed";
+    return Promise.resolve();
+  });
   constructor() {
     FakeContext.instances.push(this);
   }
@@ -346,5 +352,227 @@ describe("useSound", () => {
     vi.stubGlobal("webkitAudioContext", undefined);
     renderHook(() => useSound(true));
     expect(() => fireEvent.pointerDown(window)).not.toThrow();
+  });
+});
+
+describe("after a long idle time (the audio context may have stopped)", () => {
+  beforeEach(() => {
+    FakeContext.instances = [];
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  /** 止まった状態で作られ、`resume` で動く AudioContext。 */
+  const sleepyThatWakes = (state: "suspended" | "interrupted") =>
+    class extends FakeContext {
+      constructor() {
+        super();
+        this.state = state;
+        this.resume = vi.fn(() => {
+          this.state = "running";
+          return Promise.resolve();
+        });
+      }
+    };
+
+  it.each(["suspended", "interrupted"] as const)("wakes a %s context and then plays the cry (instead of losing it)", async (state) => {
+    vi.stubGlobal("AudioContext", sleepyThatWakes(state));
+    const { result } = renderHook(() => useSound(true));
+    result.current("happy", voice("calm", 5));
+    expect(FakeContext.instances[0].oscillators).toHaveLength(0); // まだ動いていない
+    await act(async () => {});
+    expect(FakeContext.instances[0].resume).toHaveBeenCalled();
+    expect(FakeContext.instances[0].oscillators).toHaveLength(3);
+  });
+
+  it("gives up on a context that will not wake, throws it away, and the next cry uses a fresh one", async () => {
+    class Stuck extends FakeContext {
+      constructor() {
+        super();
+        this.state = "interrupted";
+      }
+    }
+    vi.stubGlobal("AudioContext", Stuck);
+    const { result } = renderHook(() => useSound(true));
+    result.current("happy", voice("calm", 5));
+    await act(async () => {});
+    expect(FakeContext.instances[0].oscillators).toHaveLength(0);
+    expect(FakeContext.instances[0].close).toHaveBeenCalled();
+    vi.stubGlobal("AudioContext", FakeContext); // 今度は、ふつうに動く
+    result.current("happy", voice("calm", 5));
+    expect(FakeContext.instances).toHaveLength(2);
+    expect(FakeContext.instances[1].oscillators).toHaveLength(3);
+  });
+
+  it("does not wait for ever when resuming never answers", async () => {
+    vi.useFakeTimers();
+    class Silent extends FakeContext {
+      constructor() {
+        super();
+        this.state = "suspended";
+        this.resume = vi.fn(() => new Promise<void>(() => {}));
+      }
+    }
+    vi.stubGlobal("AudioContext", Silent);
+    const { result } = renderHook(() => useSound(true));
+    result.current("happy", voice("calm", 5));
+    await act(async () => {
+      vi.advanceTimersByTime(WAKE_TIMEOUT_MS + 1);
+    });
+    expect(FakeContext.instances[0].close).toHaveBeenCalled();
+    expect(FakeContext.instances[0].oscillators).toHaveLength(0);
+  });
+
+  it("survives a context whose resume() throws", async () => {
+    class Refusing extends FakeContext {
+      constructor() {
+        super();
+        this.state = "suspended";
+        this.resume = vi.fn(() => Promise.reject(new Error("not allowed")));
+      }
+    }
+    vi.stubGlobal("AudioContext", Refusing);
+    const { result } = renderHook(() => useSound(true));
+    expect(() => result.current("happy", voice("calm", 5))).not.toThrow();
+    await act(async () => {});
+    expect(FakeContext.instances[0].close).toHaveBeenCalled();
+  });
+
+  it("does not let a failure while playing after waking escape", async () => {
+    class WakesButFails extends FakeContext {
+      constructor() {
+        super();
+        this.state = "suspended";
+        this.resume = vi.fn(() => {
+          this.state = "running";
+          return Promise.resolve();
+        });
+      }
+      createOscillator(): never {
+        throw new Error("boom");
+      }
+    }
+    vi.stubGlobal("AudioContext", WakesButFails);
+    const { result } = renderHook(() => useSound(true));
+    result.current("happy", voice("calm", 5));
+    await expect(act(async () => {})).resolves.not.toThrow();
+  });
+
+  it("replaces a context that was closed behind its back", () => {
+    vi.stubGlobal("AudioContext", FakeContext);
+    const { result } = renderHook(() => useSound(true));
+    result.current("happy", voice("calm", 5));
+    FakeContext.instances[0].state = "closed";
+    result.current("happy", voice("calm", 5));
+    expect(FakeContext.instances).toHaveLength(2);
+    expect(FakeContext.instances[1].oscillators).toHaveLength(3);
+  });
+
+  it("forgets a context that reports being closed", () => {
+    vi.stubGlobal("AudioContext", FakeContext);
+    const { result } = renderHook(() => useSound(true));
+    result.current("happy", voice("calm", 5));
+    const first = FakeContext.instances[0];
+    first.state = "closed";
+    first.onstatechange?.();
+    result.current("happy", voice("calm", 5));
+    expect(FakeContext.instances).toHaveLength(2);
+  });
+
+  it("keeps waking the context at every click or key press (not only the first one)", async () => {
+    vi.stubGlobal("AudioContext", sleepyThatWakes("suspended"));
+    renderHook(() => useSound(true));
+    fireEvent.pointerDown(window);
+    await act(async () => {});
+    expect(FakeContext.instances).toHaveLength(1);
+    FakeContext.instances[0].state = "suspended"; // 放っておいたら、また止まった
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+    await act(async () => {});
+    expect(FakeContext.instances[0].resume).toHaveBeenCalledTimes(2);
+    expect(FakeContext.instances[0].state).toBe("running");
+  });
+
+  it("wakes an existing context when the window comes to the front, but never creates one", async () => {
+    vi.stubGlobal("AudioContext", sleepyThatWakes("suspended"));
+    const { result } = renderHook(() => useSound(true));
+    fireEvent.focus(window);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(FakeContext.instances).toHaveLength(0);
+    FakeContext.instances.length = 0;
+    result.current("happy", voice("calm", 5));
+    await act(async () => {});
+    FakeContext.instances[0].state = "interrupted";
+    fireEvent.focus(window);
+    await act(async () => {});
+    expect(FakeContext.instances[0].state).toBe("running");
+    FakeContext.instances[0].state = "suspended";
+    document.dispatchEvent(new Event("visibilitychange"));
+    await act(async () => {});
+    expect(FakeContext.instances[0].state).toBe("running");
+  });
+
+  it("stops listening for focus and visibility changes when unmounted or switched off", () => {
+    vi.stubGlobal("AudioContext", FakeContext);
+    const { unmount } = renderHook(() => useSound(true));
+    unmount();
+    fireEvent.focus(window);
+    document.dispatchEvent(new Event("visibilitychange"));
+    expect(FakeContext.instances).toHaveLength(0);
+  });
+});
+
+describe("ContextKeeper", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("has nothing until asked, and then keeps the one it made", () => {
+    FakeContext.instances = [];
+    vi.stubGlobal("AudioContext", FakeContext);
+    const keeper = new ContextKeeper();
+    expect(keeper.peek()).toBeNull();
+    const ctx = keeper.get();
+    expect(keeper.get()).toBe(ctx);
+    expect(keeper.peek()).toBe(ctx);
+  });
+
+  it("says a running context is awake without touching it", async () => {
+    vi.stubGlobal("AudioContext", FakeContext);
+    const keeper = new ContextKeeper();
+    const ctx = keeper.get() as unknown as FakeContext;
+    await expect(keeper.wake(ctx as unknown as AudioContext)).resolves.toBe(true);
+    expect(ctx.resume).not.toHaveBeenCalled();
+  });
+
+  it("keeps a context that woke up while it was being waited for", async () => {
+    vi.stubGlobal("AudioContext", FakeContext);
+    const keeper = new ContextKeeper();
+    const ctx = keeper.get() as unknown as FakeContext;
+    ctx.state = "suspended";
+    ctx.resume = vi.fn(() => {
+      ctx.state = "running";
+      return Promise.resolve();
+    });
+    await expect(keeper.wake(ctx as unknown as AudioContext)).resolves.toBe(true);
+    expect(keeper.peek()).toBe(ctx);
+  });
+
+  it("copes with a context that cannot even be closed", async () => {
+    vi.stubGlobal("AudioContext", FakeContext);
+    const keeper = new ContextKeeper();
+    const ctx = keeper.get() as unknown as FakeContext;
+    ctx.state = "suspended";
+    ctx.close = vi.fn(() => {
+      throw new Error("already closed");
+    });
+    await expect(keeper.wake(ctx as unknown as AudioContext)).resolves.toBe(false);
+    expect(keeper.peek()).toBeNull();
+    const other = new ContextKeeper();
+    const ctx2 = other.get() as unknown as FakeContext;
+    ctx2.state = "suspended";
+    ctx2.close = vi.fn(() => Promise.reject(new Error("nope")));
+    await expect(other.wake(ctx2 as unknown as AudioContext)).resolves.toBe(false);
   });
 });
