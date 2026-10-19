@@ -1,6 +1,7 @@
 //! Tauri との接着層（トレイ常駐・ポップアップ制御・IPC コマンド・バックグラウンドループ）。
 //! ロジックは持たず、`service` に委譲する。
 
+use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -25,6 +26,9 @@ use crate::settings::{Settings, SettingsService, POPUP_WIDTH};
 
 /// Mac の状態を読む間隔（ループの何回に 1 回か。10 秒 × 3 = 30 秒）。
 const SYSTEM_POLL_EVERY: u32 = 3;
+/// デバッグログのファイル（データフォルダの `debug.log`）。
+pub struct DebugLogPath(PathBuf);
+
 const LOOP_INTERVAL: Duration = Duration::from_secs(10);
 const STATE_EVENT: &str = "state-changed";
 const SETTINGS_EVENT: &str = "settings-changed";
@@ -84,6 +88,19 @@ pub fn save_card(app: AppHandle, svc: State<GameService>, data_url: String) -> R
     let path = dir.join(file_name);
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
     Ok(path.display().to_string())
+}
+
+/// デバッグログのあるフォルダを Finder で開く（まだ無ければ、データフォルダを開く）。
+#[tauri::command]
+pub fn reveal_debug_log(app: AppHandle, path: State<DebugLogPath>) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let file = &path.0;
+    let opened = if file.exists() {
+        app.opener().reveal_item_in_dir(file)
+    } else {
+        app.opener().open_path(file.parent().unwrap_or(file).to_string_lossy(), None::<&str>)
+    };
+    opened.map_err(|e| e.to_string())
 }
 
 /// 最初からやり直す（隠しコマンド）。今のペットとお別れして、新しい卵を迎える。
@@ -199,6 +216,8 @@ pub fn save_settings(app: AppHandle, svc: State<SettingsService>, game: State<Ga
     game.set_auto_sleep(saved.auto_sleep);
     game.set_birthday(saved.birthday());
     game.set_legacy_bonus(saved.legacy_bonus());
+    game.set_debug_log(saved.debug_log.then(|| app.state::<DebugLogPath>().0.clone()));
+    game.log_note("設定", "設定を保存した");
     apply_popup_size(&app, &saved);
     let _ = app.emit(SETTINGS_EVENT, saved.clone());
     let _ = app.emit(STATE_EVENT, game.snapshot());
@@ -259,6 +278,8 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.state::<GameService>().set_auto_sleep(settings.auto_sleep);
     app.state::<GameService>().set_birthday(settings.birthday());
     app.state::<GameService>().set_legacy_bonus(settings.legacy_bonus());
+    app.manage(DebugLogPath(dir.join("debug.log")));
+    app.state::<GameService>().set_debug_log(settings.debug_log.then(|| dir.join("debug.log")));
     app.state::<GameService>().set_events(true);
     let launch_at_login = settings.launch_at_login;
     apply_popup_size(app.handle(), &settings);

@@ -160,6 +160,8 @@ export interface Settings {
   background: Background;
   /** 吹き出しを出しておく長さ（秒）。0 ならずっと出しておく */
   bubbleSeconds: number;
+  /** デバッグ用に、お世話・睡眠・おでかけ・うんち・ご機嫌の変化などを、詳しくログに残す */
+  debugLog: boolean;
   /** 旅立った親の性格を子が受け継ぐ強さ（0=なし 1=弱い 2=ふつう 3=強い） */
   legacyStrength: number;
   /** 飼い主のお誕生日（月 1〜12・日 1〜31。どちらも 0 ならなし）。その日、ペットがお祝いする */
@@ -334,4 +336,9 @@ export function receiveEgg(code: string): Promise<StateView> {
 /** 成長カード（PNG の data URL）をピクチャフォルダに保存する。保存した場所を返す。 */
 export function saveCard(dataUrl: string): Promise<string> {
   return invoke<string>("save_card", { dataUrl });
+}
+
+/** デバッグログのあるフォルダを Finder で開く。 */
+export function revealDebugLog(): Promise<void> {
+  return invoke<void>("reveal_debug_log");
 }

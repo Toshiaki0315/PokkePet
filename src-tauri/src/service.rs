@@ -3,7 +3,7 @@
 use std::io;
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use serde::Serialize;
@@ -11,6 +11,7 @@ use serde::Serialize;
 use crate::evolution::{Branch, Personality};
 use crate::expression::{express, greeting, Bubble, Expression};
 use crate::companion::{Awake, Observation};
+use crate::debuglog::{describe_changes, format_stamp, param_summary, snapshot_line, DebugLog, SNAPSHOT_EVERY_SECS};
 use crate::dex::{build_view, DexView};
 use crate::diary::{self, DiaryView};
 use crate::game::{Action, GameState, FORCED_SLEEP_SECS, WOKEN_AWAKE_SECS};
@@ -182,6 +183,33 @@ pub fn should_notify_hatch(hatched: bool, popup_open: bool) -> bool {
     hatched && !popup_open
 }
 
+/// 操作の前の状態を持っておき、関数が終わって手放されるときに、前後の違いをデバッグログへ書く。
+struct Trace<'a> {
+    svc: &'a GameService,
+    label: &'static str,
+    before: Option<StateView>,
+}
+
+impl Drop for Trace<'_> {
+    fn drop(&mut self) {
+        if let Some(before) = self.before.take() {
+            self.svc.log_change(self.label, &before);
+        }
+    }
+}
+
+/// 世話の名前（デバッグログ用）。
+fn action_label(action: Action) -> &'static str {
+    match action {
+        Action::Feed => "ご飯を食べた",
+        Action::Snack => "おやつを食べた",
+        Action::Play => "遊んだ",
+        Action::Clean => "掃除した",
+        Action::Scold => "叱られた",
+        Action::Cure => "治療を受けた",
+    }
+}
+
 pub struct GameService {
     state: Mutex<GameState>,
     path: PathBuf,
@@ -200,13 +228,18 @@ pub struct GameService {
     events: AtomicBool,
     /// 飼い主のお誕生日（月, 日）。設定から与える。
     birthday: Mutex<Option<(u32, u32)>>,
+    /// デバッグ用の詳細ログ（設定「デバッグログを残す」がオンのときだけ）。
+    debug: Mutex<Option<DebugLog>>,
+    debug_on: AtomicBool,
+    /// 最後に状態の一覧をログに書いた時刻（UNIX秒）。
+    last_snapshot: AtomicU64,
     /// ミニゲームの乱数。
     rng: Mutex<Rng>,
 }
 
 impl GameService {
     pub fn new(state: GameState, path: PathBuf) -> Self {
-        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()), learned_sleep: Mutex::new(None), auto_sleep: AtomicBool::new(false), system: Mutex::new(SystemInfo::default()), events: AtomicBool::new(false), birthday: Mutex::new(None), rng: Mutex::new(Rng::new(time_seed())) }
+        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()), learned_sleep: Mutex::new(None), auto_sleep: AtomicBool::new(false), system: Mutex::new(SystemInfo::default()), events: AtomicBool::new(false), birthday: Mutex::new(None), debug: Mutex::new(None), debug_on: AtomicBool::new(false), last_snapshot: AtomicU64::new(0), rng: Mutex::new(Rng::new(time_seed())) }
     }
 
     /// 経過時間の倍率（動作確認用）。
@@ -223,6 +256,7 @@ impl GameService {
 
     /// ミニゲーム「どっちの手？」。時間を進め、答えを決め、結果（当たり・外れ）を反映して保存する。
     pub fn play_minigame(&self, guess: Side, now_unix: u64) -> Result<MiniGameReport, String> {
+        let _trace = self.trace("ミニゲームで遊んだ");
         let mut state = self.lock();
         let mut next = state.clone();
         next.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix), self.sleep_window());
@@ -271,6 +305,66 @@ impl GameService {
         self.events.store(on, Ordering::Relaxed);
     }
 
+    /// デバッグログを始める／止める（`path` が Some のとき、そこへ書く）。
+    pub fn set_debug_log(&self, path: Option<PathBuf>) {
+        let now = self.lock().last_unix;
+        let was_on = self.debug_on.load(Ordering::Relaxed);
+        if was_on && path.is_none() {
+            self.log_at(now, "起動", "デバッグログを止めた");
+        }
+        self.debug_on.store(path.is_some(), Ordering::Relaxed);
+        *self.debug.lock().unwrap_or_else(|e| e.into_inner()) = path.map(DebugLog::new);
+        if !was_on && self.debug_on.load(Ordering::Relaxed) {
+            self.last_snapshot.store(now, Ordering::Relaxed);
+            self.log_at(now, "起動", "デバッグログを始めた");
+            let line = snapshot_line(&self.snapshot());
+            self.log_at(now, "状態", &line);
+        }
+    }
+
+    /// デバッグログに 1 行書く（ログがオフなら何もしない）。書けなくても、ゲームには影響させない。
+    pub fn log_note(&self, tag: &str, text: &str) {
+        if self.debug_on.load(Ordering::Relaxed) {
+            let now = self.lock().last_unix;
+            self.log_at(now, tag, text);
+        }
+    }
+
+    fn log_at(&self, unix: u64, tag: &str, text: &str) {
+        let guard = self.debug.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(log) = guard.as_ref() {
+            let stamp = format_stamp(unix, self.offset_at(unix));
+            if let Err(e) = log.write(&stamp, tag, text) {
+                eprintln!("failed to write the debug log: {e}");
+            }
+        }
+    }
+
+    /// 変更を伴う操作の前後の状態を比べて、ログに書く準備（ログがオフなら、何もしない）。
+    /// 返した値を、関数の頭で持っておくと、関数が終わるときに（ロックを手放したあとで）書く。
+    fn trace(&self, label: &'static str) -> Trace<'_> {
+        let before = self.debug_on.load(Ordering::Relaxed).then(|| self.snapshot());
+        Trace { svc: self, label, before }
+    }
+
+    fn log_change(&self, label: &str, before: &StateView) {
+        let after = self.snapshot();
+        let now = self.lock().last_unix;
+        if !label.is_empty() {
+            let params = param_summary(before, &after);
+            let text = if params.is_empty() { format!("{label}（数値の変化なし）") } else { format!("{label}  {params}") };
+            self.log_at(now, "操作", &text);
+        }
+        for line in describe_changes(before, &after) {
+            self.log_at(now, "変化", &line);
+        }
+        let last = self.last_snapshot.load(Ordering::Relaxed);
+        if now >= last + SNAPSHOT_EVERY_SECS {
+            self.last_snapshot.store(now, Ordering::Relaxed);
+            self.log_at(now, "状態", &snapshot_line(&after));
+        }
+    }
+
     /// 飼い主のお誕生日を知らせる（その日、ペットがお祝いする）。
     pub fn set_birthday(&self, birthday: Option<(u32, u32)>) {
         *self.birthday.lock().unwrap_or_else(|e| e.into_inner()) = birthday;
@@ -302,6 +396,7 @@ impl GameService {
     /// Mac の操作を観測する（10 秒ごとに呼ぶ）。いっしょにいた時間・生活リズムを数え、休憩の声かけ・おかえりの材料を返す。
     /// 保存は、そのあとの `tick` がまとめて行う。
     pub fn observe_activity(&self, now_unix: u64, idle_secs: u64) -> Observation {
+        let _trace = self.trace(""); // おでかけの始まり・終わり、おみやげなど、観測で起きた変化も書く
         let mut state = self.lock();
         let offset = self.offset_at(now_unix);
         let window = self.sleep_window();
@@ -315,9 +410,27 @@ impl GameService {
                 awake_run_between(prev, now_unix, offset, window, forced, woken)
             }),
         };
+        let was_away = state.companion.is_away();
+        let gift_before = state.gift.len();
         let obs = state.observe_activity_with(now_unix, idle_secs, hour, awake);
         if obs.returned_after.is_some() {
             state.bring_back_in(obs.outing_secs, now_unix, season_of(local_month_day(now_unix, offset).0));
+        }
+        if self.debug_on.load(Ordering::Relaxed) {
+            let pet = if awake.now { "起きている" } else { "眠っている" };
+            if !was_away && state.companion.is_away() {
+                self.log_at(now_unix, "観測", &format!("席を離れたと判断（無操作 {idle_secs}秒。ペットは{pet}）"));
+            }
+            if let Some(away) = obs.returned_after {
+                let souvenirs = state.gift.len().saturating_sub(gift_before);
+                self.log_at(now_unix, "観測", &format!("飼い主が戻った（離席 {away}秒。眠るまでに起きていた時間 {}秒 → おみやげ {souvenirs}個）", obs.outing_secs));
+            }
+            if obs.break_due {
+                self.log_at(now_unix, "観測", &format!("休憩の声かけの時間（休まず作業 {}分）", state.companion.session_secs / 60));
+            }
+            if obs.affinity_gain > 0 {
+                self.log_at(now_unix, "観測", &format!("作業に寄り添って親密度 +{}", obs.affinity_gain));
+            }
         }
         *self.learned_sleep.lock().unwrap_or_else(|e| e.into_inner()) = learned_sleep_window(&state.companion.rhythm);
         obs
@@ -337,6 +450,7 @@ impl GameService {
 
     /// 現在時刻まで進めたうえでアクションを適用し、保存する。
     pub fn perform(&self, action: Action, now_unix: u64) -> io::Result<StateView> {
+        let _trace = self.trace(action_label(action));
         let mut state = self.lock();
         state.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix), self.sleep_window());
         state.apply(action);
@@ -347,6 +461,7 @@ impl GameService {
     /// 電源ボタン。おやすみ時間とは関係なく寝かせる（ご機嫌が上がるか下がるかはランダム）。寝ている最中に押すと起こす
     /// （おやすみ時間で眠っているのを起こすと、ご機嫌が大きく下がり、親密度も少し下がる）。
     pub fn toggle_power(&self, now_unix: u64) -> Result<StateView, String> {
+        let _trace = self.trace("電源ボタンを押した");
         let mut state = self.lock();
         let mut next = state.clone();
         next.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix), self.sleep_window());
@@ -360,6 +475,7 @@ impl GameService {
 
     /// マウスでなでられた。おやすみ中は起こさないので何も変わらない。
     pub fn stroke(&self, now_unix: u64) -> io::Result<StateView> {
+        let _trace = self.trace("なでられた");
         let mut state = self.lock();
         state.step_to_in(now_unix, self.time_scale, self.offset_at(now_unix), self.sleep_window());
         if !self.view(&state).sleeping {
@@ -371,6 +487,7 @@ impl GameService {
 
     /// 名前を付けて（または付け直して）保存する。
     pub fn set_name(&self, raw: &str) -> Result<StateView, String> {
+        let _trace = self.trace("名前をつけた");
         let mut state = self.lock();
         let mut next = state.clone();
         next.set_name(raw)?;
@@ -381,6 +498,7 @@ impl GameService {
 
     /// 旅立ちを見送り、次の世代の卵を迎える。
     pub fn graduate(&self) -> Result<StateView, String> {
+        let _trace = self.trace("旅立ちを見送った");
         let mut state = self.lock();
         let mut next = state.clone();
         next.graduate()?;
@@ -401,6 +519,7 @@ impl GameService {
 
     /// 最初からやり直す（隠しコマンド）。今のペットとお別れして、新しい卵を迎える。
     pub fn restart(&self) -> Result<StateView, String> {
+        let _trace = self.trace("最初からやり直した");
         let mut state = self.lock();
         let mut next = state.clone();
         next.restart();
@@ -411,6 +530,7 @@ impl GameService {
 
     /// 亡くなったペットを見送り、新しい卵を迎える。
     pub fn bury(&self) -> Result<StateView, String> {
+        let _trace = self.trace("お墓から新しい卵を迎えた");
         let mut state = self.lock();
         let mut next = state.clone();
         next.bury()?;
@@ -426,6 +546,7 @@ impl GameService {
 
     /// 友だちのたまごコードのたまごを迎える。いまのペットとはお別れになる。コードが正しくなければ、何も変えない。
     pub fn receive_egg(&self, text: &str) -> Result<StateView, String> {
+        let _trace = self.trace("友だちのたまごを迎えた");
         let code = EggCode::decode(text)?;
         let mut state = self.lock();
         let mut next = state.clone();
@@ -437,6 +558,7 @@ impl GameService {
 
     /// 持ち帰ったおみやげを見せたことを記録して保存する。
     pub fn ack_gift(&self) -> io::Result<StateView> {
+        let _trace = self.trace("おみやげを受け取った");
         let mut state = self.lock();
         state.ack_gift();
         state.save(&self.path)?;
@@ -450,6 +572,7 @@ impl GameService {
 
     /// おみやげを飾る／しまう。
     pub fn toggle_souvenir_display(&self, id: &str) -> Result<SouvenirView, String> {
+        let _trace = self.trace("おみやげの飾りを変えた");
         let mut state = self.lock();
         let mut next = state.clone();
         next.souvenirs.toggle_display(id)?;
@@ -460,6 +583,7 @@ impl GameService {
 
     /// 孵化の演出を見せたことを記録して保存する。
     pub fn ack_hatch(&self) -> io::Result<StateView> {
+        let _trace = self.trace("孵化の演出を見せた");
         let mut state = self.lock();
         state.ack_hatch();
         state.save(&self.path)?;
@@ -468,6 +592,7 @@ impl GameService {
 
     /// 時間を進めて保存する。表示用スナップショットと進化回数を返す。
     pub fn tick(&self, now_unix: u64) -> io::Result<Tick> {
+        let _trace = self.trace("");
         let mut state = self.lock();
         let was_egg = state.form.stage <= 1;
         let was_graduating = state.graduating();
@@ -1318,6 +1443,213 @@ mod tests {
         assert_eq!(s.lock().legacy_bonus, crate::evolution::DEFAULT_LEGACY_BONUS);
         s.set_legacy_bonus(60);
         assert_eq!(s.lock().legacy_bonus, 60);
+    }
+
+    fn read_log(path: &std::path::Path) -> String {
+        std::fs::read_to_string(path).unwrap_or_default()
+    }
+
+    fn pet_with_log(name: &str) -> (GameService, PathBuf) {
+        let s = grown_pet(name);
+        let path = tmp(&format!("{name}-log")).with_file_name("debug.log");
+        s.set_debug_log(Some(path.clone()));
+        (s, path)
+    }
+
+    #[test]
+    fn nothing_is_written_while_the_debug_log_is_off() {
+        let s = grown_pet("log-off");
+        let path = tmp("log-off-file").with_file_name("debug.log");
+        s.perform(Action::Feed, 700).unwrap();
+        s.log_note("設定", "x");
+        assert!(!path.exists());
+    }
+
+    #[test]
+    fn turning_the_log_on_and_off_is_noted_with_a_snapshot() {
+        let (s, path) = pet_with_log("log-onoff");
+        let text = read_log(&path);
+        assert!(text.contains("[起動] デバッグログを始めた"), "{text}");
+        assert!(text.contains("[状態] ご機嫌 50 親密度 50 空腹度 80"), "{text}");
+        s.set_debug_log(Some(path.clone())); // すでにオン: 重ねては書かない
+        assert_eq!(read_log(&path).matches("デバッグログを始めた").count(), 1);
+        s.set_debug_log(None);
+        assert!(read_log(&path).contains("[起動] デバッグログを止めた"));
+        let before = read_log(&path);
+        s.perform(Action::Feed, 700).unwrap();
+        assert_eq!(read_log(&path), before, "off again: nothing more");
+        s.set_debug_log(None); // 止まっているものを止めても、何も起きない
+        assert_eq!(read_log(&path), before);
+    }
+
+    #[test]
+    fn care_is_logged_with_the_numbers_that_changed() {
+        let (s, path) = pet_with_log("log-care");
+        s.lock().status = crate::status::Status::new(50, 50, 40, 0);
+        s.perform(Action::Feed, 700).unwrap();
+        s.perform(Action::Play, 710).unwrap();
+        let text = read_log(&path);
+        assert!(text.contains("[操作] ご飯を食べた  "), "{text}");
+        assert!(text.contains("空腹度 "), "{text}");
+        assert!(text.contains("[操作] 遊んだ  "), "{text}");
+        assert!(text.contains("機嫌が良くなった"), "{text}");
+        assert!(text.contains("1970-01-01 15:11:"), "the local time stamp: {text}");
+    }
+
+    #[test]
+    fn an_action_that_changes_no_number_says_so() {
+        let (s, path) = pet_with_log("log-nochange");
+        s.perform(Action::Scold, 700).unwrap(); // 叱っても、わがままでなければ機嫌が下がる…が、卵でなければ数値は動く
+        s.lock().status = crate::status::Status::new(0, 0, 80, 0);
+        s.perform(Action::Scold, 710).unwrap(); // もう下がらない
+        let text = read_log(&path);
+        assert!(text.contains("[操作] 叱られた（数値の変化なし）"), "{text}");
+    }
+
+    #[test]
+    fn every_kind_of_operation_leaves_a_line() {
+        let (s, path) = pet_with_log("log-all");
+        s.perform(Action::Snack, 700).unwrap();
+        s.perform(Action::Clean, 705).unwrap();
+        s.perform(Action::Cure, 710).unwrap();
+        s.stroke(720).unwrap();
+        s.toggle_power(730).unwrap();
+        s.toggle_power(740).unwrap();
+        s.set_name("ごま").unwrap();
+        s.play_minigame(Side::Left, 750).unwrap();
+        s.ack_hatch().unwrap();
+        s.ack_gift().unwrap();
+        s.toggle_souvenir_display("nothing").unwrap_err();
+        let text = read_log(&path);
+        for label in ["おやつを食べた", "掃除した", "治療を受けた", "なでられた", "電源ボタンを押した", "名前をつけた", "ミニゲームで遊んだ", "孵化の演出を見せた", "おみやげを受け取った", "おみやげの飾りを変えた"] {
+            assert!(text.contains(label), "{label}: {text}");
+        }
+    }
+
+    #[test]
+    fn the_big_moments_are_logged_too() {
+        let (s, path) = pet_with_log("log-moments");
+        s.restart().unwrap();
+        let egg_code = s.egg_code();
+        s.receive_egg(&egg_code).unwrap();
+        let text = read_log(&path);
+        assert!(text.contains("最初からやり直した") && text.contains("友だちのたまごを迎えた"), "{text}");
+        assert!(text.contains("世代が変わった（1→2代目）"), "{text}");
+        let elder = GameService::new({ let mut g = GameState::new(0); g.step(crate::evolution::secs_until_graduation()); g }, tmp("log-elder").with_file_name("save.json")).with_utc_offset(NOON_AT_ZERO);
+        let elder_log = tmp("log-elder-file").with_file_name("debug.log");
+        elder.set_debug_log(Some(elder_log.clone()));
+        elder.graduate().unwrap();
+        assert!(read_log(&elder_log).contains("旅立ちを見送った"));
+        let mut dead = GameState::new(0);
+        dead.step(crate::evolution::EGG_SECS);
+        dead.dead = true;
+        let grave = GameService::new(dead, tmp("log-grave").with_file_name("save.json")).with_utc_offset(NOON_AT_ZERO);
+        let grave_log = tmp("log-grave-file").with_file_name("debug.log");
+        grave.set_debug_log(Some(grave_log.clone()));
+        grave.bury().unwrap();
+        let text = read_log(&grave_log);
+        assert!(text.contains("お墓から新しい卵を迎えた") && text.contains("新しい卵を迎えた"), "{text}");
+    }
+
+    #[test]
+    fn going_to_sleep_and_waking_up_are_logged_by_the_ticks() {
+        let s = GameService::new(GameState::new(0), tmp("log-sleep").with_file_name("save.json")).with_utc_offset(0); // 0 時台はおやすみ中
+        {
+            let mut state = s.lock();
+            state.step(crate::evolution::EGG_SECS);
+            state.ack_hatch();
+            state.last_unix = 22 * 3600; // 22 時（まだ起きている）
+        }
+        let path = tmp("log-sleep-file").with_file_name("debug.log");
+        s.set_debug_log(Some(path.clone()));
+        s.tick(23 * 3600 + 60).unwrap();
+        s.toggle_power(23 * 3600 + 120).unwrap(); // 起こす
+        s.toggle_power(23 * 3600 + 180).unwrap(); // 寝かせる
+        s.toggle_power(23 * 3600 + 240).unwrap(); // 起こす（まだ夜）
+        let text = read_log(&path);
+        assert!(text.contains("[変化] ねた（おやすみ時間）"), "{text}");
+        assert!(text.contains("[変化] おきた"), "{text}");
+        assert!(text.contains("ねた（電源ボタンで寝かされた）"), "{text}");
+    }
+
+    #[test]
+    fn poops_hunger_and_mood_changes_are_logged_by_the_ticks() {
+        let (s, path) = pet_with_log("log-ticks");
+        s.lock().status = crate::status::Status::new(31, 50, 31, 24);
+        s.tick(240).unwrap(); // 2 ティック: 汚れ度 24→26（うんち 1 個）、空腹度・ご機嫌も下がる
+        let text = read_log(&path);
+        assert!(text.contains("[変化] うんちが増えた（0→1個"), "{text}");
+        assert!(text.contains("[変化] おなかがすいた"), "{text}");
+        assert!(text.contains("[変化] 機嫌が悪くなった"), "{text}");
+    }
+
+    #[test]
+    fn the_state_is_listed_every_ten_minutes_and_not_in_between() {
+        let (s, path) = pet_with_log("log-snapshot");
+        let start = read_log(&path).matches("[状態]").count();
+        s.tick(crate::debuglog::SNAPSHOT_EVERY_SECS / 2).unwrap();
+        assert_eq!(read_log(&path).matches("[状態]").count(), start);
+        s.tick(crate::debuglog::SNAPSHOT_EVERY_SECS + 700).unwrap();
+        assert_eq!(read_log(&path).matches("[状態]").count(), start + 1);
+    }
+
+    #[test]
+    fn leaving_and_returning_are_logged_with_the_time_the_pet_was_awake() {
+        let (s, path) = pet_with_log("log-outing");
+        s.lock().name = Some("ごま".to_string());
+        s.observe_activity(1_000, 0);
+        s.observe_activity(1_010, crate::companion::AWAY_AFTER_SECS);
+        s.tick(1_020).unwrap();
+        s.observe_activity(1_000 + 3 * 3600, 0);
+        s.tick(1_000 + 3 * 3600 + 10).unwrap();
+        let text = read_log(&path);
+        assert!(text.contains("[観測] 席を離れたと判断（無操作 1800秒。ペットは起きている）"), "{text}");
+        assert!(text.contains("[変化] おでかけした"), "{text}");
+        assert!(text.contains("[観測] 飼い主が戻った（離席 "), "{text}");
+        assert!(text.contains("眠るまでに起きていた時間 "), "{text}");
+        assert!(text.contains("おみやげ 2個"), "{text}");
+        assert!(text.contains("[変化] おでかけから戻った"), "{text}");
+        assert!(text.contains("[変化] おみやげを持ち帰った（2個: "), "{text}");
+    }
+
+    #[test]
+    fn a_pet_that_was_asleep_when_the_owner_left_is_noted_as_asleep() {
+        let s = GameService::new(GameState::new(0), tmp("log-asleep-away").with_file_name("save.json")).with_utc_offset(0);
+        {
+            let mut state = s.lock();
+            state.step(crate::evolution::EGG_SECS);
+            state.ack_hatch();
+        }
+        let path = tmp("log-asleep-away-file").with_file_name("debug.log");
+        s.set_debug_log(Some(path.clone()));
+        s.observe_activity(1_000, 0);
+        s.observe_activity(1_010, crate::companion::AWAY_AFTER_SECS);
+        assert!(read_log(&path).contains("ペットは眠っている"));
+    }
+
+    #[test]
+    fn long_work_is_logged_as_a_break_time_and_affinity_gain() {
+        let (s, path) = pet_with_log("log-work");
+        work_for(&s, 1_000, crate::companion::BREAK_AFTER_SECS + 60);
+        let text = read_log(&path);
+        assert!(text.contains("[観測] 作業に寄り添って親密度 +1"), "{text}");
+        assert!(text.contains("[観測] 休憩の声かけの時間（休まず作業 90分）"), "{text}");
+    }
+
+    #[test]
+    fn notes_from_outside_are_written_with_their_tag() {
+        let (s, path) = pet_with_log("log-note");
+        s.log_note("設定", "設定を保存した");
+        assert!(read_log(&path).contains("[設定] 設定を保存した"));
+    }
+
+    #[test]
+    fn a_log_that_cannot_be_written_never_breaks_the_game() {
+        let s = grown_pet("log-broken");
+        let bad = tmp("log-broken-file").parent().unwrap().join("no/such/dir/debug.log");
+        s.set_debug_log(Some(bad));
+        assert!(s.perform(Action::Feed, 700).is_ok());
+        s.log_note("設定", "x");
     }
 
     #[test]
