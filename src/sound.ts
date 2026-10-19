@@ -114,53 +114,128 @@ function audioContextCtor(): AudioContextCtor | null {
   return g.AudioContext ?? g.webkitAudioContext ?? null;
 }
 
+/** 止まっている AudioContext を動かすのを待つ上限（ミリ秒）。これを過ぎても動かなければ、あきらめる。 */
+export const WAKE_TIMEOUT_MS = 800;
+
+/**
+ * AudioContext の持ち主。ずっと放っておくと、WebView の AudioContext は止まったり（suspended）、
+ * 割り込まれたり（interrupted。スリープ明け・音の出力先が変わったとき）、閉じられたり（closed）して、
+ * そのまま動かなくなることがある。そこで、鳴らす前に必ず動かしてから鳴らし、動かない・応答がないものは捨てて、
+ * 次の機会に作り直す。
+ */
+export class ContextKeeper {
+  private ctx: AudioContext | null = null;
+
+  /** いま持っている AudioContext（作らない）。 */
+  peek(): AudioContext | null {
+    return this.ctx;
+  }
+
+  /** 使える AudioContext を返す（無ければ作る。閉じられていたら作り直す）。Web Audio が無い環境では null。 */
+  get(): AudioContext | null {
+    const Ctor = audioContextCtor();
+    if (!Ctor) return null;
+    if (this.ctx?.state === "closed") this.ctx = null;
+    if (!this.ctx) {
+      const ctx = new Ctor();
+      ctx.onstatechange = () => {
+        if (ctx.state === "closed" && this.ctx === ctx) this.ctx = null;
+      };
+      this.ctx = ctx;
+    }
+    return this.ctx;
+  }
+
+  /** 動かす。動いたら true。動かない・応答がないときは、その AudioContext を捨てて false。 */
+  async wake(ctx: AudioContext): Promise<boolean> {
+    if (ctx.state === "running") return true;
+    try {
+      await Promise.race([ctx.resume(), new Promise((resolve) => setTimeout(resolve, WAKE_TIMEOUT_MS))]);
+    } catch {
+      // 動かせなかった。下で、捨てる。
+    }
+    if ((ctx.state as AudioContextState) === "running") return true; // 待っている間に、動いた
+    this.discard(ctx);
+    return false;
+  }
+
+  private discard(ctx: AudioContext) {
+    if (this.ctx === ctx) this.ctx = null;
+    try {
+      void ctx.close().catch(() => undefined);
+    } catch {
+      // すでに閉じている。
+    }
+  }
+}
+
 /**
  * 鳴き声を鳴らす関数を返す。`enabled` が false の間は何もしない（AudioContext も作らない）。
  * 音が出せない環境（Web Audio が無い・自動再生が拒否された）でも例外は外へ出さず、静かに無視する。
  *
- * WebView は、ユーザーが一度も操作していないページの音を許可しないことがある。そこで、最初のクリックや
- * キー入力のときに AudioContext を作って有効にしておく（音は出さない）。
+ * WebView は、ユーザーが操作していないページの音を許可しないことがあり、放っておくと音の出口が止まることもある。
+ * そこで、クリック・キー入力・ウィンドウが前に来たとき（開いたとき）に、AudioContext を動かしておく
+ * （音は出さない）。鳴らすときも、止まっていたら動かしてから鳴らす。
  */
 export function useSound(enabled: boolean, tuning: Tuning = STANDARD_TUNING): (kind: CryKind, voice: Voice) => void {
   const { volume, pitch } = tuning;
-  const context = useRef<AudioContext | null>(null);
-
-  /** AudioContext を用意して、止まっていれば動かす。使えない環境では null。 */
-  const ensureContext = useCallback((): AudioContext | null => {
-    const Ctor = audioContextCtor();
-    if (!Ctor) return null;
-    context.current ??= new Ctor();
-    if (context.current.state === "suspended") void context.current.resume();
-    return context.current;
-  }, []);
+  const keeper = useRef<ContextKeeper | null>(null);
+  keeper.current ??= new ContextKeeper();
 
   useEffect(() => {
     if (!enabled) return;
+    const k = keeper.current as ContextKeeper;
+    // 操作のとき: 作って、動かす。
     const unlock = () => {
       try {
-        ensureContext();
+        const ctx = k.get();
+        if (ctx) void k.wake(ctx);
       } catch {
         // 準備できなくても、鳴らすときにもう一度試す。
       }
     };
-    window.addEventListener("pointerdown", unlock, { once: true });
-    window.addEventListener("keydown", unlock, { once: true });
+    // ウィンドウが前に来たとき: すでにあるものだけ、動かす（作らない）。
+    const refresh = () => {
+      const ctx = k.peek();
+      if (ctx) void k.wake(ctx);
+    };
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
     return () => {
       window.removeEventListener("pointerdown", unlock);
       window.removeEventListener("keydown", unlock);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
     };
-  }, [enabled, ensureContext]);
+  }, [enabled]);
 
   return useCallback(
     (kind, voice) => {
       if (!enabled) return;
+      const k = keeper.current as ContextKeeper;
       try {
-        const ctx = ensureContext();
-        if (ctx) playNotes(ctx, cryNotes(kind, voice, pitch), volume);
+        const ctx = k.get();
+        if (!ctx) return;
+        const notes = cryNotes(kind, voice, pitch);
+        if (ctx.state === "running") {
+          playNotes(ctx, notes, volume);
+          return;
+        }
+        // 止まっていた（長く放っておいたあとなど）。動かしてから鳴らす。
+        void k.wake(ctx).then((ok) => {
+          if (!ok) return;
+          try {
+            playNotes(ctx, notes, volume);
+          } catch {
+            // 音が鳴らなくてもゲームの動作には影響しない。
+          }
+        });
       } catch {
         // 音が鳴らなくてもゲームの動作には影響しない。
       }
     },
-    [enabled, ensureContext, volume, pitch],
+    [enabled, volume, pitch],
   );
 }
