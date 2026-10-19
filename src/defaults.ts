@@ -13,6 +13,7 @@ export const DEFAULT_SETTINGS: Settings = {
   systemReactions: true,
   background: "classic",
   bubbleSeconds: 8,
+  debugLog: false,
   legacyStrength: 2,
   birthdayMonth: 0,
   birthdayDay: 0,
