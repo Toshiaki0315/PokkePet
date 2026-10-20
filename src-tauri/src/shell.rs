@@ -16,12 +16,13 @@ use crate::card::{card_file_name, decode_png_data_url};
 use crate::dex::DexView;
 use crate::diary::DiaryView;
 use crate::game::GameState;
-use crate::minigame::Side;
+use crate::minigame::{Rng, Side};
 use crate::paths::data_dir;
 use crate::sleep::local_utc_offset;
 use crate::system::{parse_battery, parse_dark_mode, parse_hid_idle_secs, SystemInfo};
 use crate::souvenirs::SouvenirView;
 use crate::service::{should_notify_graduation, should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
+use crate::walk::{should_walk, walkable, Walker};
 use crate::settings::{Settings, SettingsService, POPUP_WIDTH};
 
 /// Mac の状態を読む間隔（ループの何回に 1 回か。10 秒 × 3 = 30 秒）。
@@ -40,6 +41,13 @@ const EGG_CODE_WINDOW: &str = "eggcode";
 /// ポップアップの表示/非表示（true=表示）。孵化の演出など「開いている間だけ」再生するものに使う。
 const POPUP_EVENT: &str = "popup-visibility";
 const TRAY_ID: &str = "pokkepet";
+/// おでかけ中にデスクトップを歩く、小さなウィンドウ。
+const WALKER_WINDOW: &str = "walker";
+const WALKER_EVENT: &str = "walker-frame";
+const WALKER_SIZE: f64 = 96.0;
+/// 歩く絵を送る間隔（約 30 コマ/秒）と、歩かせるかを確かめる間隔。
+const WALKER_TICK: Duration = Duration::from_millis(33);
+const WALKER_CHECK: Duration = Duration::from_secs(1);
 
 /// いま表示しているメニューバーの目印（変わったときだけ更新する）。
 struct TrayMark(Mutex<Option<&'static str>>);
@@ -291,6 +299,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     let view = app.state::<GameService>().snapshot();
     update_tray_title(app.handle(), &view);
     spawn_loop(app.handle().clone());
+    spawn_walker(app.handle().clone());
     Ok(())
 }
 
@@ -505,6 +514,91 @@ fn refresh_before_showing(app: &AppHandle) {
         let _ = app.emit(STATE_EVENT, tick.view.clone());
         update_tray_title(app, &tick.view);
     }
+}
+
+/// 歩くための小さな透明ウィンドウを作る（クリックは通り抜け、フォーカスも奪わない）。
+fn open_walker(app: &AppHandle) -> Option<WebviewWindow> {
+    if let Some(window) = app.get_webview_window(WALKER_WINDOW) {
+        return Some(window);
+    }
+    let built = WebviewWindowBuilder::new(app, WALKER_WINDOW, WebviewUrl::App("index.html".into()))
+        .title("PokkePet")
+        .inner_size(WALKER_SIZE, WALKER_SIZE)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .resizable(false)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .visible_on_all_workspaces(true)
+        .focused(false)
+        .build();
+    match built {
+        Ok(window) => {
+            let _ = window.set_ignore_cursor_events(true);
+            Some(window)
+        }
+        Err(e) => {
+            eprintln!("failed to open the walker window: {e}");
+            None
+        }
+    }
+}
+
+/// 画面ごとの作業領域（メニューバーと Dock を除く。ポイント単位）。
+fn work_areas(window: &WebviewWindow) -> Vec<(f64, f64, f64, f64)> {
+    let monitors = window.available_monitors().unwrap_or_default();
+    monitors
+        .iter()
+        .map(|m| {
+            let s = m.scale_factor();
+            let w = m.work_area();
+            (w.position.x as f64 / s, w.position.y as f64 / s, w.size.width as f64 / s, w.size.height as f64 / s)
+        })
+        .collect()
+}
+
+/// おでかけ中（かつ設定がオン）の間だけ、ペットがデスクトップを歩き回る。位置の計算は `walk` が行う。
+fn spawn_walker(handle: AppHandle) {
+    std::thread::spawn(move || {
+        let mut rng = Rng::new(now_unix() ^ 0x5eed);
+        let mut walker: Option<Walker> = None;
+        let mut checked = std::time::Instant::now() - WALKER_CHECK;
+        let mut last = std::time::Instant::now();
+        let mut wanted = false;
+        loop {
+            std::thread::sleep(WALKER_TICK);
+            if checked.elapsed() >= WALKER_CHECK {
+                checked = std::time::Instant::now();
+                let enabled = handle.state::<SettingsService>().get().walk_on_desktop;
+                wanted = should_walk(enabled, handle.state::<GameService>().snapshot().out);
+                if !wanted {
+                    walker = None;
+                    if let Some(window) = handle.get_webview_window(WALKER_WINDOW) {
+                        let _ = window.close();
+                    }
+                }
+            }
+            let dt = last.elapsed().as_secs_f64();
+            last = std::time::Instant::now();
+            if !wanted {
+                continue;
+            }
+            let Some(window) = open_walker(&handle) else {
+                continue;
+            };
+            let areas = walkable(&work_areas(&window), WALKER_SIZE);
+            if walker.is_none() {
+                walker = Walker::new(&areas, &mut rng);
+            }
+            let Some(walker) = walker.as_mut() else {
+                continue;
+            };
+            let frame = walker.step(dt, &areas, &mut rng);
+            let _ = window.set_position(tauri::LogicalPosition::new(frame.x, frame.y));
+            let _ = window.emit(WALKER_EVENT, serde_json::json!({ "dir": frame.dir, "moving": frame.moving }));
+        }
+    });
 }
 
 fn spawn_loop(handle: AppHandle) {

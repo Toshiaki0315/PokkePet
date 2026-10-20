@@ -57,6 +57,8 @@ pub struct Settings {
     pub legacy_strength: u8,
     /// デバッグ用に、お世話・睡眠・おでかけ・うんち・ご機嫌の変化などを、詳しく `debug.log` に残す。
     pub debug_log: bool,
+    /// おでかけ中、ペットがデスクトップの上を歩き回る。
+    pub walk_on_desktop: bool,
     /// 吹き出しを出しておく長さ（秒。0〜60）。過ぎると、すっと消える。0 なら、ずっと出しておく。
     pub bubble_seconds: u8,
     /// Mac の状態（電池・ネット・ダークモード）にペットが反応する。
@@ -85,6 +87,7 @@ impl Default for Settings {
             background: DEFAULT_BACKGROUND.to_string(),
             bubble_seconds: DEFAULT_BUBBLE_SECONDS,
             debug_log: false,
+            walk_on_desktop: false,
             legacy_strength: DEFAULT_LEGACY_STRENGTH,
             birthday_month: 0,
             birthday_day: 0,
@@ -450,6 +453,17 @@ mod tests {
         with(3).save(&p).unwrap();
         assert_eq!(Settings::load(&p).unwrap().legacy_bonus(), 60);
         assert_eq!(serde_json::to_value(Settings::default()).unwrap()["legacyStrength"], 2);
+    }
+
+    #[test]
+    fn walking_on_the_desktop_is_off_by_default_and_is_saved() {
+        assert!(!Settings::default().walk_on_desktop);
+        let p = tmp("walk-on-desktop");
+        Settings { walk_on_desktop: true, ..Settings::default() }.save(&p).unwrap();
+        assert!(Settings::load(&p).unwrap().walk_on_desktop);
+        assert_eq!(serde_json::to_value(Settings::default()).unwrap()["walkOnDesktop"], false);
+        fs::write(&p, r##"{"showGauges": true}"##).unwrap();
+        assert!(!Settings::load(&p).unwrap().walk_on_desktop, "older settings files: off");
     }
 
     #[test]

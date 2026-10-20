@@ -1,0 +1,6 @@
+html, body, #root { background: transparent; }
+body { margin: 0; overflow: hidden; pointer-events: none; user-select: none; }
+.walker { width: 96px; height: 96px; display: flex; align-items: flex-end; justify-content: center; }
+.walker-sprite { width: 80px; height: 80px; image-rendering: pixelated; }
+.walker.walking .walker-sprite { animation: walker-step 0.4s steps(2, jump-none) infinite; }
+@keyframes walker-step { 0% { transform: translateY(0); } 100% { transform: translateY(-4px); } }

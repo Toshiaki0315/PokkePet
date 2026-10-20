@@ -22,7 +22,7 @@ vi.mock("./sound", () => ({
 
 import Settings from "./Settings";
 
-const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, background: "classic", bubbleSeconds: 8, debugLog: false, legacyStrength: 2, birthdayMonth: 0, birthdayDay: 0, breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
+const custom: SettingsModel = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, background: "classic", bubbleSeconds: 8, debugLog: false, walkOnDesktop: false, legacyStrength: 2, birthdayMonth: 0, birthdayDay: 0, breakReminder: true, autoSleep: true, sleepStartHour: 22, sleepEndHour: 6, bodyColor: "#112233", buttonColor: "#445566" };
 let emit: (s: SettingsModel) => void;
 const unlisten = vi.fn();
 
@@ -196,6 +196,14 @@ describe("Settings dialog", () => {
     expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, legacyStrength: 3 });
     await userEvent.selectOptions(select, "受け継がない");
     expect(api.saveSettings).toHaveBeenLastCalledWith({ ...custom, legacyStrength: 0 });
+  });
+
+  it("turns walking on the desktop on and off", async () => {
+    render(<Settings />);
+    const box = await screen.findByRole("checkbox", { name: "おでかけ中、デスクトップを歩き回る" });
+    expect(box).not.toBeChecked();
+    await userEvent.click(box);
+    expect(api.saveSettings).toHaveBeenCalledWith({ ...custom, walkOnDesktop: true });
   });
 
   it("turns the debug log on and off", async () => {

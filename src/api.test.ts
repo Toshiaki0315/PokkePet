@@ -5,7 +5,7 @@ const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
-import { revealDebugLog, saveCard, getEggCode, receiveEgg, ackGift, getSouvenirs, toggleSouvenir, ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
+import { onWalkFrame, revealDebugLog, saveCard, getEggCode, receiveEgg, ackGift, getSouvenirs, toggleSouvenir, ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
 
 const view = { mood: 1, affinity: 2, hunger: 3, dirtiness: 4, stage: 1, branch: "normal", personality: "calm" };
 
@@ -47,7 +47,7 @@ describe("api", () => {
   });
 
   it("saveSettings invokes save_settings with the settings", async () => {
-    const settings = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, background: "classic" as const, bubbleSeconds: 8, debugLog: false, legacyStrength: 2, birthdayMonth: 0, birthdayDay: 0, breakReminder: true, autoSleep: true, sleepStartHour: 23, sleepEndHour: 7, bodyColor: "#112233", buttonColor: "#445566" };
+    const settings = { showGauges: false, notifyCalls: true, soundEnabled: true, soundVolume: 50, soundPitch: 0, launchAtLogin: false, strictMode: false, companionEnabled: true, systemReactions: true, background: "classic" as const, bubbleSeconds: 8, debugLog: false, walkOnDesktop: false, legacyStrength: 2, birthdayMonth: 0, birthdayDay: 0, breakReminder: true, autoSleep: true, sleepStartHour: 23, sleepEndHour: 7, bodyColor: "#112233", buttonColor: "#445566" };
     invoke.mockResolvedValue(settings);
     await expect(saveSettings(settings)).resolves.toEqual(settings);
     expect(invoke).toHaveBeenCalledWith("save_settings", { settings });
@@ -120,6 +120,19 @@ describe("api", () => {
     invoke.mockResolvedValue(view);
     await expect(togglePower()).resolves.toEqual(view);
     expect(invoke).toHaveBeenCalledWith("toggle_power");
+  });
+
+  it("onWalkFrame listens to walker-frame and forwards the payload", async () => {
+    const unlisten = vi.fn();
+    listen.mockImplementation((_name: string, cb: (e: { payload: unknown }) => void) => {
+      cb({ payload: { dir: -1, moving: true } });
+      return Promise.resolve(unlisten);
+    });
+    const handler = vi.fn();
+    const off = await onWalkFrame(handler);
+    expect(listen).toHaveBeenCalledWith("walker-frame", expect.any(Function));
+    expect(handler).toHaveBeenCalledWith({ dir: -1, moving: true });
+    expect(off).toBe(unlisten);
   });
 
   it("revealDebugLog invokes reveal_debug_log", async () => {

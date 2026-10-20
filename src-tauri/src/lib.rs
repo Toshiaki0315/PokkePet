@@ -21,6 +21,7 @@ pub mod souvenirs;
 pub mod sleep;
 pub mod status;
 pub mod system;
+pub mod walk;
 
 mod shell;
 

@@ -14,6 +14,7 @@ export const DEFAULT_SETTINGS: Settings = {
   background: "classic",
   bubbleSeconds: 8,
   debugLog: false,
+  walkOnDesktop: false,
   legacyStrength: 2,
   birthdayMonth: 0,
   birthdayDay: 0,
