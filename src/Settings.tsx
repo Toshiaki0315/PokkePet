@@ -346,6 +346,21 @@ export default function Settings() {
       </fieldset>
 
       <fieldset>
+        <legend>おでかけ</legend>
+        <label className="row">
+          <input
+            type="checkbox"
+            checked={settings.walkOnDesktop}
+            onChange={(e) => patch({ walkOnDesktop: e.target.checked })}
+          />
+          おでかけ中、デスクトップを歩き回る
+        </label>
+        <p className="hint">
+          おでかけしている間、小さなペットがデスクトップの上をうろうろします（クリックは通り抜けます）。
+        </p>
+      </fieldset>
+
+      <fieldset>
         <legend>開発（デバッグ）</legend>
         <label className="row">
           <input

@@ -140,6 +140,16 @@ export function onStateChanged(handler: (view: StateView) => void): Promise<() =
   return listen<StateView>("state-changed", (event) => handler(event.payload));
 }
 
+/** デスクトップを歩いているペットの、向き（-1: 左, 1: 右）と、歩いているか。 */
+export interface WalkFrame {
+  dir: number;
+  moving: boolean;
+}
+
+export function onWalkFrame(handler: (frame: WalkFrame) => void): Promise<() => void> {
+  return listen<WalkFrame>("walker-frame", (event) => handler(event.payload));
+}
+
 export interface Settings {
   showGauges: boolean;
   /** お世話の呼びかけ（空腹・汚れ・つまらない）をmacOSの通知で知らせる */
@@ -162,6 +172,7 @@ export interface Settings {
   bubbleSeconds: number;
   /** デバッグ用に、お世話・睡眠・おでかけ・うんち・ご機嫌の変化などを、詳しくログに残す */
   debugLog: boolean;
+  walkOnDesktop: boolean;
   /** 旅立った親の性格を子が受け継ぐ強さ（0=なし 1=弱い 2=ふつう 3=強い） */
   legacyStrength: number;
   /** 飼い主のお誕生日（月 1〜12・日 1〜31。どちらも 0 ならなし）。その日、ペットがお祝いする */

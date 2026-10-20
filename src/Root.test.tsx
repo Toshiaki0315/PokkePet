@@ -6,6 +6,7 @@ vi.mock("./Settings", () => ({ default: () => <div>settings dialog</div> }));
 vi.mock("./Dex", () => ({ default: () => <div>dex window</div> }));
 vi.mock("./Diary", () => ({ default: () => <div>diary window</div> }));
 vi.mock("./EggCode", () => ({ default: () => <div>egg code window</div> }));
+vi.mock("./Walker", () => ({ default: () => <div>walker window</div> }));
 vi.mock("./Souvenirs", () => ({ default: () => <div>souvenirs window</div> }));
 
 import Root from "./Root";
@@ -34,6 +35,11 @@ describe("Root", () => {
   it("renders the egg code exchange in the eggcode window", () => {
     render(<Root label="eggcode" />);
     expect(screen.getByText("egg code window")).toBeInTheDocument();
+  });
+
+  it("renders the walking pet in the walker window", () => {
+    render(<Root label="walker" />);
+    expect(screen.getByText("walker window")).toBeInTheDocument();
   });
 
   it("renders the popup in every other window", () => {
