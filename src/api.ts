@@ -149,6 +149,19 @@ export function onStateChanged(handler: (view: StateView) => void): Promise<() =
 export interface WalkFrame {
   dir: number;
   moving: boolean;
+  /** つかまれている。 */
+  held: boolean;
+  /** 投げられて、飛んでいる。 */
+  flying: boolean;
+  /** いまのしぐさ（跳ねる・回る・あくび・伸び）。 */
+  action: "hop" | "spin" | "yawn" | "stretch" | null;
+  /** しぐさが始まるたびに増える。 */
+  seq: number;
+}
+
+/** 歩いているペットへのマウス操作を、Rust に伝える。 */
+export function walkerMouse(kind: "down" | "up" | "dblclick"): Promise<void> {
+  return invoke<void>("walker_mouse", { kind });
 }
 
 export function onWalkFrame(handler: (frame: WalkFrame) => void): Promise<() => void> {

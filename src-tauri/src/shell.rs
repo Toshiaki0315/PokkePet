@@ -22,7 +22,7 @@ use crate::sleep::local_utc_offset;
 use crate::system::{parse_battery, parse_dark_mode, parse_hid_idle_secs, SystemInfo};
 use crate::souvenirs::SouvenirView;
 use crate::service::{should_notify_graduation, should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
-use crate::walk::{should_walk, walkable, Walker};
+use crate::walk::{should_walk, walkable, Action, Walker};
 use crate::settings::{Settings, SettingsService, POPUP_WIDTH};
 
 /// Mac の状態を読む間隔（ループの何回に 1 回か。10 秒 × 3 = 30 秒）。
@@ -283,6 +283,7 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     app.manage(GameService::new(state, path).with_time_scale(scale));
     app.manage(Mutex::new(CallGate::new()));
     app.manage(TrayMark(Mutex::new(None)));
+    app.manage(WalkerMouse::new());
 
     let settings_path = dir.join("settings.json");
     let settings = Settings::load(&settings_path).unwrap_or_else(|e| {
@@ -553,6 +554,21 @@ fn open_walker(app: &AppHandle) -> Option<WebviewWindow> {
     }
 }
 
+/// 歩いているペットへのマウス操作（`down` / `up` / `dblclick`）。歩く側のスレッドが順に取り出す。
+pub struct WalkerMouse(Mutex<Vec<String>>);
+
+impl WalkerMouse {
+    pub fn new() -> Self {
+        Self(Mutex::new(Vec::new()))
+    }
+}
+
+/// 歩いているペットが、マウスで押された・離された・ダブルクリックされた。
+#[tauri::command]
+pub fn walker_mouse(queue: State<WalkerMouse>, kind: String) {
+    queue.0.lock().unwrap_or_else(|e| e.into_inner()).push(kind);
+}
+
 /// 画面ごとの作業領域（メニューバーと Dock を除く。ポイント単位）。
 fn work_areas(window: &WebviewWindow) -> Vec<(f64, f64, f64, f64)> {
     let monitors = window.available_monitors().unwrap_or_default();
@@ -574,6 +590,8 @@ fn spawn_walker(handle: AppHandle) {
         let mut checked = std::time::Instant::now() - WALKER_CHECK;
         let mut last = std::time::Instant::now();
         let mut wanted = false;
+        let mut interactive = false;
+        let mut at = (0.0, 0.0);
         loop {
             std::thread::sleep(WALKER_TICK);
             if checked.elapsed() >= WALKER_CHECK {
@@ -582,6 +600,7 @@ fn spawn_walker(handle: AppHandle) {
                 wanted = should_walk(enabled, handle.state::<GameService>().snapshot().out);
                 if !wanted {
                     walker = None;
+                    interactive = false;
                     if let Some(window) = handle.get_webview_window(WALKER_WINDOW) {
                         let _ = window.close();
                     }
@@ -602,9 +621,30 @@ fn spawn_walker(handle: AppHandle) {
             let Some(walker) = walker.as_mut() else {
                 continue;
             };
-            let frame = walker.step(dt, &areas, &mut rng);
+            let scale = window.scale_factor().unwrap_or(1.0);
+            let cursor = window.cursor_position().ok().map(|p| (p.x / scale, p.y / scale));
+            let events: Vec<String> = handle.state::<WalkerMouse>().0.lock().unwrap_or_else(|e| e.into_inner()).drain(..).collect();
+            for kind in events {
+                match (kind.as_str(), cursor) {
+                    ("down", Some(c)) => walker.grab(c),
+                    ("up", _) => walker.release(),
+                    ("dblclick", _) => walker.act(Action::Spin),
+                    _ => {}
+                }
+            }
+            if let (true, Some(c)) = (walker.is_held(), cursor) {
+                walker.drag(c);
+            }
+            let hover = cursor.is_some_and(|(cx, cy)| cx >= at.0 && cx < at.0 + WALKER_SIZE && cy >= at.1 && cy < at.1 + WALKER_SIZE);
+            let frame = walker.step_with(dt, &areas, &mut rng, hover);
+            at = (frame.x, frame.y);
+            // ペットの上にマウスがあるときだけクリックを受ける（それ以外は、背後のアプリへ通す）
+            let want = hover || walker.is_held();
+            if want != interactive && window.set_ignore_cursor_events(!want).is_ok() {
+                interactive = want;
+            }
             let _ = window.set_position(tauri::LogicalPosition::new(frame.x, frame.y));
-            let _ = window.emit(WALKER_EVENT, serde_json::json!({ "dir": frame.dir, "moving": frame.moving }));
+            let _ = window.emit(WALKER_EVENT, frame);
         }
     });
 }

@@ -5,7 +5,7 @@ const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
-import { onWalkFrame, toggleOutingNow, revealDebugLog, saveCard, getEggCode, receiveEgg, ackGift, getSouvenirs, toggleSouvenir, ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
+import { onWalkFrame, walkerMouse, toggleOutingNow, revealDebugLog, saveCard, getEggCode, receiveEgg, ackGift, getSouvenirs, toggleSouvenir, ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
 
 const view = { mood: 1, affinity: 2, hunger: 3, dirtiness: 4, stage: 1, branch: "normal", personality: "calm" };
 
@@ -125,14 +125,20 @@ describe("api", () => {
   it("onWalkFrame listens to walker-frame and forwards the payload", async () => {
     const unlisten = vi.fn();
     listen.mockImplementation((_name: string, cb: (e: { payload: unknown }) => void) => {
-      cb({ payload: { dir: -1, moving: true } });
+      cb({ payload: { dir: -1, moving: true, held: false, flying: false, action: null, seq: 0 } });
       return Promise.resolve(unlisten);
     });
     const handler = vi.fn();
     const off = await onWalkFrame(handler);
     expect(listen).toHaveBeenCalledWith("walker-frame", expect.any(Function));
-    expect(handler).toHaveBeenCalledWith({ dir: -1, moving: true });
+    expect(handler).toHaveBeenCalledWith({ dir: -1, moving: true, held: false, flying: false, action: null, seq: 0 });
     expect(off).toBe(unlisten);
+  });
+
+  it("walkerMouse invokes walker_mouse with the kind", async () => {
+    invoke.mockResolvedValue(undefined);
+    await walkerMouse("dblclick");
+    expect(invoke).toHaveBeenCalledWith("walker_mouse", { kind: "dblclick" });
   });
 
   it("toggleOutingNow invokes toggle_outing", async () => {
