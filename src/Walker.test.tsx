@@ -56,11 +56,12 @@ describe("Walker", () => {
 
   it("walks and turns to face where it goes", async () => {
     const { walker } = await shown();
+    const flip = walker.querySelector(".walker-flip") as HTMLElement;
     expect(walker).not.toHaveClass("walking");
-    expect(walker.style.transform).toBe("scaleX(1)");
+    expect(flip.style.transform).toBe("scaleX(1)");
     act(() => emitFrame({ ...still, dir: -1, moving: true }));
     expect(walker).toHaveClass("walking");
-    expect(walker.style.transform).toBe("scaleX(-1)");
+    expect(flip.style.transform).toBe("scaleX(-1)");
     act(() => emitFrame(still));
     expect(walker).not.toHaveClass("walking");
   });
@@ -80,6 +81,19 @@ describe("Walker", () => {
     expect(container.querySelector(".walker-heart")).toBeNull();
     act(() => emitFrame(still));
     expect(container.querySelector(".walker-move")).not.toHaveClass("spin");
+  });
+
+  it("shows what the pet says in a bubble that is not mirrored, and removes it afterwards", async () => {
+    const { walker } = await shown();
+    expect(walker.querySelector(".bubble")).toBeNull();
+    act(() =>
+      emitFrame({ ...still, dir: -1, say: "いいてんき！", say_seq: 1 }),
+    );
+    const bubble = walker.querySelector(".bubble") as HTMLElement;
+    expect(bubble).toHaveTextContent("いいてんき！");
+    expect(bubble.closest(".walker-flip")).toBeNull();
+    act(() => emitFrame({ ...still, say: null, say_seq: 1 }));
+    expect(walker.querySelector(".bubble")).toBeNull();
   });
 
   it("tells Rust about presses, releases and double clicks (and ignores a failure)", async () => {

@@ -22,7 +22,9 @@ use crate::sleep::local_utc_offset;
 use crate::system::{parse_battery, parse_dark_mode, parse_hid_idle_secs, SystemInfo};
 use crate::souvenirs::SouvenirView;
 use crate::service::{should_notify_graduation, should_notify_hatch, tray_title, GameService, MiniGameReport, StateView};
-use crate::walk::{should_walk, walkable, Action, Walker};
+use crate::desk::{fullscreen_at, perch_edges, Edge, Rect};
+use crate::macwin::on_screen_windows;
+use crate::walk::{over_sprite, should_walk, walkable, Action, Walker, SPRITE, WALKER_SIZE};
 use crate::settings::{Settings, SettingsService, POPUP_WIDTH};
 
 /// Mac の状態を読む間隔（ループの何回に 1 回か。10 秒 × 3 = 30 秒）。
@@ -44,10 +46,11 @@ const TRAY_ID: &str = "pokkepet";
 /// おでかけ中にデスクトップを歩く、小さなウィンドウ。
 const WALKER_WINDOW: &str = "walker";
 const WALKER_EVENT: &str = "walker-frame";
-const WALKER_SIZE: f64 = 96.0;
 /// 歩く絵を送る間隔（約 30 コマ/秒）と、歩かせるかを確かめる間隔。
 const WALKER_TICK: Duration = Duration::from_millis(33);
 const WALKER_CHECK: Duration = Duration::from_secs(1);
+/// 窓の位置（乗れるふち・全画面かどうか）を読む間隔。
+const DESK_CHECK: Duration = Duration::from_millis(500);
 
 /// いま表示しているメニューバーの目印（変わったときだけ更新する）。
 struct TrayMark(Mutex<Option<&'static str>>);
@@ -582,6 +585,18 @@ fn work_areas(window: &WebviewWindow) -> Vec<(f64, f64, f64, f64)> {
         .collect()
 }
 
+/// 画面ごとの全体の範囲（ポイント単位）。
+fn screen_rects(window: &WebviewWindow) -> Vec<Rect> {
+    let monitors = window.available_monitors().unwrap_or_default();
+    monitors
+        .iter()
+        .map(|m| {
+            let s = m.scale_factor();
+            Rect::new(m.position().x as f64 / s, m.position().y as f64 / s, m.size().width as f64 / s, m.size().height as f64 / s)
+        })
+        .collect()
+}
+
 /// おでかけ中（かつ設定がオン）の間だけ、ペットがデスクトップを歩き回る。位置の計算は `walk` が行う。
 fn spawn_walker(handle: AppHandle) {
     std::thread::spawn(move || {
@@ -592,6 +607,9 @@ fn spawn_walker(handle: AppHandle) {
         let mut wanted = false;
         let mut interactive = false;
         let mut at = (0.0, 0.0);
+        let mut desk_checked = std::time::Instant::now() - DESK_CHECK;
+        let mut edges: Vec<Edge> = Vec::new();
+        let mut hidden = false;
         loop {
             std::thread::sleep(WALKER_TICK);
             if checked.elapsed() >= WALKER_CHECK {
@@ -601,6 +619,7 @@ fn spawn_walker(handle: AppHandle) {
                 if !wanted {
                     walker = None;
                     interactive = false;
+                    hidden = false;
                     if let Some(window) = handle.get_webview_window(WALKER_WINDOW) {
                         let _ = window.close();
                     }
@@ -614,7 +633,19 @@ fn spawn_walker(handle: AppHandle) {
             let Some(window) = open_walker(&handle) else {
                 continue;
             };
-            let areas = walkable(&work_areas(&window), WALKER_SIZE);
+            // 窓の上に乗る・全画面アプリの上では隠れる（窓の位置は 0.5 秒ごとに読む）
+            if desk_checked.elapsed() >= DESK_CHECK {
+                desk_checked = std::time::Instant::now();
+                let windows = on_screen_windows();
+                let screens = screen_rects(&window);
+                edges = perch_edges(&windows, &screens, SPRITE * 1.5);
+                let hide = fullscreen_at(&windows, &screens, (at.0 + WALKER_SIZE / 2.0, at.1 + WALKER_SIZE / 2.0));
+                if hide != hidden {
+                    hidden = hide;
+                    let _ = if hide { window.hide() } else { window.show() };
+                }
+            }
+            let areas = walkable(&work_areas(&window));
             if walker.is_none() {
                 walker = Walker::new(&areas, &mut rng);
             }
@@ -635,8 +666,8 @@ fn spawn_walker(handle: AppHandle) {
             if let (true, Some(c)) = (walker.is_held(), cursor) {
                 walker.drag(c);
             }
-            let hover = cursor.is_some_and(|(cx, cy)| cx >= at.0 && cx < at.0 + WALKER_SIZE && cy >= at.1 && cy < at.1 + WALKER_SIZE);
-            let frame = walker.step_with(dt, &areas, &mut rng, hover);
+            let hover = cursor.is_some_and(|c| over_sprite(at, c));
+            let frame = walker.step_in(dt, &areas, &edges, &mut rng, hover);
             at = (frame.x, frame.y);
             // ペットの上にマウスがあるときだけクリックを受ける（それ以外は、背後のアプリへ通す）
             let want = hover || walker.is_held();

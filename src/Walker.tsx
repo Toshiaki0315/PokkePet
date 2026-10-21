@@ -12,6 +12,8 @@ const STILL: WalkFrame = {
   flying: false,
   action: null,
   seq: 0,
+  say: null,
+  say_seq: 0,
 };
 
 /** おでかけ中にデスクトップを歩き回る、小さなペット。位置・動きの計算は Rust、ここは絵と、マウス操作を伝えるだけ。 */
@@ -38,22 +40,34 @@ export default function Walker() {
   return (
     <div
       className={classes}
-      style={{ transform: `scaleX(${frame.dir < 0 ? -1 : 1})` }}
       onMouseDown={() => void walkerMouse("down").catch(() => {})}
       onMouseUp={() => void walkerMouse("up").catch(() => {})}
       onDoubleClick={() => void walkerMouse("dblclick").catch(() => {})}
     >
+      {frame.say && (
+        <div key={frame.say_seq} className="bubble walker-bubble">
+          {frame.say}
+        </div>
+      )}
+      {/* 左右の向きは絵だけに掛ける（ふきだしの文字が裏返らないように） */}
       <div
-        key={frame.seq}
-        className={frame.action ? `walker-move ${frame.action}` : "walker-move"}
+        className="walker-flip"
+        style={{ transform: `scaleX(${frame.dir < 0 ? -1 : 1})` }}
       >
-        <img
-          className="walker-sprite"
-          src={spritePath(view)}
-          alt="おでかけ中のペット"
-          draggable={false}
-        />
-        {frame.action === "hop" && <span className="walker-heart">❤</span>}
+        <div
+          key={frame.seq}
+          className={
+            frame.action ? `walker-move ${frame.action}` : "walker-move"
+          }
+        >
+          <img
+            className="walker-sprite"
+            src={spritePath(view)}
+            alt="おでかけ中のペット"
+            draggable={false}
+          />
+          {frame.action === "hop" && <span className="walker-heart">❤</span>}
+        </div>
       </div>
     </div>
   );

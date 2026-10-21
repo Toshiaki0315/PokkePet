@@ -5,6 +5,7 @@ pub mod companion;
 pub mod debuglog;
 pub mod dex;
 pub mod daylog;
+pub mod desk;
 pub mod diary;
 pub mod events;
 pub mod evolution;
@@ -23,6 +24,7 @@ pub mod status;
 pub mod system;
 pub mod walk;
 
+mod macwin;
 mod shell;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

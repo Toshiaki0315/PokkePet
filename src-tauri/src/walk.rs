@@ -3,7 +3,34 @@
 
 use serde::Serialize;
 
+use crate::desk::Edge;
 use crate::minigame::Rng;
+
+/// ウィンドウの大きさ（正方形）。ペットの絵（`SPRITE`）は、下の真ん中に置く。上の空きは、ふきだし用。
+pub const WALKER_SIZE: f64 = 160.0;
+/// ペットの絵の大きさ。
+pub const SPRITE: f64 = 80.0;
+/// ウィンドウの左端から、絵の左端まで。
+const PAD_X: f64 = (WALKER_SIZE - SPRITE) / 2.0;
+/// 作業領域の上端より、ウィンドウをこれだけ上まで出してよい（ふきだしが上にはみ出てもよい）。
+const BUBBLE_ROOM: f64 = 60.0;
+/// 窓のふちに乗るとき、足を少しふちに沈める。
+const FOOT_SINK: f64 = 4.0;
+/// 地面で次の行き先を決めるとき、窓のふちに飛び乗る確率。
+const PERCH_CHANCE: f64 = 0.3;
+/// 窓の上で休んだあと、ふちに沿って歩き続ける確率（残りは飛び降りる）。
+const STAY_ON_PERCH_CHANCE: f64 = 0.7;
+/// 窓に飛び乗る山の高さ。
+const JUMP_ARC: f64 = 60.0;
+/// ふきだしを出しておく秒数。
+const SAY_SECS: f64 = 3.0;
+/// 目的地に着いたとき、ひとことしゃべる確率。
+const IDLE_SAY_CHANCE: f64 = 0.25;
+const WALK_LINES: [&str; 5] = ["おさんぽ たのしいな", "いいてんき！", "どこいこうかな", "ふんふん♪", "ちょっと やすもう"];
+const HOP_LINES: [&str; 3] = ["えへへ", "うれしい！", "わーい"];
+const SPIN_LINES: [&str; 2] = ["めがまわる〜", "くるくる〜"];
+const LAND_LINES: [&str; 3] = ["びっくりした！", "いてて…", "ふぅ…"];
+const PERCH_LINES: [&str; 3] = ["いいながめ！", "とうちゃく！", "たかーい"];
 
 /// 歩く速さ（ポイント/秒）。
 pub const WALK_SPEED: f64 = 60.0;
@@ -26,9 +53,20 @@ impl Area {
     }
 }
 
-/// 画面の作業領域（メニューバーと Dock を除く）から、大きさ `size` のウィンドウが動ける範囲を作る。狭すぎる画面は除く。
-pub fn walkable(work_areas: &[(f64, f64, f64, f64)], size: f64) -> Vec<Area> {
-    work_areas.iter().filter(|&&(_, _, w, h)| w > size && h > size).map(|&(x, y, w, h)| Area { x, y, w: w - size, h: h - size }).collect()
+/// 画面の作業領域（メニューバーと Dock を除く）から、ウィンドウの左上が動ける範囲を作る
+/// （絵が作業領域の中に収まるように。ふきだし用の空きは、上にはみ出てよい）。狭すぎる画面は除く。
+pub fn walkable(work_areas: &[(f64, f64, f64, f64)]) -> Vec<Area> {
+    work_areas
+        .iter()
+        .filter(|&&(_, _, w, h)| w > SPRITE && h > SPRITE)
+        .map(|&(x, y, w, h)| Area { x: x - PAD_X, y: y - BUBBLE_ROOM, w: w - SPRITE, h: h - WALKER_SIZE + BUBBLE_ROOM })
+        .collect()
+}
+
+/// マウスがペットの絵の上にあるか（`window` はウィンドウの左上）。ふきだし用の空きの上は含めない。
+pub fn over_sprite(window: (f64, f64), cursor: (f64, f64)) -> bool {
+    let (left, top) = (window.0 + PAD_X, window.1 + WALKER_SIZE - SPRITE);
+    cursor.0 >= left && cursor.0 < left + SPRITE && cursor.1 >= top && cursor.1 < top + SPRITE
 }
 
 /// デスクトップを歩かせるか: 設定がオンで、ペットがおでかけ中のとき。
@@ -89,6 +127,9 @@ pub struct Frame {
     pub flying: bool,
     pub action: Option<Action>,
     pub seq: u32,
+    /// いまのひとこと（ふきだし）。`say_seq` は、しゃべるたびに増える。
+    pub say: Option<&'static str>,
+    pub say_seq: u32,
 }
 
 enum Mode {
@@ -97,6 +138,10 @@ enum Mode {
     Held { start: (f64, f64), off: (f64, f64), moved: bool, samples: Vec<(f64, (f64, f64))> },
     /// 投げられた・落ちている。
     Fly { vx: f64, vy: f64 },
+    /// 窓のふちへ飛び乗っている最中。`off` は、ふちの左端から絵の左端までの距離。
+    Jump { from: (f64, f64), elapsed: f64, secs: f64, edge: i64, off: f64 },
+    /// 窓のふちに乗って歩いている。
+    Perched { edge: i64, off: f64, target_off: f64 },
 }
 
 pub struct Walker {
@@ -110,6 +155,11 @@ pub struct Walker {
     action: Option<Action>,
     action_left: f64,
     seq: u32,
+    say: Option<&'static str>,
+    say_left: f64,
+    say_seq: u32,
+    /// ひとことを選ぶ順番（毎回ちがうものが出るように、1 ずつ進める）。
+    say_n: usize,
 }
 
 fn unit(rng: &mut Rng) -> f64 {
@@ -130,7 +180,7 @@ impl Walker {
     /// 範囲のどこかから歩き出す。歩ける範囲がなければ None。
     pub fn new(areas: &[Area], rng: &mut Rng) -> Option<Self> {
         let (x, y) = pick_point(areas, rng)?;
-        Some(Self { x, y, target: (x, y), rest: 0.0, dir: 1, mode: Mode::Walk, clock: 0.0, action: None, action_left: 0.0, seq: 0 })
+        Some(Self { x, y, target: (x, y), rest: 0.0, dir: 1, mode: Mode::Walk, clock: 0.0, action: None, action_left: 0.0, seq: 0, say: None, say_left: 0.0, say_seq: 0, say_n: rng.next_below(100) as usize })
     }
 
     fn frame(&self, moving: bool) -> Frame {
@@ -143,7 +193,17 @@ impl Walker {
             flying: matches!(self.mode, Mode::Fly { .. }),
             action: self.action.filter(|_| self.action_left > 0.0),
             seq: self.seq,
+            say: self.say.filter(|_| self.say_left > 0.0),
+            say_seq: self.say_seq,
         }
+    }
+
+    /// ひとことしゃべる（`lines` から順に選ぶ）。
+    fn say(&mut self, lines: &[&'static str]) {
+        self.say_n = self.say_n.wrapping_add(1);
+        self.say = Some(lines[self.say_n % lines.len()]);
+        self.say_left = SAY_SECS;
+        self.say_seq = self.say_seq.wrapping_add(1);
     }
 
     /// しぐさを始める（その間は立ち止まる）。
@@ -152,6 +212,11 @@ impl Walker {
         self.action = Some(action);
         self.action_left = action.secs();
         self.rest = self.rest.max(action.secs());
+        match action {
+            Action::Hop => self.say(&HOP_LINES),
+            Action::Spin => self.say(&SPIN_LINES),
+            Action::Yawn | Action::Stretch => {}
+        }
     }
 
     /// マウスのボタンが押された（`cursor` は画面上のマウスの位置）。
@@ -206,13 +271,101 @@ impl Walker {
 
     /// `step` に、マウスがペットの上にあるか（あれば、立ち止まって待つ）を加えたもの。
     pub fn step_with(&mut self, dt: f64, areas: &[Area], rng: &mut Rng, hover: bool) -> Frame {
+        self.step_in(dt, areas, &[], rng, hover)
+    }
+
+    /// `step_with` に、いま乗れる窓のふち（`edges`）を加えたもの。
+    pub fn step_in(&mut self, dt: f64, areas: &[Area], edges: &[Edge], rng: &mut Rng, hover: bool) -> Frame {
         self.clock += dt;
         self.action_left = (self.action_left - dt).max(0.0);
+        self.say_left = (self.say_left - dt).max(0.0);
         match self.mode {
             Mode::Held { .. } => self.frame(false),
             Mode::Fly { vx, vy } => self.fly(dt, areas, rng, vx, vy),
-            Mode::Walk => self.walk(dt, areas, rng, hover),
+            Mode::Jump { from, elapsed, secs, edge, off } => self.jump(dt, edges, from, elapsed, secs, edge, off),
+            Mode::Perched { edge, off, target_off } => self.perched(dt, edges, rng, hover, edge, off, target_off),
+            Mode::Walk => self.walk(dt, areas, edges, rng, hover),
         }
+    }
+
+    /// 窓のふち `e` の、ふちの左端から `off` の位置に立つときの、ウィンドウの左上。
+    fn perch_pos(e: &Edge, off: f64) -> (f64, f64) {
+        (e.x + off - PAD_X, e.y - WALKER_SIZE + FOOT_SINK)
+    }
+
+    fn start_jump(&mut self, e: &Edge, rng: &mut Rng) {
+        let off = (e.w - SPRITE).max(0.0) * unit(rng);
+        let to = Self::perch_pos(e, off);
+        let secs = (0.5 + (to.0 - self.x).hypot(to.1 - self.y) / 2000.0).min(1.0);
+        self.dir = if to.0 < self.x { -1 } else { 1 };
+        self.mode = Mode::Jump { from: (self.x, self.y), elapsed: 0.0, secs, edge: e.id, off };
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn jump(&mut self, dt: f64, edges: &[Edge], from: (f64, f64), elapsed: f64, secs: f64, edge: i64, off: f64) -> Frame {
+        let Some(e) = edges.iter().find(|e| e.id == edge) else {
+            self.mode = Mode::Fly { vx: 0.0, vy: 0.0 };
+            return self.frame(false);
+        };
+        let elapsed = elapsed + dt;
+        let to = Self::perch_pos(e, off);
+        let t = (elapsed / secs).min(1.0);
+        self.x = from.0 + (to.0 - from.0) * t;
+        self.y = from.1 + (to.1 - from.1) * t - JUMP_ARC * 4.0 * t * (1.0 - t);
+        if t >= 1.0 {
+            self.mode = Mode::Perched { edge, off, target_off: off };
+            self.rest = 1.0;
+            self.say(&PERCH_LINES);
+        } else {
+            self.mode = Mode::Jump { from, elapsed, secs, edge, off };
+        }
+        self.frame(false)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn perched(&mut self, dt: f64, edges: &[Edge], rng: &mut Rng, hover: bool, edge: i64, mut off: f64, mut target_off: f64) -> Frame {
+        let Some(e) = edges.iter().find(|e| e.id == edge) else {
+            self.mode = Mode::Fly { vx: 0.0, vy: 0.0 }; // 窓が閉じた・動いて隠れた。落ちる
+            return self.frame(false);
+        };
+        let room = (e.w - SPRITE).max(0.0);
+        off = off.min(room);
+        let mut moving = false;
+        if !hover {
+            if self.rest > 0.0 {
+                self.rest -= dt;
+                if self.rest <= 0.0 {
+                    if unit(rng) < STAY_ON_PERCH_CHANCE {
+                        target_off = room * unit(rng);
+                    } else {
+                        let side = if unit(rng) < 0.5 { -1.0 } else { 1.0 };
+                        self.dir = side as i8;
+                        (self.x, self.y) = Self::perch_pos(e, off);
+                        self.mode = Mode::Fly { vx: 80.0 * side, vy: -250.0 }; // ぴょんと飛び降りる
+                        return self.frame(false);
+                    }
+                }
+            } else {
+                let dx = target_off - off;
+                let reach = WALK_SPEED * dt;
+                if dx.abs() > 0.5 {
+                    self.dir = if dx < 0.0 { -1 } else { 1 };
+                }
+                if dx.abs() <= reach {
+                    off = target_off;
+                    self.rest = REST_MIN_SECS + (REST_MAX_SECS - REST_MIN_SECS) * unit(rng);
+                    if unit(rng) < IDLE_ACTION_CHANCE {
+                        self.act(if unit(rng) < 0.5 { Action::Yawn } else { Action::Stretch });
+                    }
+                } else {
+                    off += dx.signum() * reach;
+                    moving = true;
+                }
+            }
+        }
+        (self.x, self.y) = Self::perch_pos(e, off);
+        self.mode = Mode::Perched { edge, off, target_off };
+        self.frame(moving)
     }
 
     fn fly(&mut self, dt: f64, areas: &[Area], rng: &mut Rng, mut vx: f64, mut vy: f64) -> Frame {
@@ -239,6 +392,7 @@ impl Walker {
                 self.mode = Mode::Walk;
                 self.rest = 1.0;
                 self.target = pick_point(areas, rng).unwrap_or((self.x, self.y));
+                self.say(&LAND_LINES);
                 return self.frame(false);
             }
             vy = -vy * FLOOR_BOUNCE;
@@ -248,7 +402,7 @@ impl Walker {
         self.frame(false)
     }
 
-    fn walk(&mut self, dt: f64, areas: &[Area], rng: &mut Rng, hover: bool) -> Frame {
+    fn walk(&mut self, dt: f64, areas: &[Area], edges: &[Edge], rng: &mut Rng, hover: bool) -> Frame {
         if !areas.iter().any(|a| a.contains(self.target)) {
             let Some(target) = pick_point(areas, rng) else {
                 return self.frame(false);
@@ -261,7 +415,12 @@ impl Walker {
         if self.rest > 0.0 {
             self.rest -= dt;
             if self.rest <= 0.0 {
-                self.target = pick_point(areas, rng).unwrap_or(self.target);
+                if !edges.is_empty() && unit(rng) < PERCH_CHANCE {
+                    let e = edges[rng.next_below(edges.len() as u64) as usize];
+                    self.start_jump(&e, rng);
+                } else {
+                    self.target = pick_point(areas, rng).unwrap_or(self.target);
+                }
             }
             return self.frame(false);
         }
@@ -277,6 +436,8 @@ impl Walker {
             self.rest = REST_MIN_SECS + (REST_MAX_SECS - REST_MIN_SECS) * unit(rng);
             if unit(rng) < IDLE_ACTION_CHANCE {
                 self.act(if unit(rng) < 0.5 { Action::Yawn } else { Action::Stretch });
+            } else if unit(rng) < IDLE_SAY_CHANCE {
+                self.say(&WALK_LINES);
             }
             return self.frame(false);
         }
@@ -291,7 +452,7 @@ mod tests {
     use super::*;
 
     fn areas() -> Vec<Area> {
-        walkable(&[(0.0, 25.0, 1000.0, 700.0)], 100.0)
+        walkable(&[(0.0, 25.0, 1000.0, 700.0)])
     }
 
     #[test]
@@ -303,12 +464,12 @@ mod tests {
 
     #[test]
     fn the_window_can_move_only_where_it_fits_on_the_work_area() {
-        assert_eq!(areas(), vec![Area { x: 0.0, y: 25.0, w: 900.0, h: 600.0 }]);
+        assert_eq!(areas(), vec![Area { x: -40.0, y: -35.0, w: 920.0, h: 600.0 }]);
     }
 
     #[test]
     fn a_screen_too_small_for_the_window_is_left_out() {
-        assert!(walkable(&[(0.0, 0.0, 80.0, 700.0), (0.0, 0.0, 700.0, 100.0)], 100.0).is_empty());
+        assert!(walkable(&[(0.0, 0.0, 80.0, 700.0), (0.0, 0.0, 700.0, 80.0)]).is_empty());
     }
 
     #[test]
@@ -378,7 +539,7 @@ mod tests {
 
     #[test]
     fn it_visits_every_screen_when_there_are_several() {
-        let a = walkable(&[(0.0, 0.0, 500.0, 400.0), (500.0, 0.0, 500.0, 400.0)], 100.0);
+        let a = walkable(&[(0.0, 0.0, 500.0, 400.0), (500.0, 0.0, 500.0, 400.0)]);
         let mut rng = Rng::new(5);
         let mut w = Walker::new(&a, &mut rng).unwrap();
         let (mut left, mut right) = (false, false);
@@ -392,7 +553,7 @@ mod tests {
 
     #[test]
     fn when_the_screen_is_unplugged_it_heads_for_one_that_is_left() {
-        let two = walkable(&[(0.0, 0.0, 500.0, 400.0), (2000.0, 0.0, 500.0, 400.0)], 100.0);
+        let two = walkable(&[(0.0, 0.0, 500.0, 400.0), (2000.0, 0.0, 500.0, 400.0)]);
         let mut rng = Rng::new(9);
         let mut w = Walker::new(&two, &mut rng).unwrap();
         w.target = (2100.0, 100.0);
@@ -598,5 +759,144 @@ mod tests {
             none |= f.action.is_none();
         }
         assert!(yawn && stretch && none);
+    }
+
+    fn edge(id: i64, x: f64, y: f64, w: f64) -> Edge {
+        Edge { id, x, y, w }
+    }
+
+    /// 窓のふちに乗るまで、`edges` を見せながら歩かせる。
+    fn perched_walker(edges: &[Edge]) -> (Walker, Vec<Area>, Rng) {
+        let a = areas();
+        for seed in 0..200 {
+            let mut rng = Rng::new(seed);
+            let mut w = Walker::new(&a, &mut rng).unwrap();
+            w.rest = 0.01;
+            for _ in 0..400 {
+                w.step_in(0.033, &a, edges, &mut rng, false);
+                if matches!(w.mode, Mode::Perched { .. }) {
+                    return (w, a, rng);
+                }
+                if !matches!(w.mode, Mode::Walk | Mode::Jump { .. }) {
+                    break;
+                }
+            }
+        }
+        panic!("it never jumped onto the window");
+    }
+
+    #[test]
+    fn the_sprite_is_hit_but_not_the_room_for_the_bubble() {
+        let win = (100.0, 200.0);
+        assert!(over_sprite(win, (200.0, 330.0)));
+        assert!(!over_sprite(win, (200.0, 230.0)), "the bubble room above");
+        assert!(!over_sprite(win, (120.0, 330.0)), "beside the sprite");
+        assert!(!over_sprite(win, (200.0, 360.0)), "below");
+    }
+
+    #[test]
+    fn it_jumps_onto_a_window_edge_and_stands_on_it() {
+        let e = [edge(7, 300.0, 400.0, 600.0)];
+        let (w, _, _) = perched_walker(&e);
+        let f = w.frame(false);
+        assert!((f.y - (400.0 - WALKER_SIZE + FOOT_SINK)).abs() < 1e-6, "feet on the edge: {f:?}");
+        assert!(f.x + PAD_X >= 300.0 - 1e-6 && f.x + PAD_X + SPRITE <= 900.0 + 1e-6, "the sprite is on the edge: {f:?}");
+        assert!(f.say.is_some_and(|t| PERCH_LINES.contains(&t)));
+    }
+
+    #[test]
+    fn on_the_edge_it_walks_along_it_and_goes_with_the_window_when_it_moves() {
+        let (mut w, a, mut rng) = perched_walker(&[edge(7, 300.0, 400.0, 600.0)]);
+        let moved = [edge(7, 500.0, 450.0, 600.0)];
+        let f = w.step_in(0.033, &a, &moved, &mut rng, false);
+        assert!((f.y - (450.0 - WALKER_SIZE + FOOT_SINK)).abs() < 1e-6);
+        assert!(f.x + PAD_X >= 500.0 - 1e-6 && f.x + PAD_X + SPRITE <= 1100.0 + 1e-6);
+        w.mode = Mode::Perched { edge: 7, off: 0.0, target_off: 500.0 };
+        w.rest = 0.0;
+        let mut walked = false;
+        for _ in 0..600 {
+            let f = w.step_in(0.033, &a, &moved, &mut rng, false);
+            walked |= f.moving;
+            if matches!(w.mode, Mode::Fly { .. }) {
+                break;
+            }
+            assert!(f.x + PAD_X >= 500.0 - 1e-6 && f.x + PAD_X + SPRITE <= 1100.0 + 1e-6, "stays on the edge: {f:?}");
+        }
+        assert!(walked);
+    }
+
+    #[test]
+    fn it_falls_when_the_window_closes_and_may_hop_down_by_itself() {
+        let (mut w, a, mut rng) = perched_walker(&[edge(7, 300.0, 400.0, 600.0)]);
+        w.step_in(0.033, &a, &[], &mut rng, false);
+        assert!(matches!(w.mode, Mode::Fly { .. }), "the window is gone");
+        let (mut w, a, mut rng) = perched_walker(&[edge(7, 300.0, 400.0, 600.0)]);
+        let e = [edge(7, 300.0, 400.0, 600.0)];
+        let mut hopped_down = false;
+        for _ in 0..20000 {
+            w.step_in(0.033, &a, &e, &mut rng, false);
+            if matches!(w.mode, Mode::Fly { .. }) {
+                hopped_down = true;
+                break;
+            }
+        }
+        assert!(hopped_down, "after a while it jumps down");
+    }
+
+    #[test]
+    fn a_window_that_shrinks_keeps_it_on_the_edge_and_hovering_keeps_it_still() {
+        let (mut w, a, mut rng) = perched_walker(&[edge(7, 300.0, 400.0, 600.0)]);
+        let small = [edge(7, 300.0, 400.0, 100.0)];
+        let f = w.step_in(0.033, &a, &small, &mut rng, false);
+        assert!(f.x + PAD_X + SPRITE <= 400.0 + 1e-6, "{f:?}");
+        let before = (f.x, f.y);
+        let f = w.step_in(1.0, &a, &small, &mut rng, true);
+        assert_eq!((f.x, f.y, f.moving), (before.0, before.1, false));
+    }
+
+    #[test]
+    fn if_the_window_goes_away_while_it_jumps_it_falls() {
+        let a = areas();
+        let mut rng = Rng::new(1);
+        let mut w = Walker::new(&a, &mut rng).unwrap();
+        w.start_jump(&edge(7, 300.0, 400.0, 600.0), &mut rng);
+        assert!(matches!(w.mode, Mode::Jump { .. }));
+        w.step_in(0.1, &a, &[], &mut rng, false);
+        assert!(matches!(w.mode, Mode::Fly { .. }));
+    }
+
+    #[test]
+    fn it_speaks_now_and_then_and_the_words_fade_after_a_while() {
+        let mut said = false;
+        for seed in 0..80 {
+            let a = areas();
+            let mut rng = Rng::new(seed);
+            let mut w = Walker::new(&a, &mut rng).unwrap();
+            w.target = (w.x + 1.0, w.y);
+            let f = w.step(1.0, &a, &mut rng);
+            if let Some(t) = f.say {
+                said = true;
+                assert!(WALK_LINES.contains(&t));
+                assert_eq!(f.say_seq, 1);
+                let later = w.step(SAY_SECS + 0.1, &a, &mut rng);
+                assert_eq!(later.say, None);
+            }
+        }
+        assert!(said);
+    }
+
+    #[test]
+    fn a_click_a_double_click_and_a_landing_each_have_something_to_say() {
+        let (mut w, a, mut rng) = walker_at(300.0, 200.0);
+        w.act(Action::Hop);
+        assert!(HOP_LINES.contains(&w.step(0.1, &a, &mut rng).say.unwrap()));
+        w.act(Action::Spin);
+        assert!(SPIN_LINES.contains(&w.frame(false).say.unwrap()));
+        w.act(Action::Yawn);
+        assert!(SPIN_LINES.contains(&w.frame(false).say.unwrap()), "a yawn says nothing new");
+        w.mode = Mode::Fly { vx: 0.0, vy: 0.0 };
+        w.y = a[0].y + a[0].h;
+        w.step(0.001, &a, &mut rng);
+        assert!(LAND_LINES.contains(&w.frame(false).say.unwrap()));
     }
 }

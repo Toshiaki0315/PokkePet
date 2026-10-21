@@ -1,3 +1,3 @@
 # Tauri との接着コード（ロジックを持たない薄い層）はカバレッジ対象外。
 [default]
-exclude-files = ["src/lib.rs", "src/main.rs", "src/shell.rs"]
+exclude-files = ["src/lib.rs", "src/main.rs", "src/shell.rs", "src/macwin.rs"]
