@@ -8,8 +8,9 @@ use crate::sleep::SleepWindow;
 pub const MIN_DATA_SECS: u64 = 2 * 3600;
 /// おやすみ時間の長さ（時間）。
 pub const SLEEP_SPAN_HOURS: u8 = 8;
-/// 同じくらい静かな時間帯が複数あるときに、近いものを選ぶ目安の時刻。
-const USUAL_BEDTIME: u8 = 23;
+/// 学んだおやすみ時間の始まりは、設定の始まりから、これだけ（時間）までしかずらさない。
+/// 昼に操作が少ないだけの人が、昼に眠らされてしまわないため（昼夜が逆の人は、設定のおやすみ時間を直す）。
+pub const MAX_SHIFT_HOURS: u8 = 4;
 
 /// 朝型・夜型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -28,18 +29,19 @@ fn span_sum(rhythm: &[u32; 24], start: u8) -> u64 {
     (0..SLEEP_SPAN_HOURS).map(|i| u64::from(rhythm[usize::from((start + i) % 24)])).sum()
 }
 
-/// 23 時から、時計まわりに何時間ずれているか（近い向きで 0〜12）。
-fn distance_from_usual(start: u8) -> u8 {
-    let d = (start + 24 - USUAL_BEDTIME) % 24;
+/// `usual` の始まりの時刻から、時計のどちらかまわりに何時間ずれているか（近い向きで 0〜12）。
+fn distance_from(start: u8, usual: u8) -> u8 {
+    let d = (start + 24 - usual % 24) % 24;
     d.min(24 - d)
 }
 
-/// いちばん操作していない連続 8 時間を、おやすみ時間として返す。データが足りなければ None。
-pub fn learned_sleep_window(rhythm: &[u32; 24]) -> Option<SleepWindow> {
+/// 設定のおやすみ時間（`usual`）の近く（始まりが `MAX_SHIFT_HOURS` 時間以内）で、いちばん操作していない連続 8 時間を、
+/// おやすみ時間として返す。同じくらい静かなら、設定に近いほう。データが足りなければ None。
+pub fn learned_sleep_window(rhythm: &[u32; 24], usual: SleepWindow) -> Option<SleepWindow> {
     if total_secs(rhythm) < MIN_DATA_SECS {
         return None;
     }
-    let start = (0..24u8).min_by_key(|&s| (span_sum(rhythm, s), distance_from_usual(s)))?;
+    let start = (0..24u8).filter(|&s| distance_from(s, usual.start_hour) <= MAX_SHIFT_HOURS).min_by_key(|&s| (span_sum(rhythm, s), distance_from(s, usual.start_hour)))?;
     Some(SleepWindow { start_hour: start, end_hour: (start + SLEEP_SPAN_HOURS) % 24 })
 }
 
@@ -63,6 +65,8 @@ pub fn chronotype(rhythm: &[u32; 24]) -> Option<Chronotype> {
 mod tests {
     use super::*;
 
+    const USUAL: SleepWindow = SleepWindow { start_hour: 23, end_hour: 7 };
+
     /// 指定の時間帯だけ、1 時間あたり 1 時間ぶん操作したヒストグラム。
     fn active_during(hours: &[usize]) -> [u32; 24] {
         let mut r = [0; 24];
@@ -76,23 +80,23 @@ mod tests {
     fn nothing_is_learned_from_too_little_data() {
         let mut r = [0; 24];
         r[10] = 3600;
-        assert_eq!(learned_sleep_window(&r), None);
+        assert_eq!(learned_sleep_window(&r, USUAL), None);
         assert_eq!(chronotype(&r), None);
     }
 
     #[test]
     fn an_office_worker_sleeps_around_the_usual_night_hours() {
         let r = active_during(&[9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
-        let w = learned_sleep_window(&r).unwrap();
+        let w = learned_sleep_window(&r, USUAL).unwrap();
         // 19〜翌 2 時、20〜翌 3 時、…、1〜8 時などすべて静か → 23 時に近い 22 時か 23 時台が選ばれる
         assert_eq!(w.end_hour, (w.start_hour + 8) % 24);
         assert!((21..=24).contains(&(if w.start_hour == 0 { 24 } else { w.start_hour })), "{w:?}");
     }
 
     #[test]
-    fn a_night_owl_sleeps_in_the_morning() {
+    fn a_night_owl_who_set_a_morning_bedtime_sleeps_in_the_morning() {
         let r = active_during(&[14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 0, 1, 2, 3, 4]);
-        let w = learned_sleep_window(&r).unwrap();
+        let w = learned_sleep_window(&r, SleepWindow { start_hour: 5, end_hour: 13 }).unwrap();
         assert_eq!(w, SleepWindow { start_hour: 5, end_hour: 13 });
         assert_eq!(chronotype(&r), Some(Chronotype::Night));
     }
@@ -100,15 +104,28 @@ mod tests {
     #[test]
     fn an_early_bird_goes_to_bed_early() {
         let r = active_during(&[5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
-        let w = learned_sleep_window(&r).unwrap();
+        let w = learned_sleep_window(&r, USUAL).unwrap();
         assert!(w.start_hour >= 17 && w.start_hour <= 21, "{w:?}");
         assert_eq!(chronotype(&r), Some(Chronotype::Morning));
     }
 
     #[test]
+    fn a_window_in_the_quiet_daytime_is_not_learned_when_the_set_bedtime_is_at_night() {
+        // 昼（10〜18 時）がいちばん静かで、夜も朝もよく操作する人
+        let mut r = [3600u32; 24];
+        r[10..18].fill(300);
+        let w = learned_sleep_window(&r, USUAL).unwrap();
+        assert!(distance_from(w.start_hour, 23) <= MAX_SHIFT_HOURS, "{w:?}");
+        assert!(w.start_hour >= 19 || w.start_hour <= 3, "stays at night: {w:?}");
+        // 設定が昼なら、昼になる
+        let day = learned_sleep_window(&r, SleepWindow { start_hour: 10, end_hour: 18 }).unwrap();
+        assert_eq!(day, SleepWindow { start_hour: 10, end_hour: 18 });
+    }
+
+    #[test]
     fn the_window_wraps_around_midnight() {
         let r = active_during(&[8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
-        let w = learned_sleep_window(&r).unwrap();
+        let w = learned_sleep_window(&r, USUAL).unwrap();
         // 22〜7 時は静か。その中で 23 時にいちばん近い 23 時始まりを選ぶ
         assert_eq!(w, SleepWindow { start_hour: 23, end_hour: 7 });
     }
@@ -122,16 +139,16 @@ mod tests {
     #[test]
     fn equally_quiet_candidates_are_resolved_towards_the_usual_bedtime() {
         let r = active_during(&[12, 13]); // どこも同じくらい静か
-        let w = learned_sleep_window(&r).unwrap();
+        let w = learned_sleep_window(&r, USUAL).unwrap();
         assert_eq!(w.start_hour, 23, "{w:?}"); // 12〜13 時を避けられる窓のうち、23 時にいちばん近いもの
     }
 
     #[test]
     fn distance_from_the_usual_bedtime_goes_both_ways_round_the_clock() {
-        assert_eq!(distance_from_usual(23), 0);
-        assert_eq!(distance_from_usual(1), 2);
-        assert_eq!(distance_from_usual(21), 2);
-        assert_eq!(distance_from_usual(11), 12);
+        assert_eq!(distance_from(23, 23), 0);
+        assert_eq!(distance_from(1, 23), 2);
+        assert_eq!(distance_from(21, 23), 2);
+        assert_eq!(distance_from(11, 23), 12);
     }
 
     #[test]
