@@ -117,6 +117,11 @@ export function restartGame(): Promise<StateView> {
   return invoke<StateView>("restart_game");
 }
 
+/** おでかけコマンド（⌘O）。いまからおでかけさせる／呼び戻す。できない状態ならエラー。 */
+export function toggleOutingNow(): Promise<StateView> {
+  return invoke<StateView>("toggle_outing");
+}
+
 /** 電源ボタン。ペットを無理やり寝かせる（ご機嫌が上がるか下がるかはランダム）。寝ている間にもう一度押すと起こす。 */
 export function togglePower(): Promise<StateView> {
   return invoke<StateView>("toggle_power");

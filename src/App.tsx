@@ -8,6 +8,7 @@ import {
   playMinigame,
   restartGame,
   setName,
+  toggleOutingNow,
   togglePower,
   getSettings,
   getState,
@@ -301,6 +302,23 @@ export default function App() {
       (e) => setError(errorText(e)),
     );
   };
+
+  // 隠しコマンド: ⌘O で、いまからおでかけさせる（もう一度で呼び戻す）。
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!event.metaKey || event.key.toLowerCase() !== "o") return;
+      event.preventDefault(); // ⌘O の「開く」などの既定の動作を止める
+      toggleOutingNow().then(
+        (next) => {
+          setError(null);
+          setView(next);
+        },
+        (e) => setError(errorText(e)),
+      );
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   // 電源ボタン: ペットを無理やり寝かせる（寝ている間に押すと起こす）。
   const power = () => {

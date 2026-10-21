@@ -48,6 +48,9 @@ pub struct Companion {
     /// （出かけて、帰って寝た。朝に起きたあとは、もう出かけない）。
     #[serde(default)]
     away_slept: bool,
+    /// 「おでかけコマンド」で出かけている最中か。飼い主が操作していても、呼び戻すまで帰ってこない。
+    #[serde(default)]
+    manual_out: bool,
 }
 
 /// ペットが起きているか（観測のたびに、呼び出し側が教える）。
@@ -100,12 +103,17 @@ impl Companion {
         let mut obs = Observation::default();
         if idle_secs < ACTIVE_IDLE_MAX_SECS {
             self.work(step, local_hour, &mut obs);
-            if let Some(since) = self.away_since.take() {
-                obs.returned_after = Some(now_unix.saturating_sub(since));
-                obs.outing_secs = std::mem::take(&mut self.away_awake_secs);
-                self.away_slept = false;
-                self.back_until = now_unix + WELCOME_BACK_SECS;
+            if self.manual_out {
+                if !self.away_slept {
+                    if awake.now {
+                        self.away_awake_secs += step;
+                    } else {
+                        self.away_slept = true;
+                    }
+                }
+                return obs;
             }
+            self.finish_away(now_unix, &mut obs);
             return obs;
         }
         if idle_secs >= BREAK_RESET_IDLE_SECS {
@@ -123,6 +131,33 @@ impl Companion {
                 self.away_slept = true;
             }
         }
+        obs
+    }
+
+    /// 離席が終わった（飼い主が戻った・呼び戻した）。おでかけの長さと「おかえり」の期限を決める。
+    fn finish_away(&mut self, now_unix: u64, obs: &mut Observation) {
+        if let Some(since) = self.away_since.take() {
+            obs.returned_after = Some(now_unix.saturating_sub(since));
+            obs.outing_secs = std::mem::take(&mut self.away_awake_secs);
+            self.away_slept = false;
+            self.manual_out = false;
+            self.back_until = now_unix + WELCOME_BACK_SECS;
+        }
+    }
+
+    /// おでかけコマンド: 飼い主が席にいても、いまからおでかけさせる。`awake_now` はペットがいま起きているか。
+    pub fn send_out(&mut self, now_unix: u64, awake_now: bool) {
+        self.away_since = Some(now_unix);
+        self.away_awake_secs = 0;
+        self.away_slept = !awake_now;
+        self.manual_out = true;
+        self.last_observed = Some(now_unix); // 出かけた時点から数える
+    }
+
+    /// おでかけから呼び戻す。おでかけの長さなどを返す（おでかけしていなければ空）。
+    pub fn call_back(&mut self, now_unix: u64) -> Observation {
+        let mut obs = Observation::default();
+        self.finish_away(now_unix, &mut obs);
         obs
     }
 
@@ -412,6 +447,55 @@ mod tests {
         assert!(c.is_away());
         c.observe(T0 + 30, 0, 9);
         assert!(!c.is_away());
+    }
+
+    #[test]
+    fn a_manual_outing_lasts_until_the_pet_is_called_back_even_while_the_owner_works() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 9);
+        c.send_out(T0 + 10, true);
+        assert!(c.is_away());
+        for i in 2..=30 {
+            assert_eq!(c.observe(T0 + i * 10, 0, 9).returned_after, None, "the owner is typing, but the pet is still out");
+        }
+        assert!(c.is_away());
+        let obs = c.call_back(T0 + 400);
+        assert_eq!(obs.returned_after, Some(390));
+        assert_eq!(obs.outing_secs, 290, "awake the whole time (observed from T0 + 20)");
+        assert!(!c.is_away());
+        assert!(c.is_welcoming_back(T0 + 401));
+    }
+
+    #[test]
+    fn a_manual_outing_stops_counting_once_the_pet_falls_asleep() {
+        let mut c = Companion::default();
+        c.observe(T0, 0, 9);
+        c.send_out(T0 + 10, true);
+        c.observe_with(T0 + 20, 0, 9, Awake::ALWAYS);
+        c.observe_with(T0 + 30, 0, 9, ASLEEP);
+        c.observe_with(T0 + 40, 0, 9, Awake::ALWAYS);
+        assert_eq!(c.call_back(T0 + 50).outing_secs, 10);
+    }
+
+    #[test]
+    fn sending_out_a_sleeping_pet_counts_nothing_and_calling_back_without_an_outing_is_empty() {
+        let mut c = Companion::default();
+        c.send_out(T0, false);
+        c.observe_with(T0 + 10, 0, 9, Awake::ALWAYS);
+        assert_eq!(c.call_back(T0 + 20).outing_secs, 0);
+        let again = c.call_back(T0 + 30);
+        assert_eq!(again.returned_after, None);
+    }
+
+    #[test]
+    fn after_calling_back_the_owner_coming_and_going_works_as_usual() {
+        let mut c = Companion::default();
+        c.send_out(T0, true);
+        c.call_back(T0 + 100);
+        c.observe(T0 + 110, 0, 9);
+        c.observe(T0 + 120, AWAY_AFTER_SECS, 9);
+        assert!(c.is_away());
+        assert!(c.observe(T0 + 130, 0, 9).returned_after.is_some());
     }
 
     #[test]

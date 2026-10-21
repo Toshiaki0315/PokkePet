@@ -17,6 +17,7 @@ const api = vi.hoisted(() => ({
   ackGift: vi.fn(),
   restartGame: vi.fn(),
   togglePower: vi.fn(),
+  toggleOutingNow: vi.fn(),
   playMinigame: vi.fn(),
   setName: vi.fn(),
   getSettings: vi.fn(),
@@ -1478,6 +1479,30 @@ describe("hold cmd+p to peek at the gauges", () => {
     const bar = await screen.findByRole("progressbar", { name: "ご機嫌" });
     fireEvent.keyDown(window, { key: "p", metaKey: true });
     expect(bar.closest(".gauges")).not.toHaveClass("peek");
+  });
+});
+
+describe("cmd+o sends the pet out", () => {
+  it("sends the pet out and calls it back", async () => {
+    api.toggleOutingNow.mockResolvedValueOnce({ ...base, out: true });
+    api.toggleOutingNow.mockResolvedValueOnce(base);
+    render(<App />);
+    await screen.findByRole("img");
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "ご飯" })).toBeDisabled());
+    fireEvent.keyDown(window, { key: "O", metaKey: true });
+    await waitFor(() => expect(screen.getByRole("button", { name: "ご飯" })).toBeEnabled());
+    expect(api.toggleOutingNow).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores the o key without cmd, and shows the reason when the pet cannot go out", async () => {
+    api.toggleOutingNow.mockRejectedValue(new Error("いまは おでかけできないよ"));
+    render(<App />);
+    await screen.findByRole("img");
+    fireEvent.keyDown(window, { key: "o" });
+    expect(api.toggleOutingNow).not.toHaveBeenCalled();
+    fireEvent.keyDown(window, { key: "o", metaKey: true });
+    expect(await screen.findByRole("alert")).toHaveTextContent("いまは おでかけできないよ");
   });
 });
 
