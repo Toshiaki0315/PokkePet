@@ -1,5 +1,19 @@
 /* この CSS は、ほかの画面にも読み込まれる。歩く画面の中の要素だけに効かせること（body や html には書かない）。 */
-.walker { width: 96px; height: 96px; display: flex; align-items: flex-end; justify-content: center; pointer-events: none; }
+.walker { width: 96px; height: 96px; display: flex; align-items: flex-end; justify-content: center; }
+.walker-move { position: relative; display: flex; }
 .walker-sprite { width: 80px; height: 80px; image-rendering: pixelated; }
 .walker.walking .walker-sprite { animation: walker-step 0.4s steps(2, jump-none) infinite; }
+.walker.held .walker-sprite { transform: rotate(-8deg) translateY(-4px); }
+.walker.flying .walker-sprite { animation: walker-tumble 0.5s linear infinite; }
+.walker-move.hop .walker-sprite { animation: walker-hop 0.6s ease-out; }
+.walker-move.spin .walker-sprite { animation: walker-spin 0.8s ease-in-out; }
+.walker-move.yawn .walker-sprite { animation: walker-yawn 1.6s ease-in-out; }
+.walker-move.stretch .walker-sprite { animation: walker-stretch 1.4s ease-in-out; }
+.walker-heart { position: absolute; top: -4px; left: 50%; color: #f0608a; font-size: 18px; animation: walker-heart 0.6s ease-out forwards; }
 @keyframes walker-step { 0% { transform: translateY(0); } 100% { transform: translateY(-4px); } }
+@keyframes walker-hop { 0%, 100% { transform: translateY(0); } 25% { transform: translateY(-22px); } 50% { transform: translateY(0); } 75% { transform: translateY(-12px); } }
+@keyframes walker-spin { from { transform: rotateY(0); } to { transform: rotateY(360deg); } }
+@keyframes walker-yawn { 0%, 100% { transform: scale(1, 1); } 40%, 70% { transform: scale(1.08, 0.92); } }
+@keyframes walker-stretch { 0%, 100% { transform: scale(1, 1); } 40%, 70% { transform: scale(0.9, 1.15); } }
+@keyframes walker-tumble { to { transform: rotate(360deg); } }
+@keyframes walker-heart { from { opacity: 1; transform: translate(-50%, 0); } to { opacity: 0; transform: translate(-50%, -18px); } }
