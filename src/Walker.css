@@ -1,5 +1,8 @@
 /* この CSS は、ほかの画面にも読み込まれる。歩く画面の中の要素だけに効かせること（body や html には書かない）。 */
-.walker { width: 96px; height: 96px; display: flex; align-items: flex-end; justify-content: center; }
+.walker { position: relative; width: 160px; height: 160px; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; }
+.walker-bubble { position: absolute; left: 50%; bottom: 88px; transform: translateX(-50%); width: max-content; max-width: 150px; margin: 0; font-size: 14px; animation: walker-pop 0.2s ease-out; }
+@keyframes walker-pop { from { opacity: 0; transform: translateX(-50%) translateY(6px); } }
+.walker-flip { display: flex; }
 .walker-move { position: relative; display: flex; }
 .walker-sprite { width: 80px; height: 80px; image-rendering: pixelated; }
 .walker.walking .walker-sprite { animation: walker-step 0.4s steps(2, jump-none) infinite; }

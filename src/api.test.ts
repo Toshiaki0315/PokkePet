@@ -125,13 +125,13 @@ describe("api", () => {
   it("onWalkFrame listens to walker-frame and forwards the payload", async () => {
     const unlisten = vi.fn();
     listen.mockImplementation((_name: string, cb: (e: { payload: unknown }) => void) => {
-      cb({ payload: { dir: -1, moving: true, held: false, flying: false, action: null, seq: 0 } });
+      cb({ payload: { dir: -1, moving: true, held: false, flying: false, action: null, seq: 0, say: null, say_seq: 0 } });
       return Promise.resolve(unlisten);
     });
     const handler = vi.fn();
     const off = await onWalkFrame(handler);
     expect(listen).toHaveBeenCalledWith("walker-frame", expect.any(Function));
-    expect(handler).toHaveBeenCalledWith({ dir: -1, moving: true, held: false, flying: false, action: null, seq: 0 });
+    expect(handler).toHaveBeenCalledWith({ dir: -1, moving: true, held: false, flying: false, action: null, seq: 0, say: null, say_seq: 0 });
     expect(off).toBe(unlisten);
   });
 

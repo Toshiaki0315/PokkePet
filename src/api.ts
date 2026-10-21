@@ -157,6 +157,10 @@ export interface WalkFrame {
   action: "hop" | "spin" | "yawn" | "stretch" | null;
   /** しぐさが始まるたびに増える。 */
   seq: number;
+  /** いまのひとこと（ふきだし）。 */
+  say: string | null;
+  /** しゃべるたびに増える。 */
+  say_seq: number;
 }
 
 /** 歩いているペットへのマウス操作を、Rust に伝える。 */
