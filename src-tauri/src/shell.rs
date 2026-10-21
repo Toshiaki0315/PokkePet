@@ -70,6 +70,14 @@ pub fn perform_action(app: AppHandle, svc: State<GameService>, gate: State<Mutex
     Ok(view)
 }
 
+/// おでかけコマンド（⌘O）。いまからおでかけさせる／呼び戻す。
+#[tauri::command]
+pub fn toggle_outing(app: AppHandle, svc: State<GameService>) -> Result<StateView, String> {
+    let view = svc.toggle_outing(now_unix())?;
+    update_tray_title(&app, &view);
+    Ok(view)
+}
+
 /// マウスでなでられた。
 #[tauri::command]
 pub fn stroke_pet(app: AppHandle, svc: State<GameService>) -> Result<StateView, String> {

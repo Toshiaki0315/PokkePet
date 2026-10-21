@@ -473,6 +473,28 @@ impl GameService {
         Ok(self.view(&state))
     }
 
+    /// おでかけコマンド。飼い主が席にいても、いまからおでかけさせる（もう一度で呼び戻す。長く出かけていればおみやげを持ち帰る）。
+    pub fn toggle_outing(&self, now_unix: u64) -> Result<StateView, String> {
+        let _trace = self.trace("おでかけコマンドを使った");
+        let mut state = self.lock();
+        let mut next = state.clone();
+        let offset = self.offset_at(now_unix);
+        next.step_to_in(now_unix, self.time_scale, offset, self.sleep_window());
+        if next.companion.is_away() {
+            let obs = next.companion.call_back(now_unix);
+            next.bring_back_in(obs.outing_secs, now_unix, season_of(local_month_day(now_unix, offset).0));
+        } else {
+            let view = self.view(&next);
+            if view.stage < 2 || view.dead || view.sleeping || view.hatching || view.graduating || view.needs_name {
+                return Err("いまは おでかけできないよ".to_string());
+            }
+            next.companion.send_out(now_unix, true);
+        }
+        next.save(&self.path).map_err(|e| e.to_string())?;
+        *state = next;
+        Ok(self.view(&state))
+    }
+
     /// マウスでなでられた。おやすみ中は起こさないので何も変わらない。
     pub fn stroke(&self, now_unix: u64) -> io::Result<StateView> {
         let _trace = self.trace("なでられた");
@@ -1315,6 +1337,60 @@ mod tests {
         let dead = GameService::new(state, tmp("out-dead")).with_utc_offset(NOON_AT_ZERO);
         away(&dead);
         assert!(!dead.snapshot().out);
+    }
+
+    #[test]
+    fn the_outing_command_sends_the_pet_out_and_calls_it_back_with_souvenirs() {
+        let s = grown_pet("outing-command");
+        s.lock().name = Some("ごま".to_string());
+        let out = s.toggle_outing(1_000).unwrap();
+        assert!(out.out);
+        assert_eq!(tray_title(&out), Some("🎒"));
+        for i in 1..=1080 {
+            s.observe_activity(1_000 + i * 10, 0); // 飼い主は作業している。それでも、呼び戻すまで帰ってこない
+        }
+        assert!(s.snapshot().out);
+        assert!(s.snapshot().gift.is_empty());
+        let back = s.toggle_outing(1_000 + 1080 * 10).unwrap();
+        assert!(!back.out);
+        assert!(!back.gift.is_empty(), "3 hours out brings souvenirs");
+    }
+
+    #[test]
+    fn a_short_outing_by_command_brings_nothing_and_a_new_one_can_follow() {
+        let s = grown_pet("outing-short");
+        s.lock().name = Some("ごま".to_string());
+        s.toggle_outing(1_000).unwrap();
+        let back = s.toggle_outing(1_060).unwrap();
+        assert!(!back.out && back.gift.is_empty());
+        assert!(s.toggle_outing(1_120).unwrap().out);
+    }
+
+    #[test]
+    fn the_outing_command_is_refused_for_an_egg_a_sleeping_a_dead_or_an_unnamed_pet_and_keeps_nothing_changed() {
+        let egg = svc("outing-egg");
+        assert!(egg.toggle_outing(1_000).is_err());
+        let asleep = grown_pet("outing-asleep");
+        asleep.lock().name = Some("ごま".to_string());
+        asleep.toggle_power(900).unwrap();
+        assert!(asleep.toggle_outing(1_000).is_err());
+        let unnamed = hatched_and_shown("outing-unnamed");
+        assert_eq!(unnamed.toggle_outing(1_000), Err("いまは おでかけできないよ".to_string()));
+        assert!(!unnamed.snapshot().out);
+        let dead = grown_pet("outing-dead");
+        dead.lock().name = Some("ごま".to_string());
+        dead.lock().dead = true;
+        assert!(dead.toggle_outing(1_000).is_err());
+    }
+
+    #[test]
+    fn the_outing_command_fails_when_it_cannot_save() {
+        let s = grown_pet("outing-save");
+        s.lock().name = Some("ごま".to_string());
+        let blocker = tmp("outing-save-blocker");
+        std::fs::write(&blocker, "x").unwrap();
+        let broken = GameService::new(s.lock().clone(), blocker.join("save.json")).with_utc_offset(NOON_AT_ZERO);
+        assert!(broken.toggle_outing(1_000).is_err());
     }
 
     #[test]

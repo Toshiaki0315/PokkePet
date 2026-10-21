@@ -5,7 +5,7 @@ const listen = vi.fn();
 vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: (...a: unknown[]) => listen(...a) }));
 
-import { onWalkFrame, revealDebugLog, saveCard, getEggCode, receiveEgg, ackGift, getSouvenirs, toggleSouvenir, ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
+import { onWalkFrame, toggleOutingNow, revealDebugLog, saveCard, getEggCode, receiveEgg, ackGift, getSouvenirs, toggleSouvenir, ackHatch, buryPet, restartGame, togglePower, graduate, getDex, getDiary, playMinigame, setName, getSettings, getState, onPopupVisibility, onSettingsChanged, onStateChanged, performAction, saveSettings, strokePet } from "./api";
 
 const view = { mood: 1, affinity: 2, hunger: 3, dirtiness: 4, stage: 1, branch: "normal", personality: "calm" };
 
@@ -133,6 +133,12 @@ describe("api", () => {
     expect(listen).toHaveBeenCalledWith("walker-frame", expect.any(Function));
     expect(handler).toHaveBeenCalledWith({ dir: -1, moving: true });
     expect(off).toBe(unlisten);
+  });
+
+  it("toggleOutingNow invokes toggle_outing", async () => {
+    invoke.mockResolvedValue(view);
+    await expect(toggleOutingNow()).resolves.toEqual(view);
+    expect(invoke).toHaveBeenCalledWith("toggle_outing");
   });
 
   it("revealDebugLog invokes reveal_debug_log", async () => {
