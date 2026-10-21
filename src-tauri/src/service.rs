@@ -219,7 +219,8 @@ pub struct GameService {
     /// おやすみ時間（設定ダイアログで変えられる）。
     sleep: Mutex<SleepWindow>,
     /// 生活リズムから学んだおやすみ時間（まだ学べていなければ None）。
-    learned_sleep: Mutex<Option<SleepWindow>>,
+    /// 学んだ生活リズム（学べるだけ操作を見たあとだけ Some）。おやすみ時間は、設定に合わせて、ここから決める。
+    learned_rhythm: Mutex<Option<[u32; 24]>>,
     /// 学んだおやすみ時間を使うか（設定）。
     auto_sleep: AtomicBool,
     /// Mac の状態（電池・ネット・ダークモード）。反応する設定がオフなら、何も起きていない状態にしておく。
@@ -239,7 +240,7 @@ pub struct GameService {
 
 impl GameService {
     pub fn new(state: GameState, path: PathBuf) -> Self {
-        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()), learned_sleep: Mutex::new(None), auto_sleep: AtomicBool::new(false), system: Mutex::new(SystemInfo::default()), events: AtomicBool::new(false), birthday: Mutex::new(None), debug: Mutex::new(None), debug_on: AtomicBool::new(false), last_snapshot: AtomicU64::new(0), rng: Mutex::new(Rng::new(time_seed())) }
+        Self { state: Mutex::new(state), path, time_scale: 1, utc_offset: None, sleep: Mutex::new(SleepWindow::default()), learned_rhythm: Mutex::new(None), auto_sleep: AtomicBool::new(false), system: Mutex::new(SystemInfo::default()), events: AtomicBool::new(false), birthday: Mutex::new(None), debug: Mutex::new(None), debug_on: AtomicBool::new(false), last_snapshot: AtomicU64::new(0), rng: Mutex::new(Rng::new(time_seed())) }
     }
 
     /// 経過時間の倍率（動作確認用）。
@@ -385,12 +386,14 @@ impl GameService {
 
     /// いま使うおやすみ時間: 自動で合わせる設定で、学べていれば学んだもの。そうでなければ設定のもの。
     fn sleep_window(&self) -> SleepWindow {
+        let setting = *self.sleep.lock().unwrap_or_else(|e| e.into_inner());
         if self.auto_sleep.load(Ordering::Relaxed)
-            && let Some(learned) = *self.learned_sleep.lock().unwrap_or_else(|e| e.into_inner())
+            && let Some(rhythm) = *self.learned_rhythm.lock().unwrap_or_else(|e| e.into_inner())
+            && let Some(learned) = learned_sleep_window(&rhythm, setting)
         {
             return learned;
         }
-        *self.sleep.lock().unwrap_or_else(|e| e.into_inner())
+        setting
     }
 
     /// Mac の操作を観測する（10 秒ごとに呼ぶ）。いっしょにいた時間・生活リズムを数え、休憩の声かけ・おかえりの材料を返す。
@@ -432,7 +435,7 @@ impl GameService {
                 self.log_at(now_unix, "観測", &format!("作業に寄り添って親密度 +{}", obs.affinity_gain));
             }
         }
-        *self.learned_sleep.lock().unwrap_or_else(|e| e.into_inner()) = learned_sleep_window(&state.companion.rhythm);
+        *self.learned_rhythm.lock().unwrap_or_else(|e| e.into_inner()) = Some(state.companion.rhythm);
         obs
     }
 
@@ -1056,6 +1059,20 @@ mod tests {
         assert_eq!(window.end_hour, (window.start_hour + 8) % 24);
         s.set_auto_sleep(false);
         assert_eq!(s.sleep_window(), SleepWindow { start_hour: 1, end_hour: 2 }, "the setting is back in charge");
+    }
+
+    #[test]
+    fn a_quiet_daytime_does_not_move_the_learned_bedtime_far_from_the_setting_and_a_new_setting_applies_at_once() {
+        let s = GameService::new(GameState::new(0), tmp("auto-sleep-near")).with_utc_offset(0);
+        let mut rhythm = [3600u32; 24];
+        rhythm[10..18].fill(300); // 昼がいちばん静か
+        s.lock().companion.rhythm = rhythm;
+        s.observe_activity(1_000, 0);
+        s.set_auto_sleep(true);
+        let near = s.sleep_window();
+        assert!(near.start_hour >= 19 || near.start_hour <= 3, "{near:?}");
+        s.set_sleep_window(SleepWindow { start_hour: 10, end_hour: 18 }); // 設定を昼に直した
+        assert_eq!(s.sleep_window(), SleepWindow { start_hour: 10, end_hour: 18 });
     }
 
     #[test]
